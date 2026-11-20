@@ -45,7 +45,7 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 
 ## Phase 3: responsive, modifiable, documented base (the heart of the project)
 Principles and trade-offs in `docs/VISION.md`.
-- [ ] **R1. Generated UI map** (`docs/UI-MAP.md` + JSON): per screen its elements, the game controller that writes them, anchors, display conditions, and the list of **baked-drawing images** (menu backgrounds with boxes/lines at button positions).
+- [x] **R1. Generated UI map** (2026-11-20, `docs/UI-MAP.md` + local `ui-map.jsonl`; display conditions per element still to add, see DEV4). Original task text: **Generated UI map** (`docs/UI-MAP.md` + JSON): per screen its elements, the game controller that writes them, anchors, display conditions, and the list of **baked-drawing images** (menu backgrounds with boxes/lines at button positions).
 - [ ] **R2. Game space vs real screen.** The game believes it lives in 960x600 (`Screen.width/height` 45 uses, menus hidden by `Translate` off-screen, tooltips clamped to 960x600, drag and drop). Convert between that space and the real screen so tooltips, drags and clicks stay correct with a moved/enlarged game area.
 - [ ] **R3. Layout profiles** in readable files (`pc`, `vita`, `web`): regions (player column, page list, game area, tooltips), placement, visibility, zoom/scroll of the game area, region shortcuts. Applied by the engine without touching the logic. **Done when:** the `pc` profile fills any window shape without useless bars and `tools/regress.sh` stays OK.
 - [ ] **R4. Documented overrides**: replace a game method by hand-written Rust through one justified table (first use: `NGUResolutions`) + guide `docs/MODIFY.md` ("how to move / hide / redraw / override").

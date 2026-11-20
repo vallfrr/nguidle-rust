@@ -26,6 +26,7 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `call,Type[.field].method[,args]` | calls a game method (e.g. `call,ButtonShower.updateButtons`) |
 | `do,file` | runs a step file (one per line, `#` comment) |
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
+| `uimap,<json>,<md>` | UI map of the 58 menus (see `docs/UI-MAP.md`) |
 | `sounds` | prints (and clears) the sounds the game asked to play |
 | `png,file` | 960x600 capture |
 | `r,x,y[,wait]`, `mc,x,y[,wait]` | right / middle click |

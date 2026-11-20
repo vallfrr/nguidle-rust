@@ -177,6 +177,13 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 print!("{}", crate::dev::find(vm, &p[1..].join(",")));
                 continue;
             }
+            "uimap" => {
+                // uimap,<json file>,<markdown file> : UI map of the 58 menus (task R1)
+                let (j, m) = crate::dev::uimap(vm);
+                std::fs::write(p[1], j).ok();
+                std::fs::write(p[2], m).ok();
+                continue;
+            }
             "sounds" => {
                 // sounds requested by the game since the last `sounds` step (AudioSource.Play)
                 println!("[sounds] {:?}", std::mem::take(&mut vm.eng.sound_queue));

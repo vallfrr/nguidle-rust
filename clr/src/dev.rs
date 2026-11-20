@@ -222,3 +222,107 @@ pub fn find(vm: &mut Vm, needle: &str) -> String {
     }
     out
 }
+
+/// Root GameObjects of the 58 menus (`MenuSwapper.allMenus`).
+pub fn menu_roots(vm: &Vm) -> Vec<Value> {
+    let Some(Value::Obj(o)) = comp_of(vm, "MenuSwapper") else { return vec![] };
+    let Some(slot) = field_slot(vm, &o, "allMenus") else { return vec![] };
+    let arr = o.f.borrow()[slot].clone();
+    let Value::Obj(a) = arr else { return vec![] };
+    let v = match &*a.x.borrow() {
+        Ext::Arr(v) => v.clone(),
+        _ => vec![],
+    };
+    v
+}
+
+/// UI map (task R1): for every menu, shows it (`swapMenu`) and lists its visible elements with their kind, rectangle
+/// (960x600, top-left), anchoring (point / stretch) and image mode. Returns (JSON lines with every element, Markdown summary).
+/// No game text is written: only lengths, so the summary can be published.
+pub fn uimap(vm: &mut Vm) -> (String, String) {
+    use crate::ui::{child_xf, xf, Xf};
+    let roots = menu_roots(vm);
+    let swapper = comp_of(vm, "MenuSwapper");
+    let mut json = String::new();
+    let mut md = String::from("| # | menu | buttons | other interactive | texts | images | stretched | large simple images (drawn layout, candidates to redraw) |\n|---|---|---|---|---|---|---|---|\n");
+    for (i, root) in roots.iter().enumerate() {
+        if let (Some(Value::Obj(so)), true) = (&swapper, !root.is_null()) {
+            if let Some(m) = vm.find_method(so.ty, "swapMenu", 2) {
+                let _ = vm.invoke(m, vec![Value::Obj(so.clone()), Value::I32(i as i32)]);
+            }
+            for _ in 0..3 {
+                vm.frame(1.0 / 30.0);
+            }
+        }
+        let name = with_go(root, |g| g.name.clone()).unwrap_or_default();
+        let tr = with_go(root, |g| g.transform.clone()).unwrap_or(Value::Null);
+        let (mut buttons, mut inter, mut texts, mut images, mut stretched) = (0, 0, 0, 0, 0);
+        let mut large: Vec<String> = vec![];
+        fn walk(vm: &mut Vm, tr: &Value, x: Xf, path: &str, out: &mut Vec<(String, Xf, Vec<Value>, Tr2)>) {
+            let go = go_of(tr);
+            let Some((active, name, comps)) = with_go(&go, |g| (g.active, g.name.clone(), g.comps.clone())) else { return };
+            if !active {
+                return;
+            }
+            let path = format!("{path}/{name}");
+            let t = with_tr(tr, |t| Tr2 { stretch: t.amin != t.amax }).unwrap_or(Tr2 { stretch: false });
+            out.push((path.clone(), x.clone(), comps, t));
+            for ch in with_tr(tr, |t| t.children.clone()).unwrap_or_default() {
+                if let Some(cx) = with_tr(&ch, |t| child_xf(&x, t)) {
+                    walk(vm, &ch, cx, &path, out);
+                }
+            }
+        }
+        let mut nodes = vec![];
+        let rx = xf(vm, &tr);
+        walk(vm, &tr, rx, "", &mut nodes);
+        let menu_area = nodes.first().map(|n| (n.1.w * n.1.h).abs()).unwrap_or(1.0).max(1.0);
+        for (path, x, comps, t) in &nodes {
+            let r = [x.origin[0] - x.pivot[0] * x.w, 600.0 - (x.origin[1] + (1.0 - x.pivot[1]) * x.h), x.origin[0] + (1.0 - x.pivot[0]) * x.w, 600.0 - (x.origin[1] - x.pivot[1] * x.h)];
+            if t.stretch {
+                stretched += 1;
+            }
+            for c in comps {
+                let desc = with_comp(c, |k| match &k.k {
+                    CK::Image(im) | CK::RawImage(im) => Some(("image", format!("\"sprite\":{:?},\"mode\":{}", sprite_name(&im.sprite), im.typ))),
+                    CK::Text(tx) => Some(("text", format!("\"len\":{},\"size\":{},\"align\":{},\"best_fit\":{}", tx.text.chars().count(), tx.size, tx.align, tx.best_fit))),
+                    CK::Sel(s) => Some(("selectable", format!("\"sel\":\"{:?}\",\"interactable\":{}", s.kind, s.interactable))),
+                    CK::ScrollRect { .. } => Some(("scroll", String::new())),
+                    CK::Mask { .. } => Some(("mask", String::new())),
+                    CK::Layout { kind, .. } => Some(("layout", format!("\"kind\":{kind:?}"))),
+                    _ => None,
+                })
+                .flatten();
+                let Some((kind, extra)) = desc else { continue };
+                match kind {
+                    "image" => {
+                        images += 1;
+                        let simple = extra.contains("\"mode\":0");
+                        let area = (x.w * x.h).abs();
+                        let sp = extra.split('"').nth(3).unwrap_or("-").to_string();
+                        if simple && sp != "-" && area >= 0.3 * menu_area && !large.contains(&sp) {
+                            large.push(sp);
+                        }
+                    }
+                    "text" => texts += 1,
+                    "selectable" => {
+                        if extra.contains("Button") {
+                            buttons += 1;
+                        } else {
+                            inter += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                let sep = if extra.is_empty() { "" } else { "," };
+                json += &format!("{{\"menu\":{i},\"path\":{path:?},\"kind\":\"{kind}\",\"rect\":[{:.0},{:.0},{:.0},{:.0}],\"stretch\":{}{sep}{extra}}}\n", r[0], r[1], r[2], r[3], t.stretch);
+            }
+        }
+        md += &format!("| {i} | {name} | {buttons} | {inter} | {texts} | {images} | {stretched} | {} |\n", large.join(", "));
+    }
+    (json, md)
+}
+
+pub struct Tr2 {
+    stretch: bool,
+}
