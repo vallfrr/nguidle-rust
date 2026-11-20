@@ -317,6 +317,16 @@ fn nrbf_dump(a: &[String]) {
     let txt = std::fs::read_to_string(&a[0]).expect("save file");
     let outer = decode_b64(txt.trim());
     let s = clr::nrbf::parse(&outer).expect("outer stream");
+    if std::env::var("NRBF_FLAT").is_ok() {
+        // inner PlayerData stream flattened, one field per line
+        if let clr::nrbf::N::Obj(o) = &s.root {
+            if let clr::nrbf::N::Str(_, inner) = &o.vals[0] {
+                let s2 = clr::nrbf::parse(&decode_b64(inner)).expect("inner stream");
+                print!("{}", clr::nrbf::flatten(&s2));
+            }
+        }
+        return;
+    }
     println!("== outer ==
 {}", clr::nrbf::summary(&s));
     if let clr::nrbf::N::Obj(o) = &s.root {

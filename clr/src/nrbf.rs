@@ -443,3 +443,35 @@ pub fn root_shape(s: &Stream) -> String {
     }
     out
 }
+
+/// Flattened `path = value` lines of the object graph (debugging: diff two saves field by field).
+pub fn flatten(s: &Stream) -> String {
+    fn pv(p: &Pv) -> String {
+        format!("{p:?}")
+    }
+    fn walk(s: &Stream, n: &N, path: &str, out: &mut String, depth: usize) {
+        if depth > 40 {
+            return;
+        }
+        match n {
+            N::Null => out.push_str(&format!("{path} = null\n")),
+            N::P(p) => out.push_str(&format!("{path} = {}\n", pv(p))),
+            N::Str(_, x) => out.push_str(&format!("{path} = {x:?}\n")),
+            N::Ref(id) => {
+                if let Some(t) = s.index.get(id) {
+                    walk(s, t, path, out, depth + 1)
+                }
+            }
+            N::Obj(o) => {
+                for (i, v) in o.vals.iter().enumerate() {
+                    walk(s, v, &format!("{path}.{}", o.meta.names[i]), out, depth + 1);
+                }
+            }
+            N::PArr(a) => a.vals.iter().enumerate().for_each(|(i, p)| out.push_str(&format!("{path}[{i}] = {}\n", pv(p)))),
+            N::Arr(a) => a.items.iter().enumerate().for_each(|(i, v)| walk(s, v, &format!("{path}[{i}]"), out, depth + 1)),
+        }
+    }
+    let mut out = String::new();
+    walk(s, &s.root, "root", &mut out, 0);
+    out
+}

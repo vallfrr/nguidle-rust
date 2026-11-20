@@ -28,6 +28,8 @@ Honest table. "Verified" means seen or measured; everything else is stated as no
 | Tutorial arrows, text typing, Start = settings, Select = info | **not verified / to do** |
 | Vita V2 | **nothing verified**: only V1 (interpreter) ran on a console |
 
+Note: one run of `tools/regress.sh` (right after the invocation catch-up change) reported `complete save identical` as different; the same scenario passed on two re-runs and by hand: possible rare flake, to watch.
+
 ## V1 on the Vita (interpreter), verified on the console
 - VPK installs and starts; title screen shown; 960x600 scaled to 960x544 (side bars).
 - ~18.3 img/s at 333/166 MHz (logic 19 ms, emit 32 ms, draw 4 ms); ~22 MB RAM free after init; start-up ~25 s (scene 20 s).
