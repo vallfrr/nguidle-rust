@@ -126,6 +126,55 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
         }
         // ---- dev tools (see dev.rs, docs/DEV.md)
         match p[0] {
+            "r" | "mc" => {
+                // r,x,y[,wait] right click; mc,x,y[,wait] middle click (button numbers as Unity: 1 right, 2 middle)
+                let (x, y): (f32, f32) = (p[1].parse().unwrap(), p[2].parse().unwrap());
+                let wait: usize = p.get(3).and_then(|s| s.parse().ok()).unwrap_or(15);
+                vm.eng.mouse = (x, 600.0 - y);
+                vm.eng.mouse_button = if p[0] == "r" { 1 } else { 2 };
+                vm.eng.mouse_down = true;
+                vm.eng.mouse_down_edge = true;
+                vm.frame(1.0 / 30.0);
+                vm.eng.mouse_down = false;
+                vm.eng.mouse_up_edge = true;
+                vm.frame(1.0 / 30.0);
+                vm.eng.mouse_button = 0;
+                for _ in 0..wait {
+                    vm.frame(1.0 / 30.0);
+                }
+                continue;
+            }
+            "k" | "kd" | "ku" => {
+                // k,<key>[,frames] tap; kd,<key> press and hold; ku,<key> release. <key> = Unity KeyCode number or a name (a, left shift, space...)
+                let code = p[1].parse::<i32>().unwrap_or_else(|_| crate::input::key_by_name(p[1]));
+                match p[0] {
+                    "kd" => {
+                        vm.eng.keys_down.insert(code);
+                        vm.eng.keys_edge.insert(code);
+                    }
+                    "ku" => {
+                        vm.eng.keys_down.remove(&code);
+                    }
+                    _ => {
+                        let frames: usize = p.get(2).and_then(|s| s.parse().ok()).unwrap_or(2);
+                        vm.eng.keys_down.insert(code);
+                        vm.eng.keys_edge.insert(code);
+                        for _ in 0..frames {
+                            vm.frame(1.0 / 30.0);
+                        }
+                        vm.eng.keys_down.remove(&code);
+                        vm.frame(1.0 / 30.0);
+                    }
+                }
+                continue;
+            }
+            "wheel" => {
+                // wheel,x,y,notches : mouse wheel at a point (positive = up)
+                vm.eng.mouse = (p[1].parse().unwrap(), 600.0 - p[2].parse::<f32>().unwrap());
+                vm.scroll_wheel(p[3].parse().unwrap());
+                vm.frame(1.0 / 30.0);
+                continue;
+            }
             "get" => {
                 println!("[get] {} = {}", p[1], crate::dev::get(vm, p[1]));
                 continue;

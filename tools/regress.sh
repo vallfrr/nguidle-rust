@@ -6,6 +6,8 @@ chk() { if echo "$2" | grep -q "$3"; then echo "OK    $1"; else echo "FAIL $1 : 
 chk "NumberOutput (84 cases)" "$(bash tools/ildiff-number.sh 2>&1 | tail -1)" "diffs=0"
 export NGU_STEPS="$(bash tools/grid-steps.sh)"
 chk "state after click grid" "$(bash tools/statediff.sh 30 5 2>&1 | tail -1)" "differing lines: 0"
+export NGU_STEPS="$(bash tools/input-steps.sh);w,200"
+chk "state after right/middle clicks, keys and wheel" "$(bash tools/statediff.sh 40 5 2>&1 | tail -1)" "differing lines: 0"
 for seed in 1 2 3 777; do
   export NGU_STEPS="$(bash tools/rand-steps.sh 300 $seed);w,300"
   chk "state after 300 random clicks (seed $seed)" "$(bash tools/statediff.sh 40 5 2>&1 | tail -1)" "differing lines: 0"

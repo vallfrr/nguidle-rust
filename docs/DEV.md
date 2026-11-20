@@ -25,6 +25,9 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `do,file` | runs a step file (one per line, `#` comment) |
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
 | `png,file` | 960x600 capture |
+| `r,x,y[,wait]`, `mc,x,y[,wait]` | right / middle click |
+| `k,<key>[,frames]`, `kd,<key>`, `ku,<key>` | tap / hold / release a key (Unity KeyCode number or name: `a`, `3`, `left shift`, `space`) |
+| `wheel,x,y,notches` | mouse wheel at a point (positive = up) |
 | `x,y[,wait]`, `w,N`, `h,x,y`, `d,x1,y1,x2,y2`, `f,u/d/l/r/list`, `a`, `m,+-1`, `s,f`, `l,f` | click, wait, hold, drag, focus, activate, next menu, save probe/load |
 
 `Type` = game class attached to the scene (first component of that type): `Character`, `ButtonShower`, `HoverTooltip`, `MenuSwapper`...

@@ -566,11 +566,17 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let (x, y) = vm.eng.mouse;
             Ok(vec3(vm, [x, y, 0.0]))
         },
-        "UnityEngine.Input::GetMouseButton" => |vm, _a| Ok(Value::bool(vm.eng.mouse_down)),
-        "UnityEngine.Input::GetMouseButtonDown" => |vm, _a| Ok(Value::bool(vm.eng.mouse_down_edge)),
-        "UnityEngine.Input::GetMouseButtonUp" => |vm, _a| Ok(Value::bool(vm.eng.mouse_up_edge)),
-        "UnityEngine.Input::GetKey" => |vm, a| Ok(Value::bool(vm.eng.keys_down.contains(&a[0].as_i32()))),
-        "UnityEngine.Input::GetKeyDown" => |vm, a| Ok(Value::bool(vm.eng.keys_edge.contains(&a[0].as_i32()))),
+        "UnityEngine.Input::GetMouseButton" => |vm, a| Ok(Value::bool(vm.eng.mouse_down && a[0].as_i32() == vm.eng.mouse_button)),
+        "UnityEngine.Input::GetMouseButtonDown" => |vm, a| Ok(Value::bool(vm.eng.mouse_down_edge && a[0].as_i32() == vm.eng.mouse_button)),
+        "UnityEngine.Input::GetMouseButtonUp" => |vm, a| Ok(Value::bool(vm.eng.mouse_up_edge && a[0].as_i32() == vm.eng.mouse_button)),
+        "UnityEngine.Input::GetKey" => |vm, a| {
+            let k = key_arg(vm, &a[0]);
+            Ok(Value::bool(vm.eng.keys_down.contains(&k)))
+        },
+        "UnityEngine.Input::GetKeyDown" => |vm, a| {
+            let k = key_arg(vm, &a[0]);
+            Ok(Value::bool(vm.eng.keys_edge.contains(&k)))
+        },
         // ------------------------------------------------------- PlayerPrefs / Resources / TextAsset
         "UnityEngine.PlayerPrefs::GetInt" => |vm, a| {
             let k = a[0].as_str().unwrap_or("").to_string();
@@ -881,5 +887,13 @@ pub fn slider_visuals(vm: &mut Vm, v: &Value) {
             t.amin[axis] = a;
             t.amax[axis] = b;
         });
+    }
+}
+
+/// `Input.GetKey(KeyCode)` passes an int, `Input.GetKey("left shift")` a name.
+fn key_arg(vm: &mut Vm, v: &Value) -> i32 {
+    match v {
+        Value::I32(i) => *i,
+        v => crate::input::key_by_name(&crate::dev::show(vm, v)),
     }
 }

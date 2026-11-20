@@ -15,7 +15,7 @@ Honest table. "Verified" means seen or measured; everything else is stated as no
 | First comparison with the original (new game: title, intro, main, Boss Fight, Info) | **done**, `docs/COMPARISON.md`; unlocked menus not compared |
 | Dev mode (click by text, screen as text, get/set/call, unlock preset, 58-menu sheets) | **verified**, interpreter only |
 | PC window speed 1280x800 | **measured**: ~58 img/s (logic 0.7 ms, CPU draw 12.7 ms, present 2.3 ms); original: monitor rate (200 Hz), 8 % of a core, 341 MB |
-| Input fidelity to the original | **known gaps**: right click confused with left, game shortcuts not forwarded, Shift/Ctrl unhandled (task A2) |
+| Input fidelity to the original | **implemented** (A2): left/right/middle buttons, wheel, game keys incl. Shift/Ctrl; oracle == native on a mixed scenario; the window path (minifb) is compiled but **not tried by hand**; effect on inventory items not yet observed |
 | Resolution buttons of the game settings | **no effect** (`Screen.SetResolution` is a stub, task A3); free window resize works |
 | Sound | **absent** (task A6) |
 | Focus navigation (list, spatial move, confirm, frame) | **verified** by headless script and capture; not with a gamepad |

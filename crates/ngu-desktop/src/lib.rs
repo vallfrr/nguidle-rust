@@ -3,6 +3,8 @@
 //! is capped (30 or 60 frames/s).
 //! Controls: arrows / ZQSD(WASD) = move the focus, Enter / Space = confirm, Escape = remove the focus,
 //! Tab / A / E = previous / next menu, mouse = direct click. Text entry: keyboard, Enter to finish.
+//! These navigation keys are active only after toggling with F1; by default every key goes to the game (original behaviour:
+//! shortcuts, Shift/Ctrl modifiers) and the mouse sends left, right and middle clicks and the wheel.
 pub mod actions;
 #[cfg(feature = "pad")]
 pub mod pad;
@@ -39,6 +41,32 @@ impl Default for Options {
 fn layout(w: usize, h: usize) -> (f32, f32, f32) {
     let s = (w as f32 / VIRT_W).min(h as f32 / VIRT_H);
     ((s), (w as f32 - VIRT_W * s) / 2.0, (h as f32 - VIRT_H * s) / 2.0)
+}
+
+/// Unity `KeyCode` of a window key (letters, digits, arrows, modifiers and the few others the game reads).
+fn unity_key(k: Key) -> Option<i32> {
+    let n = k as i32;
+    let (a, z, k0, k9) = (Key::A as i32, Key::Z as i32, Key::Key0 as i32, Key::Key9 as i32);
+    Some(match k {
+        _ if (a..=z).contains(&n) => 97 + (n - a),
+        _ if (k0..=k9).contains(&n) => 48 + (n - k0),
+        Key::Up => 273,
+        Key::Down => 274,
+        Key::Right => 275,
+        Key::Left => 276,
+        Key::LeftShift => 304,
+        Key::RightShift => 303,
+        Key::LeftCtrl => 306,
+        Key::RightCtrl => 305,
+        Key::LeftAlt => 308,
+        Key::RightAlt => 307,
+        Key::Space => 32,
+        Key::Enter => 13,
+        Key::Escape => 27,
+        Key::Tab => 9,
+        Key::Backspace => 8,
+        _ => return None,
+    })
 }
 
 fn key_actions(window: &Window) -> Vec<Action> {
@@ -81,7 +109,8 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
     let mut buf = vec![0u32; w * h];
     let mut last = Instant::now();
     let mut acc = 0.0f32;
-    let mut prev_down = false;
+    let mut prev_btn = [false; 3];
+    let mut nav_mode = false; // F1: keyboard drives the focus instead of the game
     let mut pending: Vec<(f32, f32)> = vec![]; // synthetic clicks (confirm at focus): one click = 2 logic steps
     let mut synth_phase = 0u8;
     let mut shown = 0u64;
@@ -107,20 +136,32 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
                 vm.eng.mouse = (vx, VIRT_H - vy);
             }
         }
-        let down = window.get_mouse_down(MouseButton::Left);
+        let btn = [MouseButton::Left, MouseButton::Right, MouseButton::Middle].map(|b| window.get_mouse_down(b));
         if pending.is_empty() && synth_phase == 0 {
-            if down && !prev_down {
-                vm.eng.mouse_down = true;
-                vm.eng.mouse_down_edge = true;
-            } else if !down && prev_down {
-                vm.eng.mouse_down = false;
-                vm.eng.mouse_up_edge = true;
+            for i in 0..3 {
+                if btn[i] && !prev_btn[i] {
+                    vm.eng.mouse_button = i as i32;
+                    vm.eng.mouse_down = true;
+                    vm.eng.mouse_down_edge = true;
+                } else if !btn[i] && prev_btn[i] {
+                    vm.eng.mouse_button = i as i32;
+                    vm.eng.mouse_down = false;
+                    vm.eng.mouse_up_edge = true;
+                }
             }
-            prev_down = down;
+            prev_btn = btn;
+        }
+        if let Some((_, wy)) = window.get_scroll_wheel() {
+            vm.scroll_wheel(wy.clamp(-3.0, 3.0));
+        }
+        if window.is_key_pressed(Key::F1, KeyRepeat::No) {
+            nav_mode = !nav_mode;
+            vm.eng.keys_down.clear();
         }
         // ---- input: text entry or navigation actions
         let comp = vm.eng.text_req.as_ref().map(|r| r.comp.clone());
         if let Some(comp) = comp {
+            vm.eng.keys_down.clear(); // typing must not trigger game shortcuts
             let typed: Vec<u32> = std::mem::take(&mut *tc.chars.lock().unwrap());
             let mut changed = false;
             for c in typed {
@@ -150,7 +191,12 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
         } else {
             tc.chars.lock().unwrap().clear();
             #[allow(unused_mut)]
-            let mut acts = key_actions(&window);
+            let mut acts = if nav_mode { key_actions(&window) } else { vec![] };
+            if !nav_mode {
+                // original behaviour: the game reads the keys itself (GetKey / GetKeyDown)
+                vm.eng.keys_down = window.get_keys().into_iter().filter_map(unity_key).collect();
+                vm.eng.keys_edge.extend(window.get_keys_pressed(KeyRepeat::No).into_iter().filter_map(unity_key));
+            }
             #[cfg(feature = "pad")]
             if let Some(p) = pad.as_mut() {
                 acts.extend(p.poll());

@@ -126,7 +126,7 @@ pub enum CK {
     RawImage(Box<ImageD>),
     Sel(Box<SelD>),
     EventTrigger(Vec<(i32, Value)>),
-    ScrollRect { content: Value, viewport: Value, hscroll: Value, vscroll: Value, horizontal: bool, vertical: bool, norm: [f32; 2] },
+    ScrollRect { content: Value, viewport: Value, hscroll: Value, vscroll: Value, horizontal: bool, vertical: bool, norm: [f32; 2], sens: f32 },
     Mask { show_graphic: bool },
     Layout { kind: String, d: HashMap<String, f32> },
     Outline { color: Col, dist: [f32; 2] },
@@ -216,6 +216,10 @@ pub struct Engine {
     pub mouse_down: bool,
     pub mouse_down_edge: bool,
     pub mouse_up_edge: bool,
+    /// button the `mouse_down*` flags describe: 0 left, 1 right, 2 middle (one button at a time)
+    pub mouse_button: i32,
+    /// mouse wheel notches since the last frame (positive = up)
+    pub wheel: f32,
     pub keys_down: std::collections::HashSet<i32>,
     pub keys_edge: std::collections::HashSet<i32>,
     pub rng: [u32; 4],
@@ -1000,6 +1004,7 @@ impl Vm {
                     horizontal: jb(&d["m_Horizontal"]),
                     vertical: jb(&d["m_Vertical"]),
                     norm: [0.0, 1.0],
+                    sens: d.get("m_ScrollSensitivity").map(jf).unwrap_or(1.0),
                 };
                 with_comp(o, |c| c.k = k);
                 self.eng.scrollrects.push(o.clone());
@@ -1187,6 +1192,7 @@ impl Vm {
         }
         self.eng.mouse_down_edge = false;
         self.eng.mouse_up_edge = false;
+        self.eng.wheel = 0.0;
         self.eng.keys_edge.clear();
     }
 

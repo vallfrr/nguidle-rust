@@ -275,7 +275,7 @@ impl Vm {
                     }
                 }
                 4 => {
-                    if e == Ev::Drag {
+                    if e == Ev::Drag && with_ped(ped, |p| p.button == 0).unwrap_or(true) {
                         let d = with_ped(ped, |p| p.delta).unwrap_or([0.0; 2]);
                         self.scroll_by(&c, d[0], d[1]);
                     }
@@ -289,7 +289,8 @@ impl Vm {
                     if !inter {
                         continue;
                     }
-                    if e == Ev::Click {
+                    let left = with_ped(ped, |p| p.button == 0).unwrap_or(true);
+                    if e == Ev::Click && left {
                         match kind {
                             SelKind::Button => {
                                 if !k.1.is_null() {
@@ -332,7 +333,7 @@ impl Vm {
             pos: [pos.0, pos.1],
             delta: [pos.0 - ps.last_pos.0, pos.1 - ps.last_pos.1],
             press_pos: [ps.down_pos.0, ps.down_pos.1],
-            button: 0,
+            button: self.eng.mouse_button,
             click_count: 1,
             dragging: ps.dragging,
             press: ps.pressed.clone(),
@@ -403,7 +404,7 @@ impl Vm {
             // slider ?
             self.eng.ptr.slider = Value::Null;
             let sl = self.find_ev_handler(&hit, Ev::Drag);
-            if !sl.is_null() && self.is_slider(&sl) {
+            if !sl.is_null() && self.eng.mouse_button == 0 && self.is_slider(&sl) {
                 self.eng.ptr.slider = sl;
             }
         }
@@ -668,6 +669,48 @@ impl Vm {
         }
         if !on_end.is_null() {
             self.invoke_event(&on_end, vec![Value::str(&t)]);
+        }
+    }
+}
+
+/// Unity `KeyCode` values used by the game, by the lower-case names of `Input.GetKey(string)`.
+pub fn key_by_name(n: &str) -> i32 {
+    match n.to_ascii_lowercase().as_str() {
+        "left shift" => 304,
+        "right shift" => 303,
+        "left ctrl" => 306,
+        "right ctrl" => 305,
+        "left alt" => 308,
+        "right alt" => 307,
+        "space" => 32,
+        "return" | "enter" => 13,
+        "escape" => 27,
+        "tab" => 9,
+        "backspace" => 8,
+        s if s.len() == 1 && s.as_bytes()[0].is_ascii_alphanumeric() => s.as_bytes()[0] as i32,
+        _ => 0,
+    }
+}
+
+impl Vm {
+    /// Mouse wheel over a ScrollRect (Unity: content moves by `delta * scrollSensitivity` pixels).
+    pub fn scroll_wheel(&mut self, notches: f32) {
+        if notches == 0.0 {
+            return;
+        }
+        let pos = self.eng.mouse;
+        let hit = raycast(self, [pos.0, pos.1]);
+        let mut cur = hit;
+        while !cur.is_null() {
+            for c in with_go(&cur, |g| g.comps.clone()).unwrap_or_default() {
+                if let Some(sens) = with_comp(&c, |k| if let CK::ScrollRect { sens, .. } = &k.k { Some(*sens) } else { None }).flatten() {
+                    self.scroll_by(&c, 0.0, -notches * sens);
+                    return;
+                }
+            }
+            let tr = with_go(&cur, |g| g.transform.clone()).unwrap_or(Value::Null);
+            let parent = with_tr(&tr, |t| t.parent.clone()).unwrap_or(Value::Null);
+            cur = if parent.is_null() { Value::Null } else { go_of(&parent) };
         }
     }
 }
