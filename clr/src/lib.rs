@@ -8,6 +8,7 @@ pub mod dev;
 pub mod focus;
 pub mod input;
 pub mod layout;
+pub mod profile;
 pub mod lower;
 pub mod nrbf;
 pub mod serial;

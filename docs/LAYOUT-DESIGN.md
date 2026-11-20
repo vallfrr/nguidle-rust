@@ -1,6 +1,6 @@
 # Responsive layout: design (tasks R2-R5)
 
-Status: design, not implemented. Written 2026-11-20 after the UI map (`docs/UI-MAP.md`).
+Status: implemented 2026-11-20 as `clr/src/profile.rs` + `layouts/` (simpler than below: plain text lines, regions bound by node name at depth 1-2 under the root `Canvas`, which holds every menu as a child canvas; the reference is `layouts/README.md`). Original design: Written 2026-11-20 after the UI map (`docs/UI-MAP.md`).
 
 ## Starting point
 - The game draws into a virtual 960x600 space and believes it always does (absolute coordinates, `Screen.width/height`, menus hidden by moving them off-screen, tooltips clamped to 960x600).

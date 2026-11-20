@@ -77,6 +77,10 @@ struct Stage {
     p: [f32; 4],
     frames: u64,
     t0: Instant,
+    /// screen profile (`NGU_LAYOUT=vita` or a file, `layouts/README.md`); None = the whole game space letterboxed
+    profile: Option<clr::profile::Profile>,
+    hold: bool,
+    pointer_y: f32,
 }
 
 impl Stage {
@@ -137,6 +141,9 @@ impl Stage {
             p: [0.0; 4],
             frames: 0,
             t0: Instant::now(),
+            profile: std::env::var("NGU_LAYOUT").ok().and_then(|n| clr::profile::load(&n).map_err(|e| eprintln!("[layout] {e}")).ok()),
+            hold: false,
+            pointer_y: 0.0,
         }
     }
 
@@ -331,6 +338,9 @@ impl EventHandler for Stage {
         }
         self.rend.resize(w as usize, h as usize, false);
         let (scale, ox, oy) = layout(w as usize, h as usize);
+        if let Some(p) = &self.profile {
+            self.rend.regions = p.place(w, h, self.hold, self.pointer_y);
+        }
         self.rend.emit_frame(self.vm, scale, ox, oy);
         let t_draw = Instant::now();
         if self.rend.atlas_take_dirty() {
@@ -389,8 +399,16 @@ impl EventHandler for Stage {
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
         let (w, h) = window::screen_size();
         let (scale, ox, oy) = layout(w as usize, h as usize);
+        self.pointer_y = y;
         if self.pending.is_empty() {
-            self.vm.eng.mouse = ((x - ox) / scale, VIRT_H - (y - oy) / scale);
+            if self.profile.is_some() {
+                // through the regions placed for the last frame (a point between regions keeps the previous position)
+                if let Some((gx, gy)) = clr::profile::dev_to_game(&self.rend.regions, x, y) {
+                    self.vm.eng.mouse = (gx, VIRT_H - gy);
+                }
+            } else {
+                self.vm.eng.mouse = ((x - ox) / scale, VIRT_H - (y - oy) / scale);
+            }
         }
     }
 
@@ -418,6 +436,8 @@ impl EventHandler for Stage {
                 self.nav_mode = !self.nav_mode;
                 self.vm.eng.keys_down.clear();
             }
+            // profile hold action (Vita L): held = page list in place of the player column
+            KeyCode::F2 => self.hold = true,
             KeyCode::F11 if !repeat => {
                 self.fullscreen = !self.fullscreen;
                 window::set_fullscreen(self.fullscreen);
@@ -459,6 +479,9 @@ impl EventHandler for Stage {
     }
 
     fn key_up_event(&mut self, k: KeyCode, _m: KeyMods) {
+        if k == KeyCode::F2 {
+            self.hold = false;
+        }
         self.game_keys(k, false, false);
     }
 }

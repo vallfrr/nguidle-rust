@@ -1,0 +1,9 @@
+# PS Vita profile (960x544), maintainer's idea: the page list is hidden; holding L shows it in place of the player column.
+# The game area takes all the remaining width (bigger than in the original) and pans vertically with the finger/pointer.
+region player 0 0 170 600 left !hold nodes=Player Panel Canvas
+region pages 166 0 135 600 over hold nodes=Features Canvas
+region game 292 0 668 600 rest nodes=*
+# pop-ups (confirmations, game over...) over everything, at the original size; they take the pointer only while shown
+region popup 0 0 960 600 fit when-drawn nodes=Box Canvas
+# the hover tooltip is drawn with the region under the mouse, so it stays next to what it describes
+region tooltip 0 0 960 600 fit follow nodes=Box Canvas/Hover Tooltip

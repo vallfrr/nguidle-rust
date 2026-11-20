@@ -223,6 +223,35 @@ pub fn find(vm: &mut Vm, needle: &str) -> String {
     out
 }
 
+/// Active hierarchy down to `depth` levels below the root canvases: name, size, rectangle (960x600, top-left), with canvas marker.
+pub fn tree(vm: &mut Vm, depth: usize) -> String {
+    fn walk(vm: &mut Vm, tr: &Value, d: usize, max: usize, out: &mut String) {
+        let go = go_of(tr);
+        let Some((name, active, comps)) = with_go(&go, |g| (g.name.clone(), g.active, g.comps.clone())) else { return };
+        if !active {
+            return;
+        }
+        let canvas = comps.iter().any(|c| with_comp(c, |k| matches!(k.k, CK::Canvas(_))).unwrap_or(false));
+        let x = crate::ui::xf(vm, tr);
+        let (sx, sy) = (x.w * x.scale[0].abs(), x.h * x.scale[1].abs());
+        let (x0, y0) = (x.origin[0] - x.pivot[0] * sx, vm.eng.screen.1 as f32 - (x.origin[1] + (1.0 - x.pivot[1]) * sy));
+        *out += &format!("{}{name}{} rect=({x0:.0},{y0:.0},{sx:.0},{sy:.0})\n", "  ".repeat(d), if canvas { " [canvas]" } else { "" });
+        if d < max {
+            for ch in with_tr(tr, |t| t.children.clone()).unwrap_or_default() {
+                walk(vm, &ch, d + 1, max, out);
+            }
+        }
+    }
+    let mut out = String::new();
+    for go in vm.eng.gos.clone() {
+        let Some(tr) = with_go(&go, |g| g.transform.clone()) else { continue };
+        if with_tr(&tr, |t| t.parent.is_null()).unwrap_or(false) {
+            walk(vm, &tr, 0, depth, &mut out);
+        }
+    }
+    out
+}
+
 /// Root GameObjects of the 58 menus (`MenuSwapper.allMenus`).
 pub fn menu_roots(vm: &Vm) -> Vec<Value> {
     let Some(Value::Obj(o)) = comp_of(vm, "MenuSwapper") else { return vec![] };

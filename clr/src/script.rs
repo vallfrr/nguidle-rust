@@ -177,6 +177,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 print!("{}", crate::dev::find(vm, &p[1..].join(",")));
                 continue;
             }
+            "tree" => {
+                // tree,<depth> : active hierarchy with rectangles (960x600, top-left), canvases marked
+                print!("{}", crate::dev::tree(vm, p.get(1).and_then(|s| s.parse().ok()).unwrap_or(2)));
+                continue;
+            }
             "uimap" => {
                 // uimap,<json file>,<markdown file> : UI map of the 58 menus (task R1)
                 let (j, m) = crate::dev::uimap(vm);
@@ -257,6 +262,22 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 continue;
             }
             _ => {}
+        }
+        if p[0] == "pngl" {
+            // dev: pngl,<file>,<profile>,<w>,<h>[,hold][,pointer y] : capture through a screen profile (layouts/README.md)
+            let (w, h): (f32, f32) = (p[3].parse().unwrap(), p[4].parse().unwrap());
+            let hold = p.get(5) == Some(&"hold");
+            let py = p.iter().skip(5).find_map(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
+            match crate::profile::load(p[2]) {
+                Ok(prof) => {
+                    let mut r = crate::render::Renderer::new(w as usize, h as usize);
+                    r.regions = prof.place(w, h, hold, py);
+                    r.render(vm, 1.0, 0.0, 0.0);
+                    r.save_png(p[1]);
+                }
+                Err(e) => crate::elog!("[pngl] {e}"),
+            }
+            continue;
         }
         if p[0] == "png" {
             // dev: 960x600 capture of the current state

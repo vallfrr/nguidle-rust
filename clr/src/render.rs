@@ -60,6 +60,8 @@ pub struct Renderer {
     pub hits: usize,
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
+    /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
+    pub regions: Vec<crate::profile::Region>,
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +105,7 @@ impl Renderer {
             visits: 0,
             hits: 0,
             tints: vec![],
+            regions: vec![],
         }
     }
 
@@ -219,6 +222,11 @@ impl Renderer {
             self.gen = next_gen();
         }
         let full = Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 };
+        if let Some(d) = self.regions.iter().position(|r| r.nodes.iter().any(|n| n == "*")) {
+            let r = &self.regions[d];
+            (self.scale, self.ox, self.oy) = (r.scale, r.ox, r.oy);
+        }
+        self.regions.iter_mut().for_each(|r| r.drawn = false);
         let mut roots: Vec<(i32, Value)> = vec![];
         for go in vm.eng.gos.clone() {
             if !with_go(&go, |g| g.active).unwrap_or(false) {
@@ -247,7 +255,7 @@ impl Renderer {
         for (_, tr) in roots {
             let x = xf(vm, &tr);
             let (q0, t0) = (self.quads.len(), std::time::Instant::now());
-            self.draw_node(vm, &tr, x, full);
+            self.draw_node(vm, &tr, x, full, 0);
             if stats {
                 let n = with_go(&go_of(&tr), |g| g.name.clone()).unwrap_or_default();
                 crate::elog!("  racine {:<28} {:>5} quads {:>9.3?}", n, self.quads.len() - q0, t0.elapsed());
@@ -285,6 +293,11 @@ impl Renderer {
             _ => return,
         };
         let vh = self.vh;
+        let saved = (self.scale, self.ox, self.oy);
+        if let Some(i) = crate::profile::region_at_game(&self.regions, (r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) {
+            let g = &self.regions[i];
+            (self.scale, self.ox, self.oy) = (g.scale, g.ox, g.oy);
+        }
         let t = 3.0;
         let bars = [[r[0], r[1], r[2], r[1] + t], [r[0], r[3] - t, r[2], r[3]], [r[0], r[1], r[0] + t, r[3]], [r[2] - t, r[1], r[2], r[3]]];
         let full = [0, 0, self.w as i32, self.h as i32];
@@ -292,17 +305,62 @@ impl Renderer {
             let p = [self.to_dev([b[0], vh - b[1]]), self.to_dev([b[2], vh - b[1]]), self.to_dev([b[2], vh - b[3]]), self.to_dev([b[0], vh - b[3]])];
             self.quads.push(Quad { p, uv: [[0.0; 2]; 4], col: [1.0, 0.85, 0.1, 1.0], tex: TEX_WHITE, nearest: false, clip: full });
         }
+        (self.scale, self.ox, self.oy) = saved;
     }
 
-    fn draw_node(&mut self, vm: &mut Vm, tr: &Value, x: Xf, clip: Clip) {
+    /// Draws a node; nodes bound to a profile region (depth 1-2 below the root canvas) switch to that region's transform.
+    fn draw_node(&mut self, vm: &mut Vm, tr: &Value, x: Xf, clip: Clip, depth: u8) {
+        if self.regions.is_empty() || depth == 0 || depth > 2 {
+            return self.draw_node_inner(vm, tr, x, clip, depth);
+        }
+        let go = go_of(tr);
+        let name = with_go(&go, |g| g.name.clone()).unwrap_or_default();
+        let path = if depth == 1 {
+            name
+        } else {
+            let parent = with_tr(tr, |t| t.parent.clone()).unwrap_or(Value::Null);
+            format!("{}/{name}", with_go(&go_of(&parent), |g| g.name.clone()).unwrap_or_default())
+        };
+        let Some(mut i) = self.regions.iter().position(|r| r.nodes.iter().any(|n| *n == path)) else {
+            return self.draw_node_inner(vm, tr, x, clip, depth);
+        };
+        if !self.regions[i].visible {
+            return;
+        }
+        let mut c = clip;
+        if self.regions[i].follow {
+            let (mx, my) = vm.eng.mouse;
+            match crate::profile::region_at_game(&self.regions, mx, self.vh - my) {
+                Some(j) => i = j,
+                None => i = self.regions.iter().position(|r| r.nodes.iter().any(|n| n == "*")).unwrap_or(i),
+            }
+        } else {
+            let d = self.regions[i].dest();
+            c = Clip { x0: c.x0.max(d[0].floor() as i32), y0: c.y0.max(d[1].floor() as i32), x1: c.x1.min((d[0] + d[2]).ceil() as i32), y1: c.y1.min((d[1] + d[3]).ceil() as i32) };
+        }
+        let saved = (self.scale, self.ox, self.oy);
+        let r = &self.regions[i];
+        (self.scale, self.ox, self.oy) = (r.scale, r.ox, r.oy);
+        let start = self.quads.len();
+        self.draw_node_inner(vm, tr, x, c, depth);
+        let (w, h) = (self.w as f32, self.h as f32);
+        if self.quads[start..].iter().any(|q| q.p.iter().any(|p| p[0] >= 0.0 && p[1] >= 0.0 && p[0] < w && p[1] < h)) {
+            self.regions[i].drawn = true;
+        }
+        (self.scale, self.ox, self.oy) = saved;
+    }
+
+    fn draw_node_inner(&mut self, vm: &mut Vm, tr: &Value, x: Xf, clip: Clip, depth: u8) {
         self.visits += 1;
         let go = go_of(tr);
+        // containers above bound regions: their subtree mixes transforms that change without the game noticing
+        let cacheable = self.regions.is_empty() || depth >= 2;
         let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy];
         let ck = [clip.x0, clip.y0, clip.x1, clip.y1];
         let gen = self.gen;
         // valid cache?
         let hit = with_go(&go, |g| {
-            if g.dirty {
+            if g.dirty || !cacheable {
                 return None;
             }
             g.cache.as_ref().filter(|c| c.gen == gen && c.key == key && c.clip == ck).map(|c| c.quads.clone())
@@ -388,7 +446,7 @@ impl Renderer {
                 Some(v) => v,
                 None => continue,
             };
-            self.draw_node(vm, &ch, cx, child_clip);
+            self.draw_node(vm, &ch, cx, child_clip, depth + 1);
         }
         if pushed {
             self.tints.pop();
@@ -397,7 +455,7 @@ impl Renderer {
         let n = self.quads.len() - start;
         with_go(&go, |g| {
             g.dirty = false;
-            if true {
+            if cacheable {
                 g.cache = Some(Box::new(NodeCache { gen, key, clip: ck, quads: Rc::new(self.quads[start..].to_vec()) }));
             } else {
                 g.cache = None;

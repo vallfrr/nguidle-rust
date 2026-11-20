@@ -26,6 +26,8 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `call,Type[.field].method[,args]` | calls a game method (e.g. `call,ButtonShower.updateButtons`) |
 | `do,file` | runs a step file (one per line, `#` comment) |
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
+| `tree,<depth>` | active hierarchy under the root objects with rectangles (960x600, top-left), canvases marked: names for screen profiles |
+| `pngl,<png>,<profile>,<w>,<h>[,hold][,pointer y]` | capture through a screen profile (`layouts/README.md`) |
 | `uimap,<json>,<md>` | UI map of the 58 menus (see `docs/UI-MAP.md`) |
 | `sounds` | prints (and clears) the sounds the game asked to play |
 | `png,file` | 960x600 capture |
