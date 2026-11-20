@@ -1,5 +1,4 @@
-//! Gamepad (gilrs). **NOT COMPILED / NOT TESTED**: `libudev` is absent from the Linux development machine;
-//! to compile and check on Windows (XInput/WGI) or with `libudev-dev`. Mapping approved by the maintainer:
+//! Gamepad (gilrs, Windows only for now: Linux needs `libudev`). Compiled but **not tested with a physical pad**. Mapping approved by the maintainer:
 //! d-pad and left stick = move the focus (same behaviour, repeat after 0.4 s then every 0.12 s),
 //! Cross (south) = confirm, Circle (east) = back, L1/R1 = previous / next menu, Start = settings, Select = info (to wire).
 use crate::actions::Action;

@@ -8,7 +8,5 @@ description = "Desktop shell: window, mouse, keyboard, real-time loop independen
 clr = { path = "../../clr" }
 minifb = "0.27"
 miniquad = "0.4"
-gilrs = { version = "0.10", optional = true }
-
-[features]
-pad = ["gilrs"]
+[target.'cfg(windows)'.dependencies]
+gilrs = "0.10"

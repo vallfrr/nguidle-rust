@@ -7,7 +7,7 @@
 //! shortcuts, Shift/Ctrl modifiers) and the mouse sends left, right and middle clicks and the wheel.
 pub mod actions;
 pub mod gl;
-#[cfg(feature = "pad")]
+#[cfg(windows)]
 pub mod pad;
 
 use actions::{apply, Action};
@@ -118,7 +118,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
     let perf = std::env::var("NGU_PERF").is_ok();
     let (mut p_logic, mut p_conv, mut p_present, mut p_emit, mut p_raster, mut p_steps, mut p_t0) = (0f32, 0f32, 0f32, 0f32, 0f32, 0u32, Instant::now());
     let mut text_buf = String::new();
-    #[cfg(feature = "pad")]
+    #[cfg(windows)]
     let mut pad = pad::Pad::new();
     while window.is_open() {
         let (nw, nh) = window.get_size();
@@ -198,7 +198,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
                 vm.eng.keys_down = window.get_keys().into_iter().filter_map(unity_key).collect();
                 vm.eng.keys_edge.extend(window.get_keys_pressed(KeyRepeat::No).into_iter().filter_map(unity_key));
             }
-            #[cfg(feature = "pad")]
+            #[cfg(windows)]
             if let Some(p) = pad.as_mut() {
                 acts.extend(p.poll());
             }

@@ -64,6 +64,8 @@ struct Stage {
     acc: f32,
     // input
     nav_mode: bool,
+    #[cfg(windows)]
+    pad: Option<crate::pad::Pad>,
     fullscreen: bool,
     typed: Vec<char>,
     text_buf: String,
@@ -120,6 +122,8 @@ impl Stage {
             last: Instant::now(),
             acc: 0.0,
             nav_mode: false,
+            #[cfg(windows)]
+            pad: crate::pad::Pad::new(),
             fullscreen: false,
             typed: vec![],
             text_buf: String::new(),
@@ -251,6 +255,17 @@ impl EventHandler for Stage {
             }
         } else {
             self.typed.clear();
+        }
+        // gamepad: always drives the focus (the keyboard keeps going to the game)
+        #[cfg(windows)]
+        if let Some(p) = self.pad.as_mut() {
+            for a in p.poll() {
+                if self.vm.eng.text_req.is_none() {
+                    if let Some(pt) = apply(self.vm, a) {
+                        self.pending.push(pt);
+                    }
+                }
+            }
         }
         // fixed logic steps caught up on real time
         let now = Instant::now();
