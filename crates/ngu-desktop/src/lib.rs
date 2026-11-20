@@ -6,6 +6,7 @@
 //! These navigation keys are active only after toggling with F1; by default every key goes to the game (original behaviour:
 //! shortcuts, Shift/Ctrl modifiers) and the mouse sends left, right and middle clicks and the wheel.
 pub mod actions;
+pub mod gl;
 #[cfg(feature = "pad")]
 pub mod pad;
 
@@ -38,7 +39,7 @@ impl Default for Options {
 }
 
 /// Window -> virtual game space (y up, like `Engine::mouse`); (scale, x offset, y offset) of the layout.
-fn layout(w: usize, h: usize) -> (f32, f32, f32) {
+pub(crate) fn layout(w: usize, h: usize) -> (f32, f32, f32) {
     let s = (w as f32 / VIRT_W).min(h as f32 / VIRT_H);
     ((s), (w as f32 - VIRT_W * s) / 2.0, (h as f32 - VIRT_H * s) / 2.0)
 }

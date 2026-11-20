@@ -257,13 +257,25 @@ impl Renderer {
 
     /// Emission + software rasterization into `fb`.
     pub fn render(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
+        self.emit_frame(vm, scale, ox, oy);
+        let t = std::time::Instant::now();
+        self.raster();
+        self.t_raster = t.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    /// Quad list of the frame including the focus frame; `t_emit` receives the time taken (ms). The GPU backends draw `self.quads`.
+    pub fn emit_frame(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
         let t = std::time::Instant::now();
         self.emit(vm, scale, ox, oy);
         self.draw_focus(vm);
         self.t_emit = t.elapsed().as_secs_f32() * 1000.0;
-        let t = std::time::Instant::now();
-        self.raster();
-        self.t_raster = t.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    /// Changes the device size without losing the textures and the glyph atlas (GPU backends keep no framebuffer).
+    pub fn resize(&mut self, w: usize, h: usize, keep_fb: bool) {
+        self.w = w;
+        self.h = h;
+        self.fb = if keep_fb { vec![0; w * h * 4] } else { vec![] };
     }
 
     /// Focus frame (gamepad/keyboard navigation) over the interface.

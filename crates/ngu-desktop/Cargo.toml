@@ -2,11 +2,12 @@
 name = "ngu-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "Coque desktop : fenetre, souris, clavier (et manette via la fonctionnalite `pad`), boucle temps reel independante de l'affichage"
+description = "Desktop shell: window, mouse, keyboard, real-time loop independent of the display (software window and GPU window)"
 
 [dependencies]
 clr = { path = "../../clr" }
 minifb = "0.27"
+miniquad = "0.4"
 gilrs = { version = "0.10", optional = true }
 
 [features]

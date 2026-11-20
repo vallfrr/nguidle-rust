@@ -17,7 +17,10 @@ fn main() {
         return game(&a[1..]);
     }
     if a.first().map(|s| s.as_str()) == Some("window") {
-        return window(&a[1..]);
+        return window(&a[1..], false);
+    }
+    if a.first().map(|s| s.as_str()) == Some("window-cpu") {
+        return window(&a[1..], true);
     }
     if a.first().map(|s| s.as_str()) == Some("fuzz") {
         return fuzz(&a[1..]);
@@ -180,7 +183,7 @@ fn fuzz(a: &[String]) {
 }
 
 /// Desktop window: `ngu-gen window <dll> <out/ngu> [fps] [max_frames] [capture.png]`
-fn window(a: &[String]) {
+fn window(a: &[String], cpu: bool) {
     let mut vm = Vm::new(&a[0]);
     let dir = a[1].clone();
     vm.eng.screen = (960, 600);
@@ -198,7 +201,13 @@ fn window(a: &[String]) {
         screenshot: a.get(4).cloned(),
         ..Default::default()
     };
-    if let Err(e) = ngu_desktop::run(&mut vm, o) {
-        eprintln!("window: {e}");
+    // `window` = GPU window (vsync, sharp at any size); `window-cpu` = software window (test captures: `[capture.png]`)
+    if cpu {
+        if let Err(e) = ngu_desktop::run(&mut vm, o) {
+            eprintln!("window: {e}");
+        }
+    } else {
+        let vm: &'static mut Vm = Box::leak(Box::new(vm));
+        ngu_desktop::gl::run_gl(vm, o);
     }
 }
