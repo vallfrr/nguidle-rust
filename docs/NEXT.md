@@ -22,11 +22,11 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 ---
 
 ## Phase 0: clean publication
-- [ ] **P0.1** Everything in English (code comments, program messages, scripts, docs, READMEs, skills); update the scripts that grep program output.
-- [ ] **P0.2** Audit: no French left, no personal information, no game content; regression suite all OK.
-- [ ] **P0.3** Fresh history pushed to the three repositories (one initial commit each on top of the remote `Initial commit`).
-- [ ] **P0.4** `nguidle-web`: README documenting the self-hosting Docker container (documentation only for now).
-- [ ] **P0.5** Black LiveArea placeholders in `nguidle-vita`.
+- [x] **P0.1** Everything in English (code comments, program messages, scripts, docs, READMEs, skills); update the scripts that grep program output.
+- [x] **P0.2** Audit: no French left, no personal information, no game content; regression suite all OK.
+- [x] **P0.3** Fresh history pushed to the three repositories (one initial commit each on top of the remote `Initial commit`).
+- [x] **P0.4** `nguidle-web`: README documenting the self-hosting Docker container (documentation only for now).
+- [x] **P0.5** Black LiveArea placeholders in `nguidle-vita`.
 
 ## Phase 1: faithful PC base (behaviour)
 - [ ] **A2. Faithful input.** (a) `Input.GetMouseButton/Down/Up` ignore the button number (`clr/src/unity_api.rs`): a left click is seen as a right click by `ItemController`, `DaycareItemController`, `LoadoutController`. Track buttons 0/1/2 in `Engine`, set `PointerEventData.button` (29 uses, 24 of them `Right`). (b) The window never fills `keys_down`/`keys_edge`: no game shortcut works (A D Q W E R T S F Z, digits, arrows; `GetKey("left shift"/"right shift"/"left ctrl"/"right ctrl")` as strings is unhandled). (c) Mouse wheel (ScrollRect sensitivity differs per list: 20/25/30/50). (d) Default: keyboard/mouse = original behaviour, every key goes to the game; focus navigation is for the gamepad and, on keyboard, only after toggling with **F1**. **Done when:** scripted steps (`r,x,y` right click, `k,<code>` key) give identical oracle/native state (`tools/regress.sh` OK) and left vs right click differ on inventory items.
