@@ -203,7 +203,12 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         "UnityEngine.Application::OpenURL" | "UnityEngine.Application::Quit" | "UnityEngine.Application::ExternalCall" | "UnityEngine.Application::ExternalEval" => stub0!(),
         "UnityEngine.Screen::get_width" => |vm, _a| Ok(Value::I32(vm.eng.screen.0)),
         "UnityEngine.Screen::get_height" => |vm, _a| Ok(Value::I32(vm.eng.screen.1)),
-        "UnityEngine.Screen::SetResolution" | "UnityEngine.QualitySettings::set_vSyncCount" => stub0!(),
+        "UnityEngine.QualitySettings::set_vSyncCount" => stub0!(),
+        "UnityEngine.Screen::SetResolution" => |vm, a| {
+            // the shell resizes its window (ignored during the first frames: the game calls it at start-up with 960x600)
+            vm.eng.resolution_req = Some((a[0].as_i32(), a[1].as_i32(), a.get(2).map(|v| v.as_i32() != 0).unwrap_or(false), vm.eng.frame));
+            Ok(Value::Null)
+        },
         "UnityEngine.Screen::get_currentResolution" => |vm, _a| {
             let (w, h) = vm.eng.screen;
             Ok(mk(vm, "UnityEngine.Resolution", vec![Value::I32(w), Value::I32(h), Value::I32(60)]))

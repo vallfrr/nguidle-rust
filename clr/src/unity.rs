@@ -229,6 +229,8 @@ pub struct Engine {
     /// focused element (gamepad/keyboard navigation) and its rectangle (virtual px, top-left) for drawing
     pub focus: Value,
     pub focus_rect: Option<[f32; 4]>,
+    /// last `Screen.SetResolution(w, h, fullscreen)` request and the frame it was made at
+    pub resolution_req: Option<(i32, i32, bool, u64)>,
     /// index of the last menu button activated with L/R
     pub menu_idx: usize,
     /// objects created by binary deserialization (no constructor): shell address

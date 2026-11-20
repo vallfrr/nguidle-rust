@@ -256,6 +256,18 @@ impl EventHandler for Stage {
         } else {
             self.typed.clear();
         }
+        // Screen.SetResolution from a game button: resize the window or toggle fullscreen (start-up calls are ignored)
+        if let Some((w, h, fs, at)) = self.vm.eng.resolution_req.take() {
+            if at > 120 {
+                if fs != self.fullscreen {
+                    self.fullscreen = fs;
+                    window::set_fullscreen(fs);
+                }
+                if !fs {
+                    window::set_window_size(w.max(320) as u32, h.max(200) as u32);
+                }
+            }
+        }
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]
         if let Some(p) = self.pad.as_mut() {
