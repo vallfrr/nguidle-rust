@@ -1,0 +1,9 @@
+[package]
+name = "ngu-ilgen"
+version = "0.1.0"
+edition = "2021"
+description = "C# (IL) -> Rust generator: reads the user's Assembly-CSharp.dll, no game code in the repository"
+
+[dependencies]
+clr = { path = "../../clr" }
+dotnetdll = "0.5"

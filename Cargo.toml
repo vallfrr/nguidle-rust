@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["clr", "crates/ngu-rt", "crates/ngu-host","crates/ngu-desktop","crates/ngu-ilgen", "crates/ngu-gen"]
+
+[profile.release]
+opt-level = 3
+panic = "abort"
+
+# Dev profile of the generated game (generated Rust = 20 MB: opt-level 0 to keep memory in check; unwind = .NET exceptions).
+[profile.game]
+inherits = "release"
+panic = "unwind"
+
+[profile.game.package.ngu-gen]
+opt-level = 0
+codegen-units = 64

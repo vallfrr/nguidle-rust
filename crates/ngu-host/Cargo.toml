@@ -1,0 +1,9 @@
+[package]
+name = "ngu-host"
+version = "0.1.0"
+edition = "2021"
+description = "Pont entre le Rust genere (etat type) et le moteur Unity de clr (valeurs dynamiques)"
+
+[dependencies]
+ngu-rt = { path = "../ngu-rt" }
+clr = { path = "../../clr" }

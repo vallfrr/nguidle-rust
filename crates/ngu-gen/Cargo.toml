@@ -1,0 +1,10 @@
+[package]
+name = "ngu-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Code genere (non versionne) + banc de comparaison"
+
+[dependencies]
+ngu-rt = { path = "../ngu-rt" }
+ngu-host = { path = "../ngu-host" }
+ngu-desktop = { path = "../ngu-desktop" }

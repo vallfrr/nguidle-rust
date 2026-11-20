@@ -1,0 +1,13 @@
+[package]
+name = "ngu-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Coque desktop : fenetre, souris, clavier (et manette via la fonctionnalite `pad`), boucle temps reel independante de l'affichage"
+
+[dependencies]
+clr = { path = "../../clr" }
+minifb = "0.27"
+gilrs = { version = "0.10", optional = true }
+
+[features]
+pad = ["gilrs"]

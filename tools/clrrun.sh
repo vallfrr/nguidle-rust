@@ -1,0 +1,3 @@
+#!/bin/bash
+# Runs a game method on PC: tools/clrrun.sh Type::Method arg...
+exec bash /mnt/j/NGUvita/nguvita/tools/clr.sh run "$@"
