@@ -65,6 +65,8 @@ struct Stage {
     // input
     nav_mode: bool,
     #[cfg(windows)]
+    audio: Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
+    #[cfg(windows)]
     pad: Option<crate::pad::Pad>,
     fullscreen: bool,
     typed: Vec<char>,
@@ -122,6 +124,8 @@ impl Stage {
             last: Instant::now(),
             acc: 0.0,
             nav_mode: false,
+            #[cfg(windows)]
+            audio: rodio::OutputStream::try_default().ok(),
             #[cfg(windows)]
             pad: crate::pad::Pad::new(),
             fullscreen: false,
@@ -267,6 +271,17 @@ impl EventHandler for Stage {
                     window::set_window_size(w.max(320) as u32, h.max(200) as u32);
                 }
             }
+        }
+        // sounds requested by the game (AudioSource.Play): `audio/<clip>.wav` extracted by nguprep
+        for name in std::mem::take(&mut self.vm.eng.sound_queue) {
+            #[cfg(windows)]
+            if let (Some((_, h)), Some(bytes)) = (self.audio.as_ref(), clr::assets::read(&format!("audio/{name}.wav"))) {
+                if let Ok(src) = rodio::Decoder::new(std::io::Cursor::new(bytes)) {
+                    let _ = h.play_raw(rodio::Source::convert_samples(src));
+                }
+            }
+            #[cfg(not(windows))]
+            let _ = name;
         }
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]

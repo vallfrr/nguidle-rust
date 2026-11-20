@@ -607,6 +607,9 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let name = a[0].as_str().unwrap_or("").to_string();
             let tys: Vec<String> = vm.targs.clone().map(|t| t.iter().map(|x| crate::lower::ty_name(x, vm)).collect()).unwrap_or_default();
             let _ = tys;
+            if let Some(clip) = name.strip_prefix("Sounds/") {
+                return Ok(Value::str(&format!("clip:{clip}")));
+            }
             Ok(vm.eng.keys.get(&format!("res:{}", name)).cloned().unwrap_or(Value::Null))
         },
         "UnityEngine.TextAsset::get_text" => |vm, a| {
@@ -850,7 +853,22 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         // ------------------------------------------------------- Texture / Sprite (generes a l'execution)
         "UnityEngine.Texture2D::.ctor" | "UnityEngine.Texture2D::SetPixel" | "UnityEngine.Texture2D::Apply" | "UnityEngine.ImageConversion::EncodeToPNG" => stub0!(),
         "UnityEngine.Sprite::Create" => stub0!(),
-        "UnityEngine.AudioSource::Play" | "UnityEngine.AudioSource::set_clip" | "UnityEngine.AudioSource::set_mute" => stub0!(),
+        "UnityEngine.AudioSource::set_mute" => stub0!(),
+        "UnityEngine.AudioSource::set_clip" => |vm, a| {
+            // a clip is the string "clip:<name>" (see Resources.Load); remembered per AudioSource object
+            if let (Value::Obj(o), Some(c)) = (&a[0], a[1].as_str()) {
+                vm.eng.audio_clips.insert(Rc::as_ptr(o) as *const u8 as usize, c.to_string());
+            }
+            Ok(Value::Null)
+        },
+        "UnityEngine.AudioSource::Play" => |vm, a| {
+            if let Value::Obj(o) = &a[0] {
+                if let Some(c) = vm.eng.audio_clips.get(&(Rc::as_ptr(o) as *const u8 as usize)).cloned() {
+                    vm.eng.sound_queue.push(c.trim_start_matches("clip:").to_string());
+                }
+            }
+            Ok(Value::Null)
+        },
         "UnityEngine.Matrix4x4::TRS" | "UnityEngine.GUI::set_matrix" => stub0!(),
         // ------------------------------------------------------- Network (offline)
         "UnityEngine.WWW::.ctor" => stub0!(),

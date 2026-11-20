@@ -177,6 +177,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 print!("{}", crate::dev::find(vm, &p[1..].join(",")));
                 continue;
             }
+            "sounds" => {
+                // sounds requested by the game since the last `sounds` step (AudioSource.Play)
+                println!("[sounds] {:?}", std::mem::take(&mut vm.eng.sound_queue));
+                continue;
+            }
             "ultimate" => {
                 // dev: set every unlock-like boolean reachable from the scene (see dev::ultimate)
                 println!("[ultimate] {}", crate::dev::ultimate(vm));

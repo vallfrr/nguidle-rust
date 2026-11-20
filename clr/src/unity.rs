@@ -230,6 +230,9 @@ pub struct Engine {
     pub focus: Value,
     pub focus_rect: Option<[f32; 4]>,
     /// last `Screen.SetResolution(w, h, fullscreen)` request and the frame it was made at
+    /// clip name per AudioSource object (by address) and the sounds to play (drained by the shell)
+    pub audio_clips: HashMap<usize, String>,
+    pub sound_queue: Vec<String>,
     pub resolution_req: Option<(i32, i32, bool, u64)>,
     /// index of the last menu button activated with L/R
     pub menu_idx: usize,

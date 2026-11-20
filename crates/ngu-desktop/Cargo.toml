@@ -10,3 +10,4 @@ minifb = "0.27"
 miniquad = "0.4"
 [target.'cfg(windows)'.dependencies]
 gilrs = "0.10"
+rodio = { version = "0.19", default-features = false, features = ["wav"] }

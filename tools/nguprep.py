@@ -30,6 +30,14 @@ for _o in env.objects:
         json.dump({"tags": list(_o.read_typetree()["tags"])}, open(OUT + r"	ags.json", "w"))
         break
 
+# --- sounds: AudioClip -> audio/<name>.wav
+os.makedirs(OUT + r"udio", exist_ok=True)
+for _o in env.objects:
+    if _o.type.name == "AudioClip":
+        _d = _o.read()
+        for _n, _b in _d.samples.items():
+            open(OUT + r"udio\" + _d.m_Name + ".wav", "wb").write(_b)
+
 # --- fix: the generator types string[] fields as "string" (should be "vector")
 _orig_get_nodes = g.get_nodes
 def _patched_get_nodes(assembly, fullname):
