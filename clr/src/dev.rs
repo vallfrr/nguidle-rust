@@ -169,3 +169,42 @@ pub fn ui(vm: &mut Vm) -> String {
     }
     s
 }
+
+/// Names of boolean fields that mean "unlocked / bought / completed / feature on" (see `ultimate`).
+fn is_unlock_flag(n: &str) -> bool {
+    const SKIP: &[&str] = &["Challenge", "challenge", "tutorial", "Tutorial", "isNaughty", "steam", "Steam", "firstBossEver", "ignore", "troll", "Troll", "filter", "simple", "unassign", "shakey", "poopOnly", "antiFlicker", "syncTraining", "inQuest", "auto"];
+    if SKIP.iter().any(|s| n.contains(s)) {
+        return false;
+    }
+    let has_prefix = n.starts_with("has") && n.chars().nth(3).map(|c| c.is_uppercase() || c.is_ascii_digit()).unwrap_or(false);
+    has_prefix || ["On", "Unlocked", "unlocked", "Bought", "bought", "Complete", "complete", "Enabled", "enabled"].iter().any(|s| n.ends_with(s))
+}
+
+/// "Ultimate" state (dev): sets every unlock-like boolean field reachable from the scene's game objects
+/// (depth <= 6, game classes only) so that progression-gated UI elements become visible. Returns a summary.
+pub fn ultimate(vm: &mut Vm) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack: Vec<(Value, usize)> = vm.eng.user_comps.iter().map(|c| (c.clone(), 0)).collect();
+    let mut set = std::collections::BTreeMap::<String, usize>::new();
+    while let Some((v, depth)) = stack.pop() {
+        let Value::Obj(o) = &v else { continue };
+        if o.ty >= vm.n_user || !seen.insert(std::rc::Rc::as_ptr(o) as usize) {
+            continue;
+        }
+        let tys = vm.types[o.ty as usize].field_tys.clone();
+        let names = vm.types[o.ty as usize].fields.clone();
+        let tname = vm.types[o.ty as usize].name.clone();
+        let mut f = o.f.borrow_mut();
+        for (i, v) in f.iter_mut().enumerate() {
+            match (tys.get(i), &*v) {
+                (Some(crate::program::Ty::Bool), Value::I32(0)) if is_unlock_flag(&names[i]) => {
+                    *v = Value::I32(1);
+                    *set.entry(format!("{tname}.{}", names[i])).or_default() += 1;
+                }
+                (Some(crate::program::Ty::User(_)), Value::Obj(_)) if depth < 6 => stack.push((v.clone(), depth + 1)),
+                _ => {}
+            }
+        }
+    }
+    format!("{} unlock flags set: {}", set.len(), set.keys().cloned().collect::<Vec<_>>().join(" "))
+}

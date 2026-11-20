@@ -168,6 +168,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 }
                 continue;
             }
+            "ultimate" => {
+                // dev: set every unlock-like boolean reachable from the scene (see dev::ultimate)
+                println!("[ultimate] {}", crate::dev::ultimate(vm));
+                continue;
+            }
             "wheel" => {
                 // wheel,x,y,notches : mouse wheel at a point (positive = up)
                 vm.eng.mouse = (p[1].parse().unwrap(), 600.0 - p[2].parse::<f32>().unwrap());

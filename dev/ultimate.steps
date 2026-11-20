@@ -1,0 +1,11 @@
+# "Ultimate" state: everything gated by progression is made visible (see docs/DEV.md, task DEV4). Usage: step `do,dev/ultimate.steps`.
+set,Character.settings.tutorialOffForever,true
+call,HoverTooltip.hideTutorialTooltip
+set,Character.firstBossEver,false
+set,Character.bossID,1000
+set,Character.highestBoss,1000
+set,Character.magic.capMagic,100000000
+ultimate
+call,ButtonShower.updateButtons
+call,Character.refreshMenus
+w,30
