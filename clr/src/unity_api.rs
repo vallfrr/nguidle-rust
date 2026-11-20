@@ -766,15 +766,62 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             sel(&v, |s| s.options.clear());
             Ok(Value::Null)
         },
-        "UnityEngine.UI.Dropdown::RefreshShownValue" | "UnityEngine.UI.Dropdown::Hide" => stub0!(),
+        "UnityEngine.UI.Dropdown::Hide" => stub0!(),
+        "UnityEngine.UI.Dropdown::RefreshShownValue" => |vm, a| {
+            // the caption shows the text of the selected option
+            let v = rv(vm, &a[0]);
+            let (cap, opt) = sel(&v, |s| (s.caption.clone(), s.options.get(s.value as usize).cloned())).unwrap_or((Value::Null, None));
+            if let Some(o) = opt {
+                if let Some(t) = opt_data(&o, |d| d.text.clone()) {
+                    set_text_comp(&cap, &t);
+                }
+            }
+            Ok(Value::Null)
+        },
         "UnityEngine.UI.Dropdown::AddOptions" => |vm, a| {
+            // List<string> or List<OptionData>
             let v = rv(vm, &a[0]);
             let items = iter_values(vm, &a[1])?;
-            let mut names = vec![];
+            let id = vm.type_id(OPTION_DATA);
+            let mut opts = vec![];
             for it in items {
-                names.push(to_string(vm, &it)?);
+                if opt_data(&it, |_| ()).is_some() {
+                    opts.push(it);
+                } else {
+                    let text = to_string(vm, &it)?;
+                    opts.push(Value::Obj(Obj::new(id, 0, Ext::Native(Box::new(OptD { text, image: Value::Null })))));
+                }
             }
-            sel(&v, |s| s.options.extend(names.into_iter().map(|n| (n, Value::Null))));
+            sel(&v, |s| s.options.extend(opts));
+            Ok(Value::Null)
+        },
+        "UnityEngine.UI.Dropdown::get_options" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            let items = sel(&v, |s| s.options.clone()).unwrap_or_default();
+            Ok(crate::bcl_core::new_list(vm, items))
+        },
+        "UnityEngine.UI.Dropdown::get_captionText" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            Ok(sel(&v, |s| s.caption.clone()).unwrap_or(Value::Null))
+        },
+        "UnityEngine.UI.Dropdown/OptionData::get_text" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            Ok(Value::str(&opt_data(&v, |d| d.text.clone()).unwrap_or_default()))
+        },
+        "UnityEngine.UI.Dropdown/OptionData::set_text" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            let t = to_string(vm, &a[1])?;
+            opt_data(&v, |d| d.text = t);
+            Ok(Value::Null)
+        },
+        "UnityEngine.UI.Dropdown/OptionData::get_image" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            Ok(opt_data(&v, |d| d.image.clone()).unwrap_or(Value::Null))
+        },
+        "UnityEngine.UI.Dropdown/OptionData::set_image" => |vm, a| {
+            let v = rv(vm, &a[0]);
+            let img = a[1].clone();
+            opt_data(&v, |d| d.image = img);
             Ok(Value::Null)
         },
         "UnityEngine.EventSystems.PointerEventData::get_button" => |vm, a| {
@@ -896,4 +943,16 @@ fn key_arg(vm: &mut Vm, v: &Value) -> i32 {
         Value::I32(i) => *i,
         v => crate::input::key_by_name(&crate::dev::show(vm, v)),
     }
+}
+
+/// Access to a Dropdown option object.
+fn opt_data<R>(v: &Value, f: impl FnOnce(&mut OptD) -> R) -> Option<R> {
+    if let Value::Obj(o) = v {
+        if let Ext::Native(b) = &mut *o.x.borrow_mut() {
+            if let Some(d) = b.downcast_mut::<OptD>() {
+                return Some(f(d));
+            }
+        }
+    }
+    None
 }

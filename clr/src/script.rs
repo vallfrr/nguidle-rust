@@ -83,7 +83,10 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                                     let txt = crate::bcl_core::to_string(vm, &v).unwrap_or_default();
                                     std::fs::write(p[1], txt).ok();
                                 }
-                                Err(_) => {
+                                Err(e) => {
+                                    vm.report_exc("save probe", &crate::value::Value::Null, &e);
+                                    let msg = String::new();
+                                    println!("[save] exception: {msg}");
                                     std::fs::write(p[1], "EXCEPTION").ok();
                                 }
                             }
@@ -113,8 +116,9 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                     }
                 } else if let Some(m) = vm.find_method(o.ty, "swapMenu", 2) {
                     let n: i32 = p[1].parse().unwrap_or(0);
-                    if vm.invoke(m, vec![c.clone(), crate::value::Value::I32(n)]).is_err() {
+                    if let Err(e) = vm.invoke(m, vec![c.clone(), crate::value::Value::I32(n)]) {
                         println!("[menu] {n} : exception");
+                        vm.report_exc("menu", &c, &e);
                     }
                 }
                 break;
@@ -166,6 +170,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                         vm.frame(1.0 / 30.0);
                     }
                 }
+                continue;
+            }
+            "find" => {
+                // find,<name part> : GameObjects with their tag, active flag and world rectangle
+                print!("{}", crate::dev::find(vm, &p[1..].join(",")));
                 continue;
             }
             "ultimate" => {

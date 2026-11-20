@@ -24,6 +24,12 @@ g = TypeTreeGenerator("2019.4.22f1")
 g.load_local_game(GAME)
 env.typetree_generator = g
 
+# --- project tags: custom tag ids are 20000 + index into TagManager.tags (the game compares tag names, e.g. "Menu")
+for _o in env.objects:
+    if _o.type.name == "TagManager":
+        json.dump({"tags": list(_o.read_typetree()["tags"])}, open(OUT + r"	ags.json", "w"))
+        break
+
 # --- fix: the generator types string[] fields as "string" (should be "vector")
 _orig_get_nodes = g.get_nodes
 def _patched_get_nodes(assembly, fullname):

@@ -19,6 +19,8 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `click,<text>` | clicks the visible element whose text equals (else contains) `<text>`, waits 17 frames |
 | `ui[,file]` | screen as text: interactive elements (`button`, `zone`, `toggle`, `input`, `slider`...) then visible texts, with 960x600 rectangles |
 | `inspect,x,y` | nodes under the point (back to front) with components: image (colour, sprite), text, Selectable, Mask, game scripts |
+| `find,<name part>` | GameObjects with tag, active flag and world rectangle |
+| `ultimate` | sets every unlock-like boolean reachable from the scene (see `dev/ultimate.steps`) |
 | `get,Type.field.field` | reads a game value (e.g. `get,Character.bossID`) |
 | `set,Type.field...,value` | writes (same type as the old value; `true/false` for booleans) |
 | `call,Type[.field].method[,args]` | calls a game method (e.g. `call,ButtonShower.updateButtons`) |
@@ -34,6 +36,7 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.cs`, local, not versioned; produced by `tools/decompile.sh`).
 
 ## Presets (`dev/`)
+- `dev/ultimate.steps`: the "ultimate" state (everything gated by progression visible; used for `tools/screens.sh ultimate`). **Do not load saves made from it into the original game: huge `bossID` unlocks real Steam achievements.**
 - `dev/unlock.steps`: closes the tutorial, boss 150, all features unlocked (conditions of `ButtonShower.updateButtons`). Still locked: Advanced Training (array `training.attackTraining[4]`, not settable with `set`).
 
 ## Known limits

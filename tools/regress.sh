@@ -16,4 +16,11 @@ export NGU_STEPS="$(bash tools/rand-steps.sh 150 9);w,200"
 chk "complete save identical" "$(bash tools/savediff.sh 30 2>&1 | tail -1)" "IDENTICAL"
 unset NGU_STEPS
 chk "load + re-save identical" "$(bash tools/loaddiff.sh 3 2>&1 | grep -E 'IDENTICAL|DIFFERENT' | head -1)" "IDENTICAL"
+# a real PC save (local, never versioned): oracle and native must agree after loading it
+REAL=local/save-backup/NGUSaveSteam.txt
+if [ -f "$REAL" ]; then
+  export NGU_STEPS="l,$PWD/$REAL;w,100"
+  chk "state after loading a real PC save" "$(bash tools/statediff.sh 40 5 2>&1 | tail -1)" "differing lines: 0"
+  unset NGU_STEPS
+fi
 [ $ok = 1 ] && echo "REGRESSION: ALL OK" || echo "REGRESSION: FAILURES"

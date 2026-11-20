@@ -208,3 +208,17 @@ pub fn ultimate(vm: &mut Vm) -> String {
     }
     format!("{} unlock flags set: {}", set.len(), set.keys().cloned().collect::<Vec<_>>().join(" "))
 }
+
+/// GameObjects whose name contains `needle`: tag, active flag and world rectangle (virtual px, y up).
+pub fn find(vm: &mut Vm, needle: &str) -> String {
+    let mut out = String::new();
+    for go in vm.eng.gos.clone() {
+        let Some((name, active, tag, tr)) = with_go(&go, |g| (g.name.clone(), g.active, g.tag.clone(), g.transform.clone())) else { continue };
+        if !name.contains(needle) {
+            continue;
+        }
+        let x = crate::ui::xf(vm, &tr);
+        out += &format!("{name:<40} tag={tag:<9} active={active} origin=({:.0},{:.0}) size=({:.0},{:.0}) scale=({:.2},{:.2})\n", x.origin[0], x.origin[1], x.w, x.h, x.scale[0], x.scale[1]);
+    }
+    out
+}

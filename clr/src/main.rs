@@ -14,6 +14,7 @@ fn main() {
         "stats" => stats(&mut vm),
         "run" => run(&mut vm, &args[3..]),
         "load" => load(&mut vm, &args[3..]),
+        "nrbf" => nrbf_dump(&args[3..]),
         "shot" => shot(&mut vm, &args[3..]),
         "click" => click(&mut vm, &args[3..]),
         "play" => play(&mut vm, &args[3..]),
@@ -308,4 +309,47 @@ fn stats(vm: &mut Vm) {
         }
     }
     println!("classes with MoveNext (iterators/coroutines): {iter}");
+}
+
+/// clr <dll> nrbf <save file> : summary of the BinaryFormatter streams of a real save (outer SaveData, inner PlayerData).
+fn nrbf_dump(a: &[String]) {
+    let _ = a;
+    let txt = std::fs::read_to_string(&a[0]).expect("save file");
+    let outer = decode_b64(txt.trim());
+    let s = clr::nrbf::parse(&outer).expect("outer stream");
+    println!("== outer ==
+{}", clr::nrbf::summary(&s));
+    if let clr::nrbf::N::Obj(o) = &s.root {
+        if let clr::nrbf::N::Str(_, inner) = &o.vals[0] {
+            let bytes = decode_b64(inner);
+            match clr::nrbf::parse(&bytes) {
+                Ok(s2) => println!("== inner ({} bytes) ==
+{}
+== root shape ==
+{}", bytes.len(), clr::nrbf::summary(&s2), clr::nrbf::root_shape(&s2)),
+                Err(e) => println!("inner parse error: {e}"),
+            }
+        }
+    }
+}
+
+fn decode_b64(s: &str) -> Vec<u8> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        b'/' => 63,
+        _ => 255,
+    };
+    let (mut out, mut acc, mut bits) = (vec![], 0u32, 0);
+    for c in s.bytes().filter(|c| *c != b'=') {
+        acc = (acc << 6) | val(c) as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
 }

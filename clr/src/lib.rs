@@ -9,6 +9,8 @@ pub mod focus;
 pub mod input;
 pub mod layout;
 pub mod lower;
+pub mod nrbf;
+pub mod serial;
 pub mod program;
 pub mod render;
 pub mod script;

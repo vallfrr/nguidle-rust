@@ -87,7 +87,10 @@ pub struct SelD {
     pub char_limit: i32,
     pub content_type: i32,
     pub size: f32,
-    pub options: Vec<(String, Value)>,
+    /// Dropdown options: `UnityEngine.UI.Dropdown/OptionData` objects (native `OptD`), shared with the game code
+    pub options: Vec<Value>,
+    /// Dropdown caption Text component
+    pub caption: Value,
     pub focused: bool,
     pub state: i32, // 0 normal 1 highlighted 2 pressed
 }
@@ -454,6 +457,7 @@ fn default_sel(kind: SelKind) -> SelD {
         content_type: 0,
         size: 0.2,
         options: vec![],
+        caption: Value::Null,
         focused: false,
         state: 0,
     }
@@ -971,8 +975,11 @@ impl Vm {
                     SelKind::Dropdown => {
                         s.value = d["m_Value"].as_i64().unwrap_or(0) as f32;
                         s.on_change = parse_event(self, &d["m_OnValueChanged"]);
+                        s.caption = self.eng.get(&d["m_CaptionText"]);
                         if let Some(a) = d["m_Options"]["m_Options"].as_array() {
-                            s.options = a.iter().map(|x| (x["m_Text"].as_str().unwrap_or("").to_string(), self.eng.get(&x["m_Image"]))).collect();
+                            let opts: Vec<(String, Value)> = a.iter().map(|x| (x["m_Text"].as_str().unwrap_or("").to_string(), self.eng.get(&x["m_Image"]))).collect();
+                            let id = self.type_id(OPTION_DATA);
+                            s.options = opts.into_iter().map(|(text, image)| Value::Obj(Obj::new(id, 0, Ext::Native(Box::new(OptD { text, image }))))).collect();
                         }
                     }
                     SelKind::Scrollbar => {
@@ -1412,9 +1419,24 @@ impl Vm {
     }
 }
 
+/// Tag name of a tag id: built-in tags, then the project's custom tags (id 20000 + index, listed in `tags.json`).
 fn tag_name(i: i64) -> String {
+    static CUSTOM: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let custom = CUSTOM.get_or_init(|| {
+        crate::assets::read_string("tags.json")
+            .and_then(|t| serde_json::from_str::<J>(&t).ok())
+            .and_then(|v| v["tags"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()))
+            .unwrap_or_default()
+    });
     match i {
         0 => "Untagged".into(),
+        1 => "Respawn".into(),
+        2 => "Finish".into(),
+        3 => "EditorOnly".into(),
+        4 => "MainCamera".into(),
+        5 => "Player".into(),
+        6 => "GameController".into(),
+        i if i >= 20000 && ((i - 20000) as usize) < custom.len() => custom[(i - 20000) as usize].clone(),
         _ => format!("Tag{}", i),
     }
 }
@@ -1478,4 +1500,13 @@ pub fn dump_state(vm: &Vm) -> String {
         lines.push(format!("{}|{}|{}{}", path.join("/"), if active { "on" } else { "off" }, if destroyed { "X" } else { "" }, extra));
     }
     lines.join("\n")
+}
+
+/// Native type name of Dropdown options.
+pub const OPTION_DATA: &str = "UnityEngine.UI.Dropdown/OptionData";
+
+/// `Dropdown.OptionData`: text and image of one option.
+pub struct OptD {
+    pub text: String,
+    pub image: Value,
 }

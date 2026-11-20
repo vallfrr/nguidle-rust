@@ -6,7 +6,10 @@ Honest table. "Verified" means seen or measured; everything else is stated as no
 |---|---|
 | Generated Rust: 5,327 / 5,359 methods, compiles, runs on PC | **verified** (oracle) |
 | Visible state identical to the interpreter: 30 / 300 / 600 frames, 96 clicks, 1,500 idle frames, random click batteries | **verified** (`tools/regress.sh`) |
-| Save (`getBase64Data`) byte-identical; load + 100 frames + re-save identical | **verified** |
+| Save (`getBase64Data`) byte-identical oracle/native; load + 100 frames + re-save identical | **verified** |
+| Save format = real .NET BinaryFormatter (same as the original): our save loads in the original game; the original's real save loads in ours (oracle == native after loading it) | **verified** |
+| Unlocked menus vs the original (18 menus, our ultimate save loaded in the original) | **verified** by side-by-side sheets; remaining differences are time/state dependent |
+| Dropdown (options, caption): Adventure and Beard menus no longer raise on refresh | **verified** (capture) |
 | Differential fuzz (480 calls, primitive static methods) | **verified**, 0 differences |
 | Number formatting by system culture (fr: `500 000`, `3,1s`), regression OK in en and fr | **verified** (dates not handled) |
 | Disabled buttons greyed (ColorTint), `Mask` with `showMaskGraphic = false` no longer drawn | **verified** against the original (screenshots) |
