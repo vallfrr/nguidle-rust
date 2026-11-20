@@ -103,6 +103,7 @@ impl<'a> G<'a> {
         match t {
             RT::Bool | RT::Char | RT::I1 | RT::U1 | RT::I2 | RT::U2 | RT::I4 | RT::U4 => RT::I4,
             RT::U8 => RT::I8,
+            RT::Ext(name, _) if clr::bcl::is_delegate_type(name) => RT::Obj,
             o => o.clone(),
         }
     }
@@ -837,6 +838,15 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                             args.push(pop!());
                         }
                         args.reverse();
+                        if meta.key == "System.Linq.Enumerable::ElementAt" {
+                            if let [(source, RT::Ext(name, types)), (index, RT::I4)] = args.as_slice() {
+                                if name == "System.Collections.Generic.Dictionary`2" && types.len() == 2 {
+                                    push!(format!("ngu_rt::ext::dictionary_element_at(&{}, {})", source, index),
+                                        RT::Ext("System.Collections.Generic.KeyValuePair`2".into(), types.clone()));
+                                    continue;
+                                }
+                            }
+                        }
                         let mut names = vec![];
                         let mut ptys: Vec<String> = vec![];
                         let mut exprs = vec![];
@@ -878,7 +888,9 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         }
                         let gsuf = if meta.targs.is_empty() { String::new() } else { format!("__G_{}", sanitize(&meta.targs.iter().map(|t| match t { Ty::Ext(n, _) => n.clone(), Ty::User(i) => self.vm.types[*i as usize].name.clone(), o => self.rs(&self.ty_to_rt(o)) }).collect::<Vec<_>>().join("_"))) };
                         let fname = if generic_recv { format!("{}__{}", sanitize(&meta.tname), sanitize(&meta.name)) } else { format!("{}__{}__{}", sanitize(&meta.tname), sanitize(&meta.name), names.join("_")) };
-                        let rret = match &meta.ret {
+                        let rret = if meta.key == "System.Linq.Enumerable::ToDictionary" && meta.targs.len() == 3 {
+                            RT::Ext("System.Collections.Generic.Dictionary`2".into(), meta.targs[1..].iter().map(|t| self.ty_to_rt(t)).collect())
+                        } else { match &meta.ret {
                             // generic return on a receiver whose type is not statically known: dynamic engine value
                             Some(Ty::Generic) if meta.targs.is_empty() && !matches!(&recv, Some(RT::Ext(_, a)) if !a.is_empty()) => RT::Obj,
                             None => RT::Void,
@@ -890,7 +902,7 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                                 let r = self.ty_to_rt(t);
                                 if matches!(r, RT::Obj) { if let Some(RT::Ext(_, a)) = &recv { if meta.name == "get_Key" { a.first().cloned().unwrap_or(RT::Obj) } else { a.last().cloned().unwrap_or(RT::Obj) } } else { RT::Obj } } else { r }
                             }
-                        };
+                        }};
                         let _ = has_ret;
                         let fname = format!("{}{}", fname, gsuf);
                                                 let rr = self.rs(&rret);
@@ -964,6 +976,9 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         let (tn, fnm) = key.rsplit_once("::").ok_or("field key")?;
                         let isv = |r: &RT| matches!(r, RT::Ext(n, _) if Self::valstruct(n).is_some());
                         match &vt {
+                            RT::Ext(n, _) if n == "UnityEngine.UI.Toggle" && fnm == "graphic" => {
+                                push!(format!("ngu_host::native_field({:?}, ToV::to_v(&{}))", &**key, v), RT::Obj);
+                            }
                             r if isv(r) => push!(format!("{}.{}", v, fnm), RT::R4),
                             RT::Ptr(inner, place) if isv(inner) => push!(format!("{}.{}", place, fnm), RT::R4),
                             _ => fail!("external ldfld {} on {:?}", tn, vt),

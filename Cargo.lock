@@ -214,6 +214,7 @@ dependencies = [
  "fontdue",
  "indexmap",
  "md-5",
+ "ngu-rt",
  "png",
  "regex",
  "serde",

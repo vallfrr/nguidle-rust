@@ -100,6 +100,7 @@ fn load(vm: &mut Vm, a: &[String]) {
     let frames: usize = a.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
     vm.eng.screen = (960, 600);
     vm.eng.save_dir = format!("{}/save", dir);
+    vm.eng.desktop_panels = true;
     unity_api::load_prefs(vm);
     let t = std::time::Instant::now();
     if let Err(e) = vm.load_scene(&dir) {

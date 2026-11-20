@@ -1,6 +1,6 @@
 # Proposal: making NGU Idle playable with buttons / on a small screen
 
-**Status: PROPOSAL. Only part of it is implemented** (focus navigation, L/R menu step). The game is mouse-only on PC; touch = mouse in V1.
+**Status: partial implementation on Windows.** D-pad and left stick navigate focus, south confirms, east closes a dropdown or clears focus, bumpers change menus and right stick scrolls. Dropdowns accept directional input and confirm. Vita V1 treats touch as mouse input.
 
 ## 1. What the game really asks for as input (measured in the code)
 
@@ -25,7 +25,7 @@ Display constraints: the game is designed at 960x600 (16:10); the Vita is 960x54
 
 ## 3. Proposals
 - **A. Gamepad cursor** (priority 1): left stick = virtual cursor, cross = left click, circle = right click, square = latch a drag, triangle = tooltip; right stick scrolls; L/R = previous/next menu.
-- **B. D-pad focus navigation** (priority 1, **implemented** in `clr/src/focus.rs`): list the visible interactive elements, jump to the best neighbour in a direction, draw a focus frame, cross = click, focus triggers `PointerEnter` (tooltip).
+- **B. D-pad focus navigation** (priority 1, **implemented** in `clr/src/focus.rs`): list the visible interactive elements, jump to the best neighbour in a direction, tint the control interior, use confirm to activate, and trigger `PointerEnter` for help at the focused control.
 - **C. Keyboard shortcuts -> buttons** (priority 1): combat menu 18 keys -> 3 pages of 6 actions; inventory pages = L/R; tutorial/zone arrows = d-pad left/right; inject `Input.GetKey/GetKeyDown` on the VM side.
 - **D. Number entry** (priority 2): on-screen numeric pad (big keys, K/M/B, x2, /2, Max) besides the system keyboard.
 - **E. Readability at 5 inches** (priority 2): magnifier on long press, UI zoom by pinch, larger hit areas (+-6-8 px, nearest target wins).

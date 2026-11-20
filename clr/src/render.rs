@@ -1,5 +1,5 @@
 //! Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
-use crate::ui::{child_xf, xf, Xf};
+use crate::ui::{view_child_xf, view_width, view_xf, Xf};
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
@@ -60,6 +60,7 @@ pub struct Renderer {
     pub hits: usize,
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
+    tooltip: Option<Value>,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
     pub regions: Vec<crate::profile::Region>,
 }
@@ -70,6 +71,17 @@ struct Clip {
     y0: i32,
     x1: i32,
     y1: i32,
+}
+
+impl Clip {
+    fn intersect(self, other: Self) -> Self {
+        Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        }
+    }
 }
 
 struct Run {
@@ -105,6 +117,7 @@ impl Renderer {
             visits: 0,
             hits: 0,
             tints: vec![],
+            tooltip: None,
             regions: vec![],
         }
     }
@@ -203,6 +216,8 @@ impl Renderer {
     /// Builds the quad list of the current frame (self.quads).
     pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
         self.run_layout(vm);
+        crate::desktop_layout::rebuild(vm);
+        crate::save_slots::reflow(vm);
         self.quads.clear();
         self.scale = scale;
         self.ox = ox;
@@ -221,10 +236,15 @@ impl Renderer {
             self.atlas.dirty = true;
             self.gen = next_gen();
         }
-        let full = Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 };
         if let Some(d) = self.regions.iter().position(|r| r.nodes.iter().any(|n| n == "*")) {
             let r = &self.regions[d];
             (self.scale, self.ox, self.oy) = (r.scale, r.ox, r.oy);
+        }
+        let full = self.frame_clip(vm);
+        if self.tooltip.is_none() {
+            self.tooltip = Some(vm.eng.gos.iter().find_map(|go| {
+                with_go(go, |g| (g.name == "Hover Tooltip").then(|| g.transform.clone())).flatten()
+            }).unwrap_or_default());
         }
         self.regions.iter_mut().for_each(|r| r.drawn = false);
         let mut roots: Vec<(i32, Value)> = vec![];
@@ -253,13 +273,39 @@ impl Renderer {
         roots.sort_by_key(|r| r.0);
         let stats = std::env::var("CLR_EMITSTATS").is_ok();
         for (_, tr) in roots {
-            let x = xf(vm, &tr);
+            let x = view_xf(vm, &tr);
             let (q0, t0) = (self.quads.len(), std::time::Instant::now());
-            self.draw_node(vm, &tr, x, full, 0);
+            let mut clip = full;
+            if crate::save_slots::is_open(vm) && !crate::save_slots::owns(&go_of(&tr)) {
+                clip.x1 = clip.x1.min(self.to_dev([crate::save_slots::CONTENT_LEFT, 0.0])[0].floor() as i32);
+            }
+            self.draw_node(vm, &tr, x, clip, 0);
             if stats {
                 let n = with_go(&go_of(&tr), |g| g.name.clone()).unwrap_or_default();
                 crate::elog!("  racine {:<28} {:>5} quads {:>9.3?}", n, self.quads.len() - q0, t0.elapsed());
             }
+        }
+        self.draw_dropdown(vm);
+        if let Some(tooltip) = self.tooltip.clone().filter(|tr| active_in_hierarchy(&go_of(tr))) {
+            let mut x = view_xf(vm, &tooltip);
+            let (mx, my) = vm.eng.mouse;
+            let width = vm.eng.desktop_layout.width();
+            if vm.eng.desktop_panels && self.regions.is_empty() &&
+                (0.0..width).contains(&mx) && (0.0..self.vh).contains(&my) &&
+                vm.eng.invokes.iter().any(|v| v.method == "updateTooltip")
+            {
+                let (w, h) = (x.w * x.scale[0].abs(), x.h * x.scale[1].abs());
+                let place = |pointer: f32, length: f32, limit: f32| {
+                    let origin = if pointer + 10.0 + length <= limit { pointer + 10.0 }
+                        else { pointer - length - 10.0 };
+                    origin.clamp(0.0, (limit - length).max(0.0))
+                };
+                x.origin = [place(mx, w, width) + w * x.pivot[0], place(my, h, self.vh) + h * x.pivot[1]];
+            }
+            let clip = if self.regions.is_empty() { full } else {
+                Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 }
+            };
+            self.draw_node(vm, &tooltip, x, clip, 2);
         }
     }
 
@@ -271,11 +317,10 @@ impl Renderer {
         self.t_raster = t.elapsed().as_secs_f32() * 1000.0;
     }
 
-    /// Quad list of the frame including the focus frame; `t_emit` receives the time taken (ms). The GPU backends draw `self.quads`.
+    /// Quad list of the frame; `t_emit` receives the time taken (ms). The GPU backends draw `self.quads`.
     pub fn emit_frame(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
         let t = std::time::Instant::now();
         self.emit(vm, scale, ox, oy);
-        self.draw_focus(vm);
         self.t_emit = t.elapsed().as_secs_f32() * 1000.0;
     }
 
@@ -286,24 +331,44 @@ impl Renderer {
         self.fb = if keep_fb { vec![0; w * h * 4] } else { vec![] };
     }
 
-    /// Focus frame (gamepad/keyboard navigation) over the interface.
-    fn draw_focus(&mut self, vm: &Vm) {
-        let r = match vm.eng.focus_rect {
-            Some(r) if !vm.eng.focus.is_null() && active_in_hierarchy(&vm.eng.focus) => r,
-            _ => return,
-        };
-        let vh = self.vh;
+    fn draw_dropdown(&mut self, vm: &mut Vm) {
+        let Some(popup) = crate::dropdown::popup(vm) else { return };
+        let Some(mut text) = with_comp(&popup.caption, |c| {
+            if let CK::Text(t) = &c.k { Some(TextSnap::from(t)) } else { None }
+        }).flatten() else { return };
         let saved = (self.scale, self.ox, self.oy);
-        if let Some(i) = crate::profile::region_at_game(&self.regions, (r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) {
-            let g = &self.regions[i];
-            (self.scale, self.ox, self.oy) = (g.scale, g.ox, g.oy);
+        if let Some(i) = crate::profile::region_at_game(&self.regions, popup.x + popup.width / 2.0, self.vh - popup.top) {
+            let r = &self.regions[i];
+            (self.scale, self.ox, self.oy) = (r.scale, r.ox, r.oy);
         }
-        let t = 3.0;
-        let bars = [[r[0], r[1], r[2], r[1] + t], [r[0], r[3] - t, r[2], r[3]], [r[0], r[1], r[0] + t, r[3]], [r[2] - t, r[1], r[2], r[3]]];
-        let full = [0, 0, self.w as i32, self.h as i32];
-        for b in bars {
-            let p = [self.to_dev([b[0], vh - b[1]]), self.to_dev([b[2], vh - b[1]]), self.to_dev([b[2], vh - b[3]]), self.to_dev([b[0], vh - b[3]])];
-            self.quads.push(Quad { p, uv: [[0.0; 2]; 4], col: [1.0, 0.85, 0.1, 1.0], tex: TEX_WHITE, nearest: false, clip: full });
+        let clip = self.frame_clip(vm);
+        let h = popup.row_height;
+        let height = h * popup.rows as f32;
+        let width = popup.width - popup.scrollbar_width();
+        let mut x = Xf { origin: [popup.x, popup.top], scale: [1.0, 1.0], rot: 0.0, w: width, h, pivot: [0.0, 1.0] };
+        self.quad(&x, [-1.0, -height - 1.0, popup.width + 2.0, height + 2.0], None, [0.0; 4], [0.12, 0.15, 0.17, 1.0], clip);
+        text.align = 3;
+        text.cached = None;
+        for row in 0..popup.rows {
+            let item = popup.first + row;
+            x.origin = [popup.x, popup.top - row as f32 * h];
+            let highlight = popup.cursor.unwrap_or(usize::MAX) == item;
+            let color = if highlight { [1.0, 0.89, 0.52, 1.0] }
+                else if popup.cursor.is_none() && popup.row_at(vm.eng.mouse) == Some(item) { [0.82, 0.90, 0.98, 1.0] }
+                else if item == popup.selected { [0.90, 0.93, 0.95, 1.0] } else { [1.0; 4] };
+            self.quad(&x, [0.0, -h, width, h], None, [0.0; 4], color, clip);
+            text.text = crate::unity_api::opt_data(&popup.options[item], |o| o.text.clone()).unwrap_or_default();
+            x.origin[0] += 5.0;
+            x.w = width - 10.0;
+            self.draw_text(vm, &Value::Null, &x, &text, clip);
+        }
+        if popup.scrollbar_width() > 0.0 {
+            x.origin = [popup.x + width, popup.top];
+            let bar = popup.scrollbar_width();
+            let thumb_h = height * popup.rows as f32 / popup.options.len() as f32;
+            let offset = height * popup.first as f32 / popup.options.len() as f32;
+            self.quad(&x, [0.0, -height, bar, height], None, [0.0; 4], [0.88, 0.88, 0.88, 1.0], clip);
+            self.quad(&x, [1.0, -offset - thumb_h, bar - 2.0, thumb_h], None, [0.0; 4], [0.36, 0.50, 0.62, 1.0], clip);
         }
         (self.scale, self.ox, self.oy) = saved;
     }
@@ -355,7 +420,7 @@ impl Renderer {
         let go = go_of(tr);
         // containers above bound regions: their subtree mixes transforms that change without the game noticing
         let cacheable = self.regions.is_empty() || depth >= 2;
-        let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy];
+        let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy, vm.eng.desktop_layout.width()];
         let ck = [clip.x0, clip.y0, clip.x1, clip.y1];
         let gen = self.gen;
         // valid cache?
@@ -372,13 +437,14 @@ impl Renderer {
             self.draws += q.len();
             return;
         }
-        let (active, comps) = match with_go(&go, |g| (g.active, g.comps.clone())) {
+        let (active, comps) = match with_go(&go, |g| (g.active && !g.port_hidden, g.comps.clone())) {
             Some(v) => v,
             None => return,
         };
         if !active {
             return;
         }
+        let graphic_clip = self.graphic_clip(vm, tr, clip);
         let start = self.quads.len();
         let mut child_clip = clip;
         // Selectable with ColorTint transition: state colour (Unity: normal / hover / press / select / disabled)
@@ -399,6 +465,17 @@ impl Renderer {
         }
         // Mask with showMaskGraphic = false: the node's image is used for clipping but not drawn (Unity)
         let hide_graphic = comps.iter().any(|c| with_comp(c, |k| k.enabled && matches!(k.k, CK::Mask { show_graphic: false })).unwrap_or(false));
+        let focused_graphic = if same(&go, &vm.eng.focus) {
+            comps.iter().find_map(|c| with_comp(c, |k| match &k.k {
+                CK::Sel(s) if k.enabled && s.interactable && !s.target_graphic.is_null() =>
+                    Some(s.target_graphic.clone()),
+                _ => None,
+            }).flatten()).or_else(|| comps.iter().find(|c| {
+                with_comp(c, |k| k.enabled && matches!(k.k, CK::Image(_) | CK::RawImage(_))).unwrap_or(false)
+            }).cloned())
+        } else {
+            None
+        };
         for c in &comps {
             let enabled = with_comp(c, |k| k.enabled).unwrap_or(false);
             if !enabled {
@@ -424,13 +501,19 @@ impl Renderer {
                     if let Some(m) = self.tint_for(c) {
                         (0..4).for_each(|k| i.color[k] *= m[k]);
                     }
-                    self.draw_image(vm, &x, &i, clip)
+                    let focused = focused_graphic.as_ref().is_some_and(|target| same(target, c));
+                    self.draw_image(vm, &x, &i, graphic_clip, focused)
                 }
                 D::Txt(mut t) => {
+                    if vm.eng.desktop_layout.pc_resolutions {
+                        if let Some(label) = crate::desktop_layout::pc_resolution_label(&t.text) {
+                            t.text = label;
+                        }
+                    }
                     if let Some(m) = self.tint_for(c) {
                         (0..4).for_each(|k| t.color[k] *= m[k]);
                     }
-                    self.draw_text(vm, c, &x, &t, clip)
+                    self.draw_text(vm, c, &x, &t, graphic_clip)
                 }
                 D::Mask => {
                     let r = self.rect_aabb(&x, [-x.pivot[0] * x.w, -x.pivot[1] * x.h, x.w, x.h]);
@@ -440,9 +523,11 @@ impl Renderer {
             }
         }
         let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
-        let has_children = !children.is_empty();
         for ch in children {
-            let cx = match with_tr(&ch, |t| child_xf(&x, t)) {
+            if self.tooltip.as_ref().is_some_and(|tooltip| same(tooltip, &ch)) {
+                continue;
+            }
+            let cx = match view_child_xf(vm, &x, &ch) {
                 Some(v) => v,
                 None => continue,
             };
@@ -452,7 +537,6 @@ impl Renderer {
             self.tints.pop();
         }
         // memorise the subtree
-        let n = self.quads.len() - start;
         with_go(&go, |g| {
             g.dirty = false;
             if cacheable {
@@ -468,6 +552,37 @@ impl Renderer {
     }
 
     // ---------------------------------------------------------------- geometry
+    fn projected_clip(&self, width: f32) -> Clip {
+        Clip {
+            x0: self.ox.round() as i32,
+            y0: self.oy.round() as i32,
+            x1: (self.ox + width * self.scale).round() as i32,
+            y1: (self.oy + self.vh * self.scale).round() as i32,
+        }
+    }
+
+    fn frame_clip(&self, vm: &Vm) -> Clip {
+        let device = Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 };
+        match self.regions.as_slice() {
+            [] => device.intersect(self.projected_clip(vm.eng.desktop_layout.width().max(vm.eng.screen.0 as f32))),
+            [region] => {
+                let [x, y, w, h] = region.dest();
+                device.intersect(Clip { x0: x.round() as i32, y0: y.round() as i32, x1: (x + w).round() as i32, y1: (y + h).round() as i32 })
+            }
+            _ => device,
+        }
+    }
+
+    fn graphic_clip(&self, vm: &Vm, tr: &Value, clip: Clip) -> Clip {
+        if self.regions.is_empty() {
+            // A parent can contain both parked and projected children. Bound its
+            // own graphics without clipping the independently placed children.
+            clip.intersect(self.projected_clip(view_width(vm, tr)))
+        } else {
+            clip
+        }
+    }
+
     fn to_dev(&self, p: [f32; 2]) -> [f32; 2] {
         [self.ox + p[0] * self.scale, self.oy + (self.vh - p[1]) * self.scale]
     }
@@ -525,7 +640,7 @@ impl Renderer {
         self.quads.push(Quad { p, uv: tuv, col, tex: id, nearest: false, clip: [clip.x0, clip.y0, clip.x1, clip.y1] });
     }
 
-    fn draw_image(&mut self, vm: &mut Vm, x: &Xf, im: &ImageSnap, clip: Clip) {
+    fn draw_image(&mut self, vm: &mut Vm, x: &Xf, im: &ImageSnap, clip: Clip, focused: bool) {
         let dir = vm.eng.assets_dir.clone();
         let local = [-x.pivot[0] * x.w, -x.pivot[1] * x.h, x.w, x.h];
         let sp = with_comp(&im.sprite, |k| match &k.k {
@@ -563,7 +678,12 @@ impl Renderer {
                             continue;
                         }
                         let r = [local[0] + xs[i], local[1] + ys[j], xs[i + 1] - xs[i], ys[j + 1] - ys[j]];
-                        self.quad(x, r, tex.as_ref(), [us[i], vs[j], us[i + 1], vs[j + 1]], col, clip);
+                        let color = if focused && i == 1 && j == 1 {
+                            [1.0, 0.89, 0.52, col[3]]
+                        } else {
+                            col
+                        };
+                        self.quad(x, r, tex.as_ref(), [us[i], vs[j], us[i + 1], vs[j + 1]], color, clip);
                     }
                 }
             }
@@ -612,6 +732,11 @@ impl Renderer {
                     }
                 }
                 self.quad(x, r, tex.as_ref(), [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]], col, clip);
+                if focused {
+                    let inset = 3.0f32.min(r[2].min(r[3]) / 4.0);
+                    let inside = [r[0] + inset, r[1] + inset, r[2] - 2.0 * inset, r[3] - 2.0 * inset];
+                    self.quad(x, inside, None, [0.0; 4], [1.0, 0.85, 0.37, 0.48], clip);
+                }
             }
         }
     }
@@ -911,7 +1036,7 @@ impl Renderer {
 
 pub struct NodeCache {
     pub gen: u32,
-    pub key: [f32; 12],
+    pub key: [f32; 13],
     pub clip: [i32; 4],
     pub quads: Rc<Vec<Quad>>,
 }

@@ -11,13 +11,14 @@ Goal: make sure the generated Rust behaves like the original C#. Method: operati
 | sequence of engine->game calls and mutating UnityEngine calls | `tools/divtrace.sh 30` | identical (only difference: selection order of an explicit-interface method, drawn from a hash table) |
 | complete save, load, re-save | `tools/savediff.sh`, `tools/loaddiff.sh` | identical |
 | static methods with primitive signatures, boundary arguments | `ngu-gen fuzz <dll> N` | see section 5 |
+| Cost sorting in Wishes, Beast Quirks, and I.T.O.P.O.D. Perks | Click **Order By** through both cost modes, visit page 2, and return to Default in the native game and the CIL interpreter | Identical grid in all 15 menu states |
 
 The whole battery: `tools/regress.sh` (must end with `REGRESSION: ALL OK`). Fixed clock (`NGU_FIXED_NOW`) and `NGU_NO_GUARD=1` on the oracle side (the oracle deliberately skips `CookingController.updateDishUI` when the menu is hidden; native does not).
 
 ## 2. Defects found by the audit and fixed
 1. **Unsigned 64-bit comparisons**: `cgt.un/clt.un/bge.un...` truncated to `u32` even for `i64` -> `u64` when an operand is 64-bit.
 2. **Float -> integer conversions**: Rust saturates, x86-64 (Mono/.NET) returns `MIN` (out of range or NaN). Added `f2i32`/`f2i64` (x86 behaviour).
-3. **Evaluation stacks between blocks**: a non-empty stack at a join with different types read the wrong carry variable silently. Now detected (`diverging stacks`): the method is refused instead of mis-compiled (6 menu sort methods).
+3. **Evaluation stacks between blocks**: joins reject incompatible carry types. A cached delegate and a newly constructed delegate now use the same stack type, which allows the six cost sort methods to translate. They use stable `OrderBy` with `Double` keys, typed `ToDictionary` results, and dictionary `ElementAt` in enumeration order.
 4. **Non-`Copy` carry values** moved in a loop: read by `clone()`.
 5. **Live pointers between blocks** (`ref/out` in a ternary): carried in a `*mut T` variable.
 6. **Generic external function names**: all instances of `GetComponent<T>` shared one function; the name now contains the type.
@@ -36,7 +37,7 @@ The whole battery: `tools/regress.sh` (must end with `REGRESSION: ALL OK`). Fixe
 - **Boxed user classes in a non-convertible generic `Obj`**: message `[host] boxed object...` (null value). Never seen after the `boxv` unification.
 - **Inheritance / interfaces** between game classes: refused (`class conversion`), concerns only file-dialog code (platform excluded). User `callvirt`: 6 methods, same area.
 - **User structs** (value types defined by the game) are treated as classes (copy semantics lost). No case in the verified methods; list to be established.
-- **Untranslated methods** (26-32): Steam, Kartridge, Windows file dialogs, `order*Cost` sorts (diverging stacks) -> `unimplemented!`; relayed as CLR exceptions by the bridge (the engine logs them as the interpreter does).
+- **Untranslated methods** (25 in `coverage.txt`): Steam, Kartridge, and native file dialogs and their samples. The bridge reports these as CLR exceptions when invoked.
 - **Integer division by zero**: panics; .NET throws `DivideByZeroException` (translated to a CLR exception in the bridge).
 - **Concurrency**: global static state (`static mut`), single-threaded, like the game.
 

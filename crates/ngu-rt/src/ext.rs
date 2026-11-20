@@ -24,9 +24,17 @@ pub fn System_Math__Floor__f64(v: f64) -> f64 {
     v.floor()
 }
 pub fn System_Math__Pow__f64_f64(a: f64, b: f64) -> f64 {
-    a.powf(b)
+    // The original Mono runtime uses legacy exceptional-value semantics for Pow.
+    if a.is_nan() || b.is_nan() || (a == -1.0 && b.is_infinite()) {
+        return f64::NAN;
+    }
+    let base = if a == 0.0 || (a.is_infinite() && b < 0.0) { a.abs() } else { a };
+    base.powf(b)
 }
 pub fn System_Math__Log__f64_f64(a: f64, b: f64) -> f64 {
+    if b == 1.0 || (a != 1.0 && (b == 0.0 || b == f64::INFINITY)) {
+        return f64::NAN;
+    }
     a.ln() / b.ln()
 }
 pub fn System_Math__Log10__f64(a: f64) -> f64 {
@@ -56,7 +64,7 @@ pub fn System_Int32__ToString__Ref_i32_Str(v: i32, f: Str) -> Str {
     str_of(&crate::fmt::format_number(v as f64, true, str_ref(&f)))
 }
 pub fn UnityEngine_Mathf__Floor__f32(a: f32) -> f32 { a.floor() }
-pub fn UnityEngine_Mathf__FloorToInt__f32(a: f32) -> i32 { a.floor() as i32 }
+pub fn UnityEngine_Mathf__FloorToInt__f32(a: f32) -> i32 { f2i32(f64::from(a).floor()) }
 pub fn System_Collections_Generic_Dictionary_2___ctor<K: PartialEq + Clone, V: Clone>() -> Dict<K, V> {
     Some(Rc::new(RefCell::new(DictImpl::new())))
 }
@@ -113,6 +121,12 @@ pub fn System_String___ctor_1(a: Arr<u16>) -> Str {
 }
 pub fn System_Collections_Generic_KeyValuePair_2__get_Key<K, V>(kv: (K, V)) -> K { kv.0 }
 pub fn System_Collections_Generic_KeyValuePair_2__get_Value<K, V>(kv: (K, V)) -> V { kv.1 }
+pub fn dictionary_element_at<K: Clone, V: Clone>(dictionary: &Dict<K, V>, index: i32) -> (K, V) {
+    let dictionary = dictionary.as_ref().expect("ArgumentNullException").borrow();
+    let index = index as usize;
+    let key = dictionary.keys.get(index).expect("ArgumentOutOfRangeException");
+    (key.clone(), dictionary.vals[index].clone())
+}
 
 // ---- List<T>.Enumerator (foreach): value struct, passed by pointer to methods ----
 pub struct ListEnum<T> { pub list: List<T>, pub i: i32 }

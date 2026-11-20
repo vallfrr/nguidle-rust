@@ -22,6 +22,7 @@ pub struct Tr {
     pub is_rect: bool,
 }
 
+#[derive(Clone)]
 pub struct ImageD {
     pub sprite: Value,
     pub color: Col,
@@ -35,6 +36,7 @@ pub struct ImageD {
     pub raycast: bool,
 }
 
+#[derive(Clone)]
 pub struct TextD {
     pub text: String,
     pub font: Value,
@@ -139,6 +141,7 @@ pub enum CK {
     Texture(Box<TexD>),
     Font { name: String, file: String },
     TextAsset { name: String, key: String },
+    AudioClip(String),
     Wait(f32),
     Coroutine,
 }
@@ -168,6 +171,7 @@ pub struct Comp {
 }
 
 pub struct GoData {
+    pub port_hidden: bool,
     pub name: String,
     pub active: bool,
     pub layer: i32,
@@ -204,7 +208,13 @@ pub struct Inv {
 
 #[derive(Default)]
 pub struct Engine {
+    pub(crate) dropdown: crate::dropdown::Dropdown,
+    pub(crate) save_slots: crate::save_slots::SaveSlots,
+    pub desktop_panels: bool,
+    pub read_live_fields: Option<fn(&Value) -> Option<Vec<Value>>>,
+    pub(crate) achievements: crate::achievements::Book,
     pub keys: HashMap<String, Value>,
+    pub(crate) resources: HashMap<String, Vec<Value>>,
     pub gos: Vec<Value>,
     pub time: f64,
     pub dt: f32,
@@ -212,6 +222,7 @@ pub struct Engine {
     pub coroutines: Vec<Co>,
     pub invokes: Vec<Inv>,
     pub screen: (i32, i32),
+    pub desktop_layout: crate::desktop_layout::DesktopLayout,
     pub prefs: HashMap<String, Value>,
     pub assets_dir: String,
     pub save_dir: String,
@@ -436,7 +447,7 @@ fn user_type_id(vm: &Vm, ns: &str, cls: &str) -> Option<u32> {
     vm.type_ids.get(&full).copied().filter(|&i| i < vm.n_user)
 }
 
-fn default_sel(kind: SelKind) -> SelD {
+pub(crate) fn default_sel(kind: SelKind) -> SelD {
     SelD {
         kind,
         interactable: true,
@@ -626,6 +637,7 @@ impl Vm {
         struct Root<'a> {
             #[serde(borrow)]
             objects: indexmap::IndexMap<&'a str, &'a serde_json::value::RawValue>,
+            resources: Option<Vec<(String, String)>>,
         }
         let root: Root = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
         let objs = &root.objects;
@@ -658,6 +670,11 @@ impl Vm {
                     let o = new_comp(self, "UnityEngine.TextAsset", Value::Null, CK::TextAsset { name: v["name"].as_str().unwrap_or("").into(), key: k.clone() });
                     self.eng.keys.insert(k, o);
                 }
+                "AudioClip" => {
+                    let v = pj(raw);
+                    let o = new_comp(self, "UnityEngine.AudioClip", Value::Null, CK::AudioClip(v["name"].as_str().unwrap_or("").into()));
+                    self.eng.keys.insert(k, o);
+                }
                 "GameObject" => {
                     let v = pj(raw);
                     let d = &v["d"];
@@ -667,6 +684,7 @@ impl Vm {
                         Box::new(GoData {
                             name: d["m_Name"].as_str().unwrap_or("").into(),
                             active: jb(&d["m_IsActive"]),
+                            port_hidden: jb(&d["m_PortHidden"]),
                             layer: d["m_Layer"].as_i64().unwrap_or(0) as i32,
                             tag: tag_name(d["m_Tag"].as_i64().unwrap_or(0)),
                             comps: vec![],
@@ -826,17 +844,27 @@ impl Vm {
                 }
             }
         }
-        // Resources.Load index by name
-        let keys: Vec<(String, Value)> = self.eng.keys.iter().filter(|(k, _)| k.starts_with("resources.assets:")).map(|(k, v)| (k.clone(), v.clone())).collect();
-        for (_, v) in keys {
-            let n = with_comp(&v, |c| match &c.k {
-                CK::Sprite(s) => Some(s.name.clone()),
-                CK::TextAsset { name, .. } => Some(name.clone()),
-                _ => None,
-            })
-            .flatten();
-            if let Some(n) = n {
-                self.eng.keys.insert(format!("res:{}", n), v);
+        self.eng.resources.clear();
+        if let Some(resources) = root.resources {
+            // A Unity path can refer to both a Texture2D and a Sprite.
+            for (path, key) in resources {
+                if let Some(asset) = self.eng.keys.get(&key) {
+                    self.eng.resources.entry(path.to_ascii_lowercase()).or_default().push(asset.clone());
+                }
+            }
+        } else {
+            // Keep name-based lookup for data prepared before the resource index was exported.
+            for key in objs.keys().filter(|key| key.starts_with("resources.assets:")) {
+                let Some(asset) = self.eng.keys.get(*key) else { continue };
+                let name = with_comp(asset, |c| match &c.k {
+                    CK::Sprite(s) => Some(s.name.to_ascii_lowercase()),
+                    CK::TextAsset { name, .. } => Some(name.to_ascii_lowercase()),
+                    CK::AudioClip(name) => Some(format!("sounds/{}", name.to_ascii_lowercase())),
+                    _ => None,
+                }).flatten();
+                if let Some(name) = name {
+                    self.eng.resources.entry(name).or_default().push(asset.clone());
+                }
             }
         }
         Ok(())
@@ -1101,6 +1129,7 @@ impl Vm {
                 let _ = self.call_msg(c, "OnEnable");
             }
         }
+        crate::save_slots::prepare_title(self);
     }
 
     pub fn awake_go(&mut self, go: &Value) {
@@ -1168,6 +1197,11 @@ impl Vm {
 
     /// One frame: Update of all components, coroutines, Invoke.
     pub fn frame(&mut self, dt: f32) {
+        if crate::save_slots::pause_on_title(self) {
+            self.pointer_update();
+            self.mouse_input_finished();
+            return;
+        }
         self.eng.dt = dt;
         self.eng.time += dt as f64;
         self.eng.frame += 1;
@@ -1202,6 +1236,11 @@ impl Vm {
                 let _ = self.call_msg(c, "LateUpdate");
             }
         }
+        crate::achievements::tick(self);
+        self.mouse_input_finished();
+    }
+
+    fn mouse_input_finished(&mut self) {
         self.eng.mouse_down_edge = false;
         self.eng.mouse_up_edge = false;
         self.eng.wheel = 0.0;
@@ -1372,7 +1411,7 @@ impl Vm {
             })
             .flatten();
             if let Some((target, method, mode, aobj, ai, af, as_, ab)) = call {
-                self.invoke_pcall(&target, &method, mode, aobj, ai, af, &as_, ab);
+                self.invoke_pcall(&target, &method, mode, aobj, ai, af, &as_, ab, &args);
             }
         }
         for d in rts {
@@ -1389,7 +1428,7 @@ impl Vm {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn invoke_pcall(&mut self, target: &Value, method: &str, mode: i32, aobj: Value, ai: i32, af: f32, as_: &str, ab: bool) {
+    fn invoke_pcall(&mut self, target: &Value, method: &str, mode: i32, aobj: Value, ai: i32, af: f32, as_: &str, ab: bool, event_args: &[Value]) {
         if target.is_null() {
             return;
         }
@@ -1404,7 +1443,8 @@ impl Vm {
         // GameObject.SetActive etc.
         if is_go(target) {
             if method == "SetActive" {
-                self.set_active(target, ab);
+                let active = if mode == 0 { event_args.first().map(Value::as_bool).unwrap_or(ab) } else { ab };
+                self.set_active(target, active);
             }
             return;
         }
@@ -1413,13 +1453,11 @@ impl Vm {
             _ => return,
         };
         let name = method.strip_prefix("set_").map(|m| format!("set_{}", m)).unwrap_or(method.to_string());
-        let argc = 1 + arg.is_some() as usize;
+        let args = if mode == 0 { event_args } else { arg.as_slice() };
         if ty < self.n_user {
-            if let Some(m) = self.find_method(ty, &name, argc) {
+            if let Some(m) = self.find_method(ty, &name, args.len() + 1) {
                 let mut a = vec![target.clone()];
-                if let Some(x) = arg {
-                    a.push(x);
-                }
+                a.extend_from_slice(args);
                 if let Err(e) = self.invoke(m, a) {
                     self.report_exc(method, target, &e);
                 }

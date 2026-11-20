@@ -5,9 +5,9 @@ Free port of **NGU Idle** (by 4G, Unity 2019.4) to Rust: the game's C# code is *
 > **No game file is provided or published here** (no code, images or texts). You must own the game (free on Steam): the conversion reads `Assembly-CSharp.dll` and the data of your installation on your machine.
 
 ## State (in development)
-- C# -> Rust conversion: 5,327 / 5,359 methods (99.4 %); behaviour **identical** to the original, checked by automatic comparison with a reference interpreter (visible state, saves, thousands of clicks): see [`docs/AUDIT-ILGEN.md`](docs/AUDIT-ILGEN.md) and [`docs/STATUS.md`](docs/STATUS.md).
-- PC version: window playable with the mouse (temporary software rendering). Coming: GPU rendering, free window / fullscreen, an interface adapting to any screen size, gamepad, sound.
-- Goals and choices: [`docs/VISION.md`](docs/VISION.md); roadmap: [`docs/NEXT.md`](docs/NEXT.md).
+- Differential testing compares the converted runtime with the original IL running in the reference interpreter. See [`docs/AUDIT-ILGEN.md`](docs/AUDIT-ILGEN.md) and [`docs/STATUS.md`](docs/STATUS.md) for the measured coverage.
+- The Windows version has a resizable GPU window, F11 fullscreen, local save slots and local milestone tracking. Focus navigation uses the D-pad or left stick. The right stick scrolls and the south button confirms.
+- The [release audit](docs/RELEASE-AUDIT.md) tracks platform boundaries and validation. See [vision](docs/VISION.md) and [roadmap](docs/NEXT.md) for decisions and remaining work.
 
 ## Layout
 | folder | role |
@@ -19,12 +19,22 @@ Free port of **NGU Idle** (by 4G, Unity 2019.4) to Rust: the game's C# code is *
 | `tools/` | game data extraction (`nguprep.py`), build and comparison scripts |
 | `docs/` | architecture, audit, status, developer mode ([`docs/DEV.md`](docs/DEV.md)) |
 
-## Build (today: tooling designed for the maintainer's machine, Windows + WSL)
-1. Extract your game's data: `python tools/nguprep.py` (UnityPy) -> `out/ngu/`.
-2. Convert and build (WSL): `tools/iter.sh 1` (generates `crates/ngu-gen/src/gen.rs`, builds under a memory cap: the generated code is ~20 MB and rustc needs >10 GB of RAM).
-3. Run the window: `ngu-gen window <path to Assembly-CSharp.dll> out/ngu 60`.
+## Prepare the Windows build
 
-Paths are still hard-coded for the maintainer's machine; a single "point at your game and everything happens" command is planned.
+Install the Rust MSVC toolchain, the Visual Studio C++ build tools and Python
+3.11 or later. Run these commands in PowerShell from the repository root.
+
+```powershell
+python -m pip install -r tools/requirements-prep.txt
+.\tools\prepare-pc.ps1 -GameData 'D:\Steam\steamapps\common\NGU IDLE\NGUIdle_Data'
+```
+
+The preparer verifies the supported Windows 1.260 build against a SHA-256
+manifest before unpacking assets or building. It prints the command that
+opens the game when the build succeeds. The first build runs the converter
+and can require more than 10 GB of RAM. Use `-ExtractOnly` to validate and
+extract data without building. The default data and build folders are
+`out/pc` and `build/pc`. Local saves live under `out/pc/save`.
 
 ## License
 GPL-3.0 (see `LICENSE`). NGU Idle and its contents belong to their authors; this project is not affiliated with 4G.

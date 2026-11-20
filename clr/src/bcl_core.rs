@@ -36,6 +36,19 @@ pub struct NatEnum {
     pub idx: i64,
 }
 
+struct OrderedByDouble {
+    source: Value,
+    selector: Rc<Obj>,
+}
+
+fn linq_selector(vm: &mut Vm, value: &Value) -> R<Rc<Obj>> {
+    match value {
+        Value::Obj(o) if matches!(&*o.x.borrow(), Ext::Delegate(_)) => Ok(o.clone()),
+        Value::Null => vm.throw("System.ArgumentNullException", "selector"),
+        _ => vm.throw("System.InvalidCastException", "Expected a LINQ selector delegate."),
+    }
+}
+
 pub fn kvp(vm: &mut Vm, k: Value, v: Value) -> Value {
     let id = vm.type_id("System.Collections.Generic.KeyValuePair`2");
     Value::Struct(Box::new(Struct { ty: id, f: vec![k, v] }))
@@ -46,6 +59,23 @@ pub fn iter_values(vm: &mut Vm, v: &Value) -> R<Vec<Value>> {
     let v = vm.deref(v.clone());
     match &v {
         Value::Obj(o) => {
+            let ordered = match &*o.x.borrow() {
+                Ext::Native(b) => b.downcast_ref::<OrderedByDouble>().map(|o| (o.source.clone(), o.selector.clone())),
+                _ => None,
+            };
+            if let Some((source, selector)) = ordered {
+                let items = iter_values(vm, &source)?;
+                let mut keyed = Vec::with_capacity(items.len());
+                for item in items {
+                    let Value::F64(cost) = vm.call_delegate(&selector, vec![item.clone()])? else {
+                        return vm.throw("System.NotImplementedException", "OrderBy currently supports Double keys.");
+                    };
+                    keyed.push((cost, item));
+                }
+                // Double.CompareTo sorts NaN first and treats signed zeros as equal. Keep equal keys in source order.
+                keyed.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or_else(|| b.is_nan().cmp(&a.is_nan())));
+                return Ok(keyed.into_iter().map(|(_, item)| item).collect());
+            }
             let direct = match &*o.x.borrow() {
                 Ext::Arr(a) | Ext::List(a) => Some(a.clone()),
                 Ext::Dict(d) => Some(d.iter().map(|(k, v)| (k.clone(), v.clone())).flat_map(|(k, v)| [k, v]).collect::<Vec<_>>()),
@@ -162,14 +192,6 @@ pub fn loc(s: String) -> String {
         return s;
     }
     s.chars().map(|c| match c { ',' => g, '.' => d, c => c }).collect()
-}
-/// Text typed in the display culture -> invariant text for parsing (Double.Parse).
-pub fn deloc(s: &str) -> String {
-    let (g, d) = culture();
-    if d == '.' {
-        return s.to_string();
-    }
-    s.chars().filter(|c| *c != g && *c != ' ').map(|c| if c == d { '.' } else { c }).collect()
 }
 pub fn fmt_float(x: f64, digits: usize) -> String {
     loc(fmt_float_inv(x, digits))
@@ -390,6 +412,117 @@ fn parse_err<T>(vm: &mut Vm) -> R<T> {
     vm.throw("System.FormatException", "Input string was not in a correct format.")
 }
 
+fn integer_overflow<T>(vm: &mut Vm) -> R<T> {
+    vm.throw("System.OverflowException", "Value was outside the range of the destination integer type.")
+}
+
+fn numeric_text(s: &str) -> &str {
+    s.trim_end_matches('\0').trim_matches(|c: char| c.is_ascii_whitespace() || c == '\u{000b}')
+}
+
+fn parse_integer<T: std::str::FromStr<Err = std::num::ParseIntError>>(vm: &mut Vm, arg: &Value) -> R<T> {
+    let Value::Str(s) = arg else {
+        return vm.throw("System.ArgumentNullException", "Input string was null.");
+    };
+    match numeric_text(s).parse() {
+        Ok(v) => Ok(v),
+        Err(e) if matches!(e.kind(), std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow) => integer_overflow(vm),
+        Err(_) => parse_err(vm),
+    }
+}
+
+fn parse_float(vm: &mut Vm, arg: &Value, single: bool) -> R<Value> {
+    let Value::Str(s) = arg else {
+        return vm.throw("System.ArgumentNullException", "Input string was null.");
+    };
+    let input = numeric_text(s);
+    let symbol = match input {
+        "NaN" => Some(f64::NAN),
+        "Infinity" => Some(f64::INFINITY),
+        "-Infinity" => Some(f64::NEG_INFINITY),
+        _ => None,
+    };
+    if let Some(value) = symbol {
+        return Ok(if single { Value::F32(value as f32) } else { Value::F64(value) });
+    }
+
+    let (group, decimal) = culture();
+    let mut normalized = String::with_capacity(input.len());
+    let mut group_allowed = false;
+    let mut integer_part = true;
+    for c in input.chars() {
+        match c {
+            '0'..='9' => {
+                group_allowed = integer_part;
+                normalized.push(c);
+            }
+            c if c == decimal => {
+                integer_part = false;
+                group_allowed = false;
+                normalized.push('.');
+            }
+            c if group_allowed && (c == group || (group == '\u{a0}' && c == ' ')) => {}
+            'e' | 'E' => {
+                integer_part = false;
+                group_allowed = false;
+                normalized.push(c);
+            }
+            '+' | '-' => normalized.push(c),
+            _ => return parse_err(vm),
+        }
+    }
+    let Ok(value) = normalized.parse::<f64>() else { return parse_err(vm) };
+    if value.is_infinite() || (single && (value as f32).is_infinite()) {
+        return vm.throw("System.OverflowException", "Value was outside the range of the destination floating point type.");
+    }
+    let value = if value == 0.0 { 0.0 } else { value };
+    Ok(if single { Value::F32(value as f32) } else { Value::F64(value) })
+}
+
+fn rounded_integer(vm: &mut Vm, value: f64, exclusive_max: f64) -> R<i64> {
+    let rounded = value.round_ties_even();
+    if rounded >= -exclusive_max && rounded < exclusive_max {
+        Ok(rounded as i64)
+    } else {
+        integer_overflow(vm)
+    }
+}
+
+fn is_integral_decimal(vm: &Vm, value: &Value) -> bool {
+    matches!(value, Value::Struct(s) if vm.types[s.ty as usize].name == "System.Decimal" && matches!(s.f.as_slice(), [Value::I64(_)]))
+}
+
+fn prefers<T: PartialOrd>(x: T, y: T, minimum: bool) -> bool {
+    if minimum { x < y } else { x > y }
+}
+
+fn math_extreme(a: &[Value], minimum: bool, unity: bool) -> Value {
+    let choose_i64 = |x, y| if prefers(x, y, minimum) { x } else { y };
+    let choose_float = |x: f64, y: f64| if (!unity && x.is_nan()) || prefers(x, y, minimum) { x } else { y };
+    match (&a[0], &a[1]) {
+        (Value::I32(x), Value::I32(y)) => Value::I32(choose_i64(*x as i64, *y as i64) as i32),
+        (Value::I64(_), _) | (_, Value::I64(_)) => Value::I64(choose_i64(a[0].as_i64(), a[1].as_i64())),
+        (Value::F32(x), Value::F32(y)) => Value::F32(choose_float(*x as f64, *y as f64) as f32),
+        _ => Value::F64(choose_float(a[0].as_f64(), a[1].as_f64())),
+    }
+}
+
+fn mathf_extreme(vm: &mut Vm, a: &[Value], minimum: bool) -> R<Value> {
+    if a.len() == 2 {
+        return Ok(math_extreme(a, minimum, true));
+    }
+    let items = iter_values(vm, &a[0])?;
+    let mut it = items.into_iter();
+    let first = it.next().unwrap_or(Value::F32(0.0));
+    Ok(it.fold(first, |best, current| {
+        if prefers(current.as_f32(), best.as_f32(), minimum) { current } else { best }
+    }))
+}
+
+fn mathf_clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
+    if value < min { min } else if value > max { max } else { value }
+}
+
 // ------------------------------------------------------------------ registry
 pub fn norm_type(t: &str) -> &str {
     match t {
@@ -409,6 +542,52 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
     let nk = format!("{}::{}", norm_type(t), m);
     let key = nk.as_str();
     let f: NativeFn = match key {
+        "System.Linq.Enumerable::OrderBy" => |vm, a| {
+            if a[0].is_null() {
+                return vm.throw("System.ArgumentNullException", "source");
+            }
+            let selector = linq_selector(vm, &a[1])?;
+            let ty = vm.type_id("System.Linq.IOrderedEnumerable`1");
+            let ordered = OrderedByDouble { source: a[0].clone(), selector };
+            Ok(Value::Obj(Obj::new(ty, 0, Ext::Native(Box::new(ordered)))))
+        },
+        "System.Linq.Enumerable::ToDictionary" => |vm, a| {
+            let keys = linq_selector(vm, &a[1])?;
+            let values = linq_selector(vm, &a[2])?;
+            let items = iter_values(vm, &a[0])?;
+            let mut result = Dict::default();
+            for item in items {
+                let key = vm.call_delegate(&keys, vec![item.clone()])?;
+                let value = vm.call_delegate(&values, vec![item])?;
+                if key.is_null() {
+                    return vm.throw("System.ArgumentNullException", "key");
+                }
+                if result.get(&key).is_some() {
+                    return vm.throw("System.ArgumentException", "An item with the same key has already been added.");
+                }
+                result.set(key, value);
+            }
+            let ty = vm.type_id("System.Collections.Generic.Dictionary`2");
+            Ok(Value::Obj(Obj::new(ty, 0, Ext::Dict(result))))
+        },
+        "System.Linq.Enumerable::ElementAt" => |vm, a| {
+            let index = a[1].as_i32() as usize;
+            match iter_values(vm, &a[0])?.into_iter().nth(index) {
+                Some(item) => Ok(item),
+                None => vm.throw("System.ArgumentOutOfRangeException", "index"),
+            }
+        },
+        // The game uses Sum(IEnumerable<int>) for card mana costs.
+        "System.Linq.Enumerable::Sum" => |vm, a| {
+            let mut sum = 0i32;
+            for item in iter_values(vm, &a[0])? {
+                let Some(next) = sum.checked_add(item.as_i32()) else {
+                    return vm.throw("System.OverflowException", "Sum exceeds the range of Int32.");
+                };
+                sum = next;
+            }
+            Ok(Value::I32(sum))
+        },
         // ---------------------------------------------------------- Object
         "System.Object::ToString" => tostring_fn,
         "System.Object::Equals" | "System.Object::ReferenceEquals" => |vm, a| {
@@ -695,24 +874,33 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             }
             tostring_fn(vm, a)
         },
-        "System.Int32::Parse" | "System.Int64::Parse" | "System.Int16::Parse" | "System.Byte::Parse" | "System.UInt32::Parse" | "System.UInt64::Parse" => |vm, a| {
-            let s = st(&a[0]);
-            match s.trim().parse::<i64>() {
-                Ok(v) => Ok(if v >= i32::MIN as i64 && v <= i32::MAX as i64 { Value::I32(v as i32) } else { Value::I64(v) }),
-                Err(_) => parse_err(vm),
-            }
-        },
-        "System.Single::Parse" | "System.Double::Parse" => |vm, a| match deloc(st(&a[0]).trim()).parse::<f64>() {
-            Ok(v) => Ok(Value::F64(v)),
-            Err(_) => parse_err(vm),
-        },
+        "System.Int32::Parse" => |vm, a| Ok(Value::I32(parse_integer::<i32>(vm, &a[0])?)),
+        "System.Int64::Parse" => |vm, a| Ok(Value::I64(parse_integer::<i64>(vm, &a[0])?)),
+        "System.Int16::Parse" => |vm, a| Ok(Value::I32(parse_integer::<i16>(vm, &a[0])? as i32)),
+        "System.Byte::Parse" => |vm, a| Ok(Value::I32(parse_integer::<u8>(vm, &a[0])? as i32)),
+        "System.UInt32::Parse" => |vm, a| Ok(Value::I32(parse_integer::<u32>(vm, &a[0])? as i32)),
+        "System.UInt64::Parse" => |vm, a| Ok(Value::I64(parse_integer::<u64>(vm, &a[0])? as i64)),
+        "System.Single::Parse" => |vm, a| parse_float(vm, &a[0], true),
+        "System.Double::Parse" => |vm, a| parse_float(vm, &a[0], false),
         "System.Single::IsNaN" | "System.Double::IsNaN" => |_vm, a| Ok(Value::bool(a[0].as_f64().is_nan())),
         "System.Single::IsInfinity" | "System.Double::IsInfinity" => |_vm, a| Ok(Value::bool(a[0].as_f64().is_infinite())),
         "System.Double::IsPositiveInfinity" => |_vm, a| Ok(Value::bool(a[0].as_f64() == f64::INFINITY)),
         "System.Double::IsNegativeInfinity" => |_vm, a| Ok(Value::bool(a[0].as_f64() == f64::NEG_INFINITY)),
-        "System.Convert::ToInt32" => |vm, a| Ok(Value::I32(match &a[0] { Value::Str(s) => match s.trim().parse::<i32>() { Ok(v) => v, Err(_) => return parse_err(vm) }, Value::F32(_) | Value::F64(_) => a[0].as_f64().round_ties_even() as i32, v => v.as_i32() })),
-        "System.Convert::ToInt64" => |vm, a| Ok(Value::I64(match &a[0] { Value::Str(s) => match s.trim().parse::<i64>() { Ok(v) => v, Err(_) => return parse_err(vm) }, Value::F32(_) | Value::F64(_) => a[0].as_f64().round_ties_even() as i64, v => v.as_i64() })),
-        "System.Convert::ToDouble" => |_vm, a| Ok(Value::F64(match &a[0] { Value::Str(s) => deloc(s.trim()).parse().unwrap_or(0.0), v => v.as_f64() })),
+        "System.Convert::ToInt32" => |vm, a| Ok(Value::I32(match &a[0] {
+            Value::Str(_) => parse_integer::<i32>(vm, &a[0])?,
+            Value::F32(_) | Value::F64(_) => rounded_integer(vm, a[0].as_f64(), 2_147_483_648.0)? as i32,
+            Value::I64(v) => match i32::try_from(*v) { Ok(x) => x, Err(_) => return integer_overflow(vm) },
+            v => v.as_i32(),
+        })),
+        "System.Convert::ToInt64" => |vm, a| Ok(Value::I64(match &a[0] {
+            Value::Str(_) => parse_integer::<i64>(vm, &a[0])?,
+            Value::F32(_) | Value::F64(_) => rounded_integer(vm, a[0].as_f64(), 9_223_372_036_854_775_808.0)?,
+            v => v.as_i64(),
+        })),
+        "System.Convert::ToDouble" => |vm, a| match &a[0] {
+            Value::Str(_) => parse_float(vm, &a[0], false),
+            v => Ok(Value::F64(v.as_f64())),
+        },
         "System.Convert::ToBase64String" => |vm, a| {
             let b: Vec<u8> = iter_values(vm, &a[0])?.iter().map(|v| v.as_i32() as u8).collect();
             Ok(Value::str(&b64_enc(&b)))
@@ -721,68 +909,80 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let b = b64_dec(&st(&a[0])).iter().map(|x| Value::I32(*x as i32)).collect();
             Ok(new_array(vm, b))
         },
+        // The game only constructs Decimal from Int64. Keep that value exact through Floor.
+        "System.Decimal::op_Implicit" => |vm, a| {
+            let Value::I64(value) = a[0] else {
+                return vm.throw("System.NotImplementedException", "Unsupported conversion to System.Decimal.");
+            };
+            let ty = vm.type_id("System.Decimal");
+            Ok(Value::Struct(Box::new(Struct { ty, f: vec![Value::I64(value)] })))
+        },
+        "System.Decimal::op_Explicit" => |vm, a| {
+            let value = rv(vm, &a[0]);
+            if is_integral_decimal(vm, &value) {
+                if let Value::Struct(s) = value {
+                    return Ok(s.f[0].clone());
+                }
+            }
+            vm.throw("System.NotImplementedException", "Unsupported conversion from System.Decimal.")
+        },
         // ---------------------------------------------------------- Math
-        "System.Math::Min" | "UnityEngine.Mathf::Min" => |vm, a| {
-            if a.len() == 1 {
-                let items = iter_values(vm, &a[0])?;
-                let mut it = items.into_iter();
-                let first = it.next().unwrap_or(Value::I32(0));
-                return Ok(it.fold(first, |acc, x| match (&acc, &x) {
-                    (Value::I32(p), Value::I32(q)) => Value::I32(*p.min(q)),
-                    _ => Value::F32(acc.as_f32().min(x.as_f32())),
-                }));
-            }
-            Ok(match (&a[0], &a[1]) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(*x.min(y)),
-            (Value::I64(_), _) | (_, Value::I64(_)) => Value::I64(a[0].as_i64().min(a[1].as_i64())),
-            (Value::F32(x), Value::F32(y)) => Value::F32(x.min(*y)),
-            _ => Value::F64(a[0].as_f64().min(a[1].as_f64())),
-        })
-        },
-        "System.Math::Max" | "UnityEngine.Mathf::Max" => |vm, a| {
-            if a.len() == 1 {
-                let items = iter_values(vm, &a[0])?;
-                let mut it = items.into_iter();
-                let first = it.next().unwrap_or(Value::I32(0));
-                return Ok(it.fold(first, |acc, x| match (&acc, &x) {
-                    (Value::I32(p), Value::I32(q)) => Value::I32(*p.max(q)),
-                    _ => Value::F32(acc.as_f32().max(x.as_f32())),
-                }));
-            }
-            Ok(match (&a[0], &a[1]) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(*x.max(y)),
-            (Value::I64(_), _) | (_, Value::I64(_)) => Value::I64(a[0].as_i64().max(a[1].as_i64())),
-            (Value::F32(x), Value::F32(y)) => Value::F32(x.max(*y)),
-            _ => Value::F64(a[0].as_f64().max(a[1].as_f64())),
-        })
-        },
-        "System.Math::Abs" | "UnityEngine.Mathf::Abs" => |_vm, a| Ok(match &a[0] {
-            Value::I32(x) => Value::I32(x.wrapping_abs()),
-            Value::I64(x) => Value::I64(x.wrapping_abs()),
+        "System.Math::Min" => |_vm, a| Ok(math_extreme(a, true, false)),
+        "System.Math::Max" => |_vm, a| Ok(math_extreme(a, false, false)),
+        "UnityEngine.Mathf::Min" => |vm, a| mathf_extreme(vm, a, true),
+        "UnityEngine.Mathf::Max" => |vm, a| mathf_extreme(vm, a, false),
+        "System.Math::Abs" | "UnityEngine.Mathf::Abs" => |vm, a| Ok(match &a[0] {
+            Value::I32(x) => match x.checked_abs() { Some(v) => Value::I32(v), None => return integer_overflow(vm) },
+            Value::I64(x) => match x.checked_abs() { Some(v) => Value::I64(v), None => return integer_overflow(vm) },
             Value::F32(x) => Value::F32(x.abs()),
             v => Value::F64(v.as_f64().abs()),
         }),
-        "System.Math::Floor" => |_vm, a| Ok(Value::F64(a[0].as_f64().floor())),
+        "System.Math::Floor" => |vm, a| {
+            let value = rv(vm, &a[0]);
+            if is_integral_decimal(vm, &value) {
+                return Ok(value);
+            }
+            Ok(Value::F64(value.as_f64().floor()))
+        },
         "System.Math::Ceiling" => |_vm, a| Ok(Value::F64(a[0].as_f64().ceil())),
-        "System.Math::Round" => |_vm, a| Ok(Value::F64(a[0].as_f64().round_ties_even())),
+        "System.Math::Round" => |vm, a| {
+            let value = a[0].as_f64();
+            let Some(digits) = a.get(1).map(Value::as_i32) else {
+                return Ok(Value::F64(value.round_ties_even()));
+            };
+            if !(0..=15).contains(&digits) {
+                return vm.throw("System.ArgumentOutOfRangeException", "Rounding digits must be between 0 and 15.");
+            }
+            if value.abs() >= 1e16 || !value.is_finite() {
+                return Ok(Value::F64(value));
+            }
+            let scale = 10_f64.powi(digits);
+            Ok(Value::F64((value * scale).round_ties_even() / scale))
+        },
         "System.Math::Sqrt" => |_vm, a| Ok(Value::F64(a[0].as_f64().sqrt())),
-        "System.Math::Pow" => |_vm, a| Ok(Value::F64(a[0].as_f64().powf(a[1].as_f64()))),
-        "System.Math::Log" => |_vm, a| Ok(Value::F64(if a.len() > 1 { a[0].as_f64().ln() / a[1].as_f64().ln() } else { a[0].as_f64().ln() })),
+        "System.Math::Pow" => |_vm, a| Ok(Value::F64(ngu_rt::ext::System_Math__Pow__f64_f64(a[0].as_f64(), a[1].as_f64()))),
+        "System.Math::Log" => |_vm, a| Ok(Value::F64(if a.len() > 1 {
+            ngu_rt::ext::System_Math__Log__f64_f64(a[0].as_f64(), a[1].as_f64())
+        } else {
+            a[0].as_f64().ln()
+        })),
         "System.Math::Log10" => |_vm, a| Ok(Value::F64(a[0].as_f64().log10())),
         "UnityEngine.Mathf::Floor" => |_vm, a| Ok(Value::F32(a[0].as_f32().floor())),
         "UnityEngine.Mathf::Ceil" => |_vm, a| Ok(Value::F32(a[0].as_f32().ceil())),
-        "UnityEngine.Mathf::FloorToInt" => |_vm, a| Ok(Value::I32(a[0].as_f32().floor() as i32)),
-        "UnityEngine.Mathf::CeilToInt" => |_vm, a| Ok(Value::I32(a[0].as_f32().ceil() as i32)),
+        "UnityEngine.Mathf::FloorToInt" => |_vm, a| Ok(Value::I32(ngu_rt::ext::UnityEngine_Mathf__FloorToInt__f32(a[0].as_f32()))),
+        "UnityEngine.Mathf::CeilToInt" => |_vm, a| Ok(Value::I32(ngu_rt::f2i32(a[0].as_f64().ceil()))),
         "UnityEngine.Mathf::Sqrt" => |_vm, a| Ok(Value::F32(a[0].as_f32().sqrt())),
-        "UnityEngine.Mathf::Pow" => |_vm, a| Ok(Value::F32(a[0].as_f32().powf(a[1].as_f32()))),
-        "UnityEngine.Mathf::Log10" => |_vm, a| Ok(Value::F32(a[0].as_f32().log10())),
+        "UnityEngine.Mathf::Pow" => |_vm, a| Ok(Value::F32(ngu_rt::ext::System_Math__Pow__f64_f64(a[0].as_f64(), a[1].as_f64()) as f32)),
+        "UnityEngine.Mathf::Log10" => |_vm, a| Ok(Value::F32(a[0].as_f64().log10() as f32)),
         "UnityEngine.Mathf::Repeat" => |_vm, a| {
             let (t, l) = (a[0].as_f32(), a[1].as_f32());
-            Ok(Value::F32((t - (t / l).floor() * l).clamp(0.0, l)))
+            // Mathf.Floor receives a Single, but Mono retains the following intermediate product as a Double.
+            let wrapped = f64::from(t) - f64::from((t / l).floor()) * f64::from(l);
+            Ok(Value::F32(mathf_clamp(wrapped as f32, 0.0, l)))
         },
         "UnityEngine.Mathf::Clamp" => |_vm, a| Ok(match (&a[0], &a[1], &a[2]) {
-            (Value::I32(x), Value::I32(lo), Value::I32(hi)) => Value::I32((*x).clamp(*lo, *hi)),
-            _ => Value::F32(a[0].as_f32().clamp(a[1].as_f32(), a[2].as_f32())),
+            (Value::I32(x), Value::I32(lo), Value::I32(hi)) => Value::I32(mathf_clamp(*x, *lo, *hi)),
+            _ => Value::F32(mathf_clamp(a[0].as_f32(), a[1].as_f32(), a[2].as_f32())),
         }),
         // ---------------------------------------------------------- Array / List
         "System.Array::get_Length" => |vm, a| {

@@ -14,12 +14,23 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 for f in l.iter().take(60) {
                     println!("[focus]   {:<8} ({:>3.0},{:>3.0})-({:>3.0},{:>3.0}) {}", f.kind, f.rect[0], f.rect[1], f.rect[2], f.rect[3], f.label.chars().take(40).collect::<String>());
                 }
+            } else if vm.dropdown_navigate(p[1].chars().next().unwrap_or('d')) {
+                println!("[focus] {} -> dropdown", p[1]);
             } else if let Some(f) = crate::focus::navigate(vm, p[1].chars().next().unwrap_or('d')) {
                 println!("[focus] {} -> {:<8} ({:>3.0},{:>3.0})-({:>3.0},{:>3.0}) {}", p[1], f.kind, f.rect[0], f.rect[1], f.rect[2], f.rect[3], f.label.chars().take(40).collect::<String>());
             } else {
                 println!("[focus] {} -> no element", p[1]);
             }
             vm.frame(1.0 / 30.0);
+            continue;
+        }
+        if p[0] == "focus_at" {
+            let found = crate::focus::select_at(vm, p[1].parse().unwrap(), p[2].parse().unwrap());
+            println!("[focus] point selected: {found}");
+            continue;
+        }
+        if p[0] == "focus_scroll" {
+            crate::focus::scroll(vm, p[1].parse().unwrap(), p[2].parse().unwrap());
             continue;
         }
         if p[0] == "m" {
@@ -41,6 +52,9 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             continue;
         }
         if p[0] == "a" {
+            if vm.dropdown_navigate('a') {
+                continue;
+            }
             // activation of the focused element: virtual click at the centre
             if let Some((x, y)) = crate::focus::activation_point(vm) {
                 vm.eng.mouse = (x, y);
@@ -116,6 +130,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                     }
                 } else if let Some(m) = vm.find_method(o.ty, "swapMenu", 2) {
                     let n: i32 = p[1].parse().unwrap_or(0);
+                    if crate::dev::menu_roots(vm).get(n as usize).is_some_and(|go| {
+                        crate::unity::with_go(go, |g| g.port_hidden).unwrap_or(false)
+                    }) {
+                        break;
+                    }
                     if let Err(e) = vm.invoke(m, vec![c.clone(), crate::value::Value::I32(n)]) {
                         println!("[menu] {n} : exception");
                         vm.report_exc("menu", &c, &e);
@@ -241,6 +260,17 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 run_steps(vm, &v);
                 continue;
             }
+            "hover" => {
+                let x: f32 = p[1].parse().unwrap();
+                let y: f32 = p[2].parse().unwrap();
+                let frames = p.get(3).map_or(1, |n| n.parse().unwrap());
+                vm.eng.hover_always = true;
+                vm.eng.mouse = (x, vm.eng.screen.1 as f32 - y);
+                for _ in 0..frames {
+                    vm.frame(1.0 / 30.0);
+                }
+                continue;
+            }
             "click" => {
                 // click on the visible element whose text matches (exact, else contains)
                 let label = p[1..].join(",");
@@ -266,6 +296,18 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
         if p[0] == "pngl" {
             // dev: pngl,<file>,<profile>,<w>,<h>[,hold][,pointer y] : capture through a screen profile (layouts/README.md)
             let (w, h): (f32, f32) = (p[3].parse().unwrap(), p[4].parse().unwrap());
+            if p[2] == "desktop" {
+                let scale = (w / 960.0).min(h / 600.0);
+                let old_width = vm.eng.desktop_layout.width();
+                vm.eng.desktop_layout.set_width(w / scale);
+                let mut r = crate::render::Renderer::new(w as usize, h as usize);
+                r.render(vm, scale, 0.0, (h - 600.0 * scale) / 2.0);
+                r.save_png(p[1]);
+                vm.eng.desktop_layout.set_width(old_width);
+                crate::desktop_layout::rebuild(vm);
+                crate::save_slots::reflow(vm);
+                continue;
+            }
             let hold = p.get(5) == Some(&"hold");
             let py = p.iter().skip(5).find_map(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
             match crate::profile::load(p[2]) {

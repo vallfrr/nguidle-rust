@@ -163,6 +163,24 @@ pub fn child_xf(p: &Xf, t: &Tr) -> Xf {
     Xf { origin, scale: [p.scale[0] * t.scale[0], p.scale[1] * t.scale[1]], rot: p.rot + t.rot_z.to_radians(), w, h, pivot: t.pivot }
 }
 
+/// World rectangle as presented to the player. The game still uses `xf`.
+pub fn view_xf(vm: &Vm, tr: &Value) -> Xf {
+    vm.eng.desktop_layout.rect(tr).unwrap_or_else(|| xf(vm, tr))
+}
+
+pub fn view_child_xf(vm: &Vm, parent: &Xf, tr: &Value) -> Option<Xf> {
+    vm.eng.desktop_layout.rect(tr).or_else(|| with_tr(tr, |t| child_xf(parent, t)))
+}
+
+/// Only projected nodes can use the extra room to the right of the original canvas.
+pub(crate) fn view_width(vm: &Vm, tr: &Value) -> f32 {
+    if vm.eng.desktop_layout.rect(tr).is_some() || crate::save_slots::owns(&go_of(tr)) {
+        vm.eng.desktop_layout.width()
+    } else {
+        vm.eng.screen.0 as f32
+    }
+}
+
 /// Local position (relative to the parent's pivot) of a node.
 pub fn local_pos(vm: &Vm, tr: &Value) -> [f32; 3] {
     let (parent, pos, amin, amax, pivot, apos, is_rect) = match with_tr(tr, |t| (t.parent.clone(), t.pos, t.amin, t.amax, t.pivot, t.apos, t.is_rect)) {

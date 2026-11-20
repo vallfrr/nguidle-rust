@@ -1,6 +1,5 @@
-//! Gamepad (gilrs, Windows only for now: Linux needs `libudev`). Compiled but **not tested with a physical pad**. Mapping approved by the maintainer:
-//! d-pad and left stick = move the focus (same behaviour, repeat after 0.4 s then every 0.12 s),
-//! Cross (south) = confirm, Circle (east) = back, L1/R1 = previous / next menu, Start = settings, Select = info (to wire).
+//! Gamepad input on Windows. D-pad and left stick move focus, the right stick
+//! scrolls, south confirms, east cancels and the bumpers change menus.
 use crate::actions::Action;
 use gilrs::{Axis, Button, EventType, Gilrs};
 use std::time::{Duration, Instant};
@@ -9,11 +8,15 @@ pub struct Pad {
     g: Gilrs,
     held: Option<Action>,
     next_repeat: Instant,
+    scroll: (i8, i8),
+    next_scroll: Instant,
 }
 
 impl Pad {
     pub fn new() -> Option<Pad> {
-        Gilrs::new().ok().map(|g| Pad { g, held: None, next_repeat: Instant::now() })
+        Gilrs::new().ok().map(|g| Pad {
+            g, held: None, next_repeat: Instant::now(), scroll: (0, 0), next_scroll: Instant::now(),
+        })
     }
 
     pub fn poll(&mut self) -> Vec<Action> {
@@ -31,6 +34,7 @@ impl Pad {
         }
         // held direction (d-pad or left stick) with repeat
         let mut dir = None;
+        let mut scroll = (0, 0);
         for (_, gp) in self.g.gamepads() {
             let (x, y) = (gp.value(Axis::LeftStickX), gp.value(Axis::LeftStickY));
             if gp.is_pressed(Button::DPadUp) || y > 0.5 {
@@ -41,6 +45,14 @@ impl Pad {
                 dir = Some(Action::Left);
             } else if gp.is_pressed(Button::DPadRight) || x > 0.5 {
                 dir = Some(Action::Right);
+            }
+            let stick = |axis, sign: f32| {
+                let v = gp.value(axis) * sign;
+                if v.abs() > 0.52 { v.signum() as i8 } else { 0 }
+            };
+            let position = (stick(Axis::RightStickX, 1.0), stick(Axis::RightStickY, -1.0));
+            if position != (0, 0) {
+                scroll = position;
             }
         }
         let now = Instant::now();
@@ -57,6 +69,11 @@ impl Pad {
             None => self.held = None,
             _ => {}
         }
+        if scroll != (0, 0) && (scroll != self.scroll || now >= self.next_scroll) {
+            self.next_scroll = now + Duration::from_millis(82);
+            out.push(Action::Scroll { x: scroll.0, y: scroll.1 });
+        }
+        self.scroll = scroll;
         out
     }
 }

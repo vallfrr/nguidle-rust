@@ -1,4 +1,36 @@
-# Status: what is verified and what is not (2026-11-20)
+# Status: what is verified and what is not
+
+## Desktop verification on 2026-11-21
+
+- Scripted navigation in Inventory took about 380 ms per move before batching
+  raycasts. After batching, 20 moves added about 0.1 seconds to the median run.
+  The batch measures engine navigation from a boosted save.
+- Controller-equivalent inputs selected an Adventure dropdown option and
+  scrolled Augmentation and the patch notes. Focus has an interior yellow tint.
+  Physical controller testing of this version is still open.
+- The right-hand panels retain their Settings frame style. Inventory's tooltip
+  stays above Save Game and is clamped to the visible screen.
+- The standalone milestone page showed 61 entries from the local game. A clean
+  profile had zero unlocked and the boosted test save unlocked 44. The count
+  persisted across a new process and the final page was reachable. A separate
+  fixture that meets all original conditions yielded all 61 IDs in the native
+  runtime. The 153 BP achievements still use the original game page.
+- The runtime follows the pointer at render frequency and uses the Energy
+  timer's 20 ms schedule for display interpolation. Game rules continue to
+  advance in fixed steps.
+- The Windows 1280 × 720 GPU test reported around 60 FPS with VSYNC on the
+  session's 60 Hz display, verified from the window's active display mode.
+  The Inventory run had 38–41 ms maximum intervals per
+  120-frame sample. A diagnostic run with VSYNC disabled generated quads
+  at over 1,100 FPS. This measures renderer capacity and frame pacing in that
+  session, with no guarantee of monitor-rate delivery in every display mode.
+- The portable Windows preparer validates the 115 files in the supported
+  installation with SHA-256, exports the scene, runs the converter and builds
+  the Windows executable. Verified with a clean extraction and tests for
+  missing or changed input files.
+- See [Release audit](RELEASE-AUDIT.md) for coverage and the web/Vita boundary.
+
+## Historical baseline on 2026-11-20
 
 Honest table. "Verified" means seen or measured; everything else is stated as not verified.
 

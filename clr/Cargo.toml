@@ -13,6 +13,7 @@ name = "clr"
 path = "src/main.rs"
 
 [dependencies]
+ngu-rt = { path = "../crates/ngu-rt" }
 dotnetdll = "0.5"
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 indexmap = { version = "2", features = ["serde"] }

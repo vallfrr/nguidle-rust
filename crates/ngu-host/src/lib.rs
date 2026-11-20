@@ -54,6 +54,21 @@ pub fn vm() -> &'static mut Vm {
     unsafe { &mut *host().vm }
 }
 
+/// Read a typed object's current fields without walking or mutating its graph.
+pub fn live_fields(value: &Value) -> Option<Vec<Value>> {
+    let Value::Obj(o) = value else { return None };
+    let key = Rc::as_ptr(o) as usize;
+    let &handle = host().by_ptr.get(&key)?;
+    let index = handle as usize - 1;
+    // Converting a field can register more objects, so the exporter must not
+    // borrow the host's vectors while it runs.
+    let twin = host().twins[index].as_ref() as *const dyn Any;
+    let export = host().exporters[index];
+    let mut fields = o.f.borrow().clone();
+    export(unsafe { &*twin }, &mut fields);
+    Some(fields)
+}
+
 fn exporter<T: UserClass>(b: &dyn Any, f: &mut Vec<Value>) {
     if let Some(g) = b.downcast_ref::<Gc<T>>() {
         T::export(g, f);
@@ -262,7 +277,7 @@ pub fn native(key: &str, targs: Option<Vec<Ty>>, args: Vec<Value>) -> Value {
     let f = match f {
         Some(f) => f,
         None => {
-            // like the interpreter: unimplemented function = neutral value, reported once
+            // Report unimplemented engine APIs once. A missing numerical API must not silently save a zero.
             static mut SEEN: Vec<String> = Vec::new();
             #[allow(static_mut_refs)]
             unsafe {
@@ -270,6 +285,11 @@ pub fn native(key: &str, targs: Option<Vec<Ty>>, args: Vec<Value>) -> Value {
                     SEEN.push(key.to_string());
                     eprintln!("[host] missing native function: {key}");
                 }
+            }
+            if matches!(key.split_once("::").map(|(ty, _)| ty),
+                Some("System.Decimal" | "System.Math" | "System.MathF" | "System.Convert" | "UnityEngine.Mathf"
+                    | "System.Int32" | "System.Int64" | "System.Single" | "System.Double")) {
+                throw(vm().new_exc("System.NotImplementedException", key));
             }
             return Value::Null;
         }
@@ -343,6 +363,13 @@ pub fn static_field(key: &str) -> Value {
     match clr::bcl::static_field(vm(), key) {
         Ok(v) => v,
         Err(_) => panic!("external static field not found: {key}"),
+    }
+}
+
+pub fn native_field(key: &str, object: Value) -> Obj {
+    match clr::unity_api::native_field(vm(), &object, key) {
+        Ok(value) => FromV::from_v(&value),
+        Err(error) => throw(error),
     }
 }
 

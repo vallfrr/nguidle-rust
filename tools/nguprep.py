@@ -1,42 +1,42 @@
 """nguprep: exports NGU Idle's Unity data (read-only on the game).
 
-Output (default J:/NGUvita/nguvita/out/ngu/):
-  scene.json     objects (GameObject/RectTransform/Canvas/MonoBehaviour/Sprite/Font...) with PPtrs normalised to "file:pathid"
+Output (default out/ngu/ in this repository):
+  scene.json     objects and Unity resource paths with PPtrs normalised to "file:pathid"
   tex/<id>.png   textures (Texture2D) as RGBA
   fonts/<id>.ttf fonts
-  text/<id>.txt  TextAssets
-Usage: python nguprep.py [--no-tex]
+  text/<id>.bin  TextAssets
+  audio/<name>.wav AudioClips
+Usage: python nguprep.py [--game-data PATH] [--out PATH] [--no-tex]
 """
-import json, os, struct, sys, collections
+import argparse, json, os, struct, collections
+from pathlib import Path
 import UnityPy
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 
-GAME = r"J:\NGUvita\NGU IDLE"
-D = GAME + r"\NGUIdle_Data"
-OUT = r"J:\NGUvita\nguvita\out\ngu"
-NO_TEX = "--no-tex" in sys.argv
-os.makedirs(OUT + r"\tex", exist_ok=True)
-os.makedirs(OUT + r"\fonts", exist_ok=True)
-os.makedirs(OUT + r"\text", exist_ok=True)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--game-data", type=Path,
+                    default=Path(__file__).resolve().parents[2] / "NGU IDLE" / "NGUIdle_Data")
+parser.add_argument("--out", type=Path, default=Path(__file__).resolve().parents[1] / "out" / "ngu")
+parser.add_argument("--no-tex", action="store_true")
+args = parser.parse_args()
+data_dir = args.game_data.resolve()
+if not (data_dir / "Managed" / "Assembly-CSharp.dll").is_file():
+    parser.error("--game-data must point to the NGUIdle_Data directory")
+OUT = args.out.resolve()
+NO_TEX = args.no_tex
+for folder in ("tex", "fonts", "text", "audio"):
+    (OUT / folder).mkdir(parents=True, exist_ok=True)
 
-env = UnityPy.load(D)
+env = UnityPy.load(str(data_dir))
 g = TypeTreeGenerator("2019.4.22f1")
-g.load_local_game(GAME)
+g.load_local_dll_folder(str(data_dir / "Managed"))
 env.typetree_generator = g
 
 # --- project tags: custom tag ids are 20000 + index into TagManager.tags (the game compares tag names, e.g. "Menu")
 for _o in env.objects:
     if _o.type.name == "TagManager":
-        json.dump({"tags": list(_o.read_typetree()["tags"])}, open(OUT + r"	ags.json", "w"))
+        (OUT / "tags.json").write_text(json.dumps({"tags": list(_o.read_typetree()["tags"])}), encoding="utf-8")
         break
-
-# --- sounds: AudioClip -> audio/<name>.wav
-os.makedirs(OUT + r"udio", exist_ok=True)
-for _o in env.objects:
-    if _o.type.name == "AudioClip":
-        _d = _o.read()
-        for _n, _b in _d.samples.items():
-            open(OUT + r"udio\" + _d.m_Name + ".wav", "wb").write(_b)
 
 # --- fix: the generator types string[] fields as "string" (should be "vector")
 _orig_get_nodes = g.get_nodes
@@ -75,6 +75,14 @@ def norm(af, v):
     return v
 
 
+# Preserve duplicate paths: Unity can index a texture and a sprite under the same name.
+resources = None
+for o in env.objects:
+    if o.type.name == "ResourceManager":
+        resources = [(path, norm(o.assets_file, ref)) for path, ref in o.read_typetree()["m_Container"] if ref["m_PathID"]]
+        break
+
+
 # MonoScript: (file, pathid) -> class
 scripts = {}
 for o in env.objects:
@@ -109,8 +117,8 @@ for o in env.objects:
             d = o.read()
             rec = {"t": t, "name": d.m_Name, "w": d.m_Width, "h": d.m_Height, "fmt": int(d.m_TextureFormat)}
             if not NO_TEX:
-                p = OUT + "\\tex\\" + key.replace(":", "_") + ".png"
-                if not os.path.exists(p):
+                p = OUT / "tex" / (key.replace(":", "_") + ".png")
+                if not p.exists() and d.m_Width > 0 and d.m_Height > 0:
                     try:
                         d.image.save(p)
                     except Exception as e:
@@ -120,7 +128,7 @@ for o in env.objects:
             rec = {"t": t, "name": d.m_Name}
             data = bytes(d.m_FontData) if d.m_FontData else b""
             if data:
-                open(OUT + "\\fonts\\" + key.replace(":", "_") + ".ttf", "wb").write(data)
+                (OUT / "fonts" / (key.replace(":", "_") + ".ttf")).write_bytes(data)
                 rec["file"] = key.replace(":", "_") + ".ttf"
             rec["d"] = norm(af, o.read_typetree()) if False else {}
         elif t == "TextAsset":
@@ -128,17 +136,95 @@ for o in env.objects:
             rec = {"t": t, "name": d.m_Name}
             raw = d.m_Script
             raw = raw.encode("utf-8", "surrogateescape") if isinstance(raw, str) else bytes(raw)
-            open(OUT + "\\text\\" + key.replace(":", "_") + ".bin", "wb").write(raw)
+            (OUT / "text" / (key.replace(":", "_") + ".bin")).write_bytes(raw)
         elif t == "AudioClip":
             d = o.read()
             rec = {"t": t, "name": d.m_Name}
+            try:
+                samples = d.samples
+                filename = d.m_Name + ".wav"
+                sample = samples.get(filename) or next(iter(samples.values()))
+                (OUT / "audio" / filename).write_bytes(sample)
+            except Exception as e:
+                errors["audio:" + repr(e)[:50]] += 1
         else:
             rec = {"t": t, "d": norm(af, o.read_typetree())}
         objs[key] = rec
     except Exception as e:
         errors[t + ":" + repr(e)[:60]] += 1
 
-json.dump({"objects": objs, "scripts": scripts}, open(OUT + r"\scene.json", "w"), separators=(",", ":"))
+
+def park_card_preview(objects):
+    # The card drag preview starts partly over the sidebar. DeckPodUI positions
+    # it at the pointer during a drag and parks it offscreen when the drag ends.
+    for record in objects.values():
+        if record["t"] != "RectTransform":
+            continue
+        rect = record["d"]
+        go = objects.get(rect.get("m_GameObject"), {}).get("d", {})
+        if go.get("m_Name") != "Ghost":
+            continue
+        parent = objects.get(rect.get("m_Father"), {}).get("d", {})
+        parent_go = objects.get(parent.get("m_GameObject"), {}).get("d", {})
+        if parent_go.get("m_Name") == "Cards Menu":
+            shift = -6000 - rect["m_AnchoredPosition"]["y"]
+            rect["m_AnchoredPosition"]["y"] += shift
+            rect["m_LocalPosition"]["y"] += shift
+
+
+park_card_preview(objs)
+
+
+def fit_card_labels(objects):
+    labels = {"Total Mana Text", "Mayo Gen Text"}
+    for record in objects.values():
+        if (record.get("script") or {}).get("cls") != "Text":
+            continue
+        text = record["d"]
+        go = objects.get(text.get("m_GameObject"), {}).get("d", {})
+        font = text.get("m_FontData")
+        if go.get("m_Name") in labels and font:
+            font["m_BestFit"] = True
+            font["m_MinSize"] = min(10, font["m_FontSize"])
+            font["m_MaxSize"] = font["m_FontSize"]
+
+
+fit_card_labels(objs)
+
+
+def hide_unavailable_online_ui(objects):
+    for record in objects.values():
+        if record["t"] != "RectTransform":
+            continue
+        rect = record["d"]
+        go = objects.get(rect.get("m_GameObject"), {}).get("d", {})
+        parent = objects.get(rect.get("m_Father"), {}).get("d", {})
+        parent_name = objects.get(parent.get("m_GameObject"), {}).get("d", {}).get("m_Name")
+        name = go.get("m_Name", "")
+        hidden = (
+            parent_name == "Canvas" and name in {"Sellout Kreds Canvas", "Sellout Kreds 2 Canvas", "Itopod Name List Canvas"}
+            or parent_name == "Title Panel" and (
+                name.startswith("Buy AP Wth Kred") or name in {"Special Packs", "Special News", "Special News 2"}
+            )
+            or parent_name == "Info Menu + Controller" and name in {"Discord", "Kart Promo Button", "SteamMtx", "Itopod Names List"}
+            or parent_name == "Settings Panel 2" and name == "Check For Updates"
+            or parent_name == "Augment Settings 1" and name == "Submit Highscores"
+            or parent_name in {"Main Menu Screen", "Splash Screen"} and (
+                name.startswith("Discord Button") or name in {"Kartridge Button", "Kong Button", "Cloud Save Border"}
+            )
+            or parent_name == "Main Menu Screen" and name == "Text"
+        )
+        if hidden:
+            go["m_PortHidden"] = True
+
+
+hide_unavailable_online_ui(objs)
+scene = OUT / "scene.json"
+temp = scene.with_suffix(".json.tmp")
+with temp.open("w", encoding="utf-8") as f:
+    json.dump({"objects": objs, "scripts": scripts, "resources": resources}, f, separators=(",", ":"))
+temp.replace(scene)
 print("exported objects:", len(objs))
+print("resource references:", len(resources or []))
 print("types:", collections.Counter(v["t"] for v in objs.values()).most_common())
 print("errors:", errors.most_common(10))

@@ -1,8 +1,8 @@
 //! Focus navigation (gamepad / keyboard): list of the really visible and reachable interactive elements,
 //! spatial movement (up / down / left / right) and activation (virtual click at the centre).
 //! Coordinates: virtual pixels 960x600, origin at the top left (y down).
-use crate::input::{raycast, Ev};
-use crate::ui::{child_xf, xf, Xf};
+use crate::input::{canvas_roots, raycast, raycast_points, Ev};
+use crate::ui::{view_child_xf, view_xf, xf, Xf};
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
@@ -34,6 +34,22 @@ fn bbox(x: &Xf, vh: f32) -> [f32; 4] {
     [a, b, cc, d]
 }
 
+fn current_rect(vm: &Vm) -> Option<[f32; 4]> {
+    vm.eng.focus_rect?;
+    if !active_in_hierarchy(&vm.eng.focus) {
+        return None;
+    }
+    let tr = with_go(&vm.eng.focus, |g| g.transform.clone())?;
+    visible_rect(vm, bbox(&view_xf(vm, &tr), vm.eng.screen.1 as f32))
+}
+
+fn visible_rect(vm: &Vm, r: [f32; 4]) -> Option<[f32; 4]> {
+    let [x0, y0, x1, y1] = r;
+    let r = [x0.max(0.0), y0.max(0.0), x1.min(vm.eng.desktop_layout.width()),
+        y1.min(vm.eng.screen.1 as f32)];
+    (r[2] - r[0] >= 2.0 && r[3] - r[1] >= 2.0).then_some(r)
+}
+
 fn text_under(tr: &Value, depth: usize) -> String {
     let go = go_of(tr);
     for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
@@ -57,8 +73,10 @@ fn text_under(tr: &Value, depth: usize) -> String {
 
 fn kind_of(vm: &mut Vm, go: &Value) -> Option<&'static str> {
     let comps = with_go(go, |g| g.comps.clone()).unwrap_or_default();
+    let mut selectable = false;
     for c in &comps {
         let k = with_comp(c, |k| {
+            selectable |= matches!(k.k, CK::Sel(_));
             if !k.enabled {
                 return None;
             }
@@ -79,24 +97,37 @@ fn kind_of(vm: &mut Vm, go: &Value) -> Option<&'static str> {
             return k;
         }
     }
-    if vm.has_handler(go, Ev::Click) || vm.has_handler(go, Ev::Down) {
+    if !selectable && (vm.has_handler(go, Ev::Click) || vm.has_handler(go, Ev::Down)) {
         return Some("zone");
     }
     None
 }
 
+/// Select the reachable control containing a point, in top-left view coordinates.
+pub fn select_at(vm: &mut Vm, x: f32, y: f32) -> bool {
+    let hit = raycast(vm, [x, vm.eng.screen.1 as f32 - y]);
+    let control = collect(vm).into_iter().rev().find(|f| within(&hit, &f.go));
+    if let Some(f) = control {
+        set_focus(vm, f.go, Some(f.rect));
+        true
+    } else {
+        false
+    }
+}
+
 fn collect_node(vm: &mut Vm, tr: &Value, x: Xf, vh: f32, out: &mut Vec<Focusable>) {
     let go = go_of(tr);
-    let active = with_go(&go, |g| g.active).unwrap_or(false);
+    let active = with_go(&go, |g| g.active && !g.port_hidden).unwrap_or(false);
     if !active {
         return;
     }
     if let Some(kind) = kind_of(vm, &go) {
-        let r = bbox(&x, vh);
-        out.push(Focusable { go: go.clone(), rect: r, label: text_under(tr, 3), kind });
+        if let Some(rect) = visible_rect(vm, bbox(&x, vh)) {
+            out.push(Focusable { go: go.clone(), rect, label: String::new(), kind });
+        }
     }
     for ch in with_tr(tr, |t| t.children.clone()).unwrap_or_default() {
-        if let Some(cx) = with_tr(&ch, |t| child_xf(&x, t)) {
+        if let Some(cx) = view_child_xf(vm, &x, &ch) {
             collect_node(vm, &ch, cx, vh, out);
         }
     }
@@ -117,58 +148,32 @@ fn within(inner: &Value, outer: &Value) -> bool {
 
 /// Interactive elements visible on screen and reachable (not hidden by another element).
 pub fn collect(vm: &mut Vm) -> Vec<Focusable> {
-    let (sw, sh) = (vm.eng.screen.0 as f32, vm.eng.screen.1 as f32);
-    let mut roots: Vec<(i32, Value)> = vec![];
-    for go in vm.eng.gos.clone() {
-        if !with_go(&go, |g| g.active).unwrap_or(false) {
-            continue;
-        }
-        let tr = with_go(&go, |g| g.transform.clone()).unwrap_or(Value::Null);
-        if !with_tr(&tr, |t| t.parent.is_null()).unwrap_or(false) {
-            continue;
-        }
-        let mut s = None;
-        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
-            with_comp(&c, |k| {
-                if let CK::Canvas(cd) = &k.k {
-                    s = Some(cd.sorting);
-                }
-            });
-        }
-        if let Some(s) = s {
-            roots.push((s, tr));
-        }
-    }
-    roots.sort_by_key(|r| r.0);
+    let sh = vm.eng.screen.1 as f32;
+    let roots = canvas_roots(vm);
     let mut all = vec![];
-    for (_, tr) in roots {
-        let x = xf(vm, &tr);
-        collect_node(vm, &tr, x, sh, &mut all);
+    for (_, tr) in &roots {
+        let x = view_xf(vm, tr);
+        collect_node(vm, tr, x, sh, &mut all);
     }
-    let mut out = vec![];
-    for f in all {
-        let [x0, y0, x1, y1] = f.rect;
-        // must have a part visible on screen
-        let (vx0, vy0, vx1, vy1) = (x0.max(0.0), y0.max(0.0), x1.min(sw), y1.min(sh));
-        if vx1 - vx0 < 2.0 || vy1 - vy0 < 2.0 {
-            continue;
-        }
-        let (cx, cy) = ((vx0 + vx1) / 2.0, (vy0 + vy1) / 2.0);
-        // reachable: the element (or one of its graphic descendants / ancestors) is on top at the visible centre
-        let hit = raycast(vm, [cx, sh - cy]);
+    let points: Vec<_> = all.iter().map(|f| {
+        let (cx, cy) = center(&f.rect);
+        [cx, sh - cy]
+    }).collect();
+    let hits = raycast_points(vm, &roots, &points);
+    all.into_iter().zip(hits).filter_map(|(mut f, hit)| {
         if hit.is_null() || !(within(&hit, &f.go) || within(&f.go, &hit)) {
-            continue;
+            return None;
         }
-        out.push(Focusable { rect: [vx0, vy0, vx1, vy1], ..f });
-    }
-    out
+        f.label = text_under(&transform_of(&f.go), 3);
+        Some(f)
+    }).collect()
 }
 
 /// Active nodes whose rectangle contains the point (top-left space), in draw order: (path, components).
 pub fn nodes_at(vm: &mut Vm, px: f32, py: f32) -> Vec<(String, Vec<Value>)> {
-    fn walk(tr: &Value, x: Xf, vh: f32, p: (f32, f32), path: &str, out: &mut Vec<(String, Vec<Value>)>) {
+    fn walk(vm: &Vm, tr: &Value, x: Xf, vh: f32, p: (f32, f32), path: &str, out: &mut Vec<(String, Vec<Value>)>) {
         let go = go_of(tr);
-        let Some((active, name, comps)) = with_go(&go, |g| (g.active, g.name.clone(), g.comps.clone())) else { return };
+        let Some((active, name, comps)) = with_go(&go, |g| (g.active && !g.port_hidden, g.name.clone(), g.comps.clone())) else { return };
         if !active {
             return;
         }
@@ -178,8 +183,8 @@ pub fn nodes_at(vm: &mut Vm, px: f32, py: f32) -> Vec<(String, Vec<Value>)> {
             out.push((path.clone(), comps));
         }
         for ch in with_tr(tr, |t| t.children.clone()).unwrap_or_default() {
-            if let Some(cx) = with_tr(&ch, |t| child_xf(&x, t)) {
-                walk(&ch, cx, vh, p, &path, out);
+            if let Some(cx) = view_child_xf(vm, &x, &ch) {
+                walk(vm, &ch, cx, vh, p, &path, out);
             }
         }
     }
@@ -205,17 +210,17 @@ pub fn nodes_at(vm: &mut Vm, px: f32, py: f32) -> Vec<(String, Vec<Value>)> {
     roots.sort_by_key(|r| r.0);
     let mut out = vec![];
     for (_, tr) in roots {
-        let x = xf(vm, &tr);
-        walk(&tr, x, sh, (px, py), "", &mut out);
+        let x = view_xf(vm, &tr);
+        walk(vm, &tr, x, sh, (px, py), "", &mut out);
     }
     out
 }
 
 /// Non-empty texts of active nodes whose rectangle touches the screen (no occlusion test).
 pub fn visible_texts(vm: &mut Vm) -> Vec<([f32; 4], String)> {
-    fn walk(tr: &Value, x: Xf, vh: f32, sw: f32, out: &mut Vec<([f32; 4], String)>) {
+    fn walk(vm: &Vm, tr: &Value, x: Xf, vh: f32, sw: f32, out: &mut Vec<([f32; 4], String)>) {
         let go = go_of(tr);
-        if !with_go(&go, |g| g.active).unwrap_or(false) {
+        if !with_go(&go, |g| g.active && !g.port_hidden).unwrap_or(false) {
             return;
         }
         for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
@@ -228,20 +233,20 @@ pub fn visible_texts(vm: &mut Vm) -> Vec<([f32; 4], String)> {
             }
         }
         for ch in with_tr(tr, |t| t.children.clone()).unwrap_or_default() {
-            if let Some(cx) = with_tr(&ch, |t| child_xf(&x, t)) {
-                walk(&ch, cx, vh, sw, out);
+            if let Some(cx) = view_child_xf(vm, &x, &ch) {
+                walk(vm, &ch, cx, vh, sw, out);
             }
         }
     }
-    let (sw, sh) = (vm.eng.screen.0 as f32, vm.eng.screen.1 as f32);
+    let (sw, sh) = (vm.eng.desktop_layout.width(), vm.eng.screen.1 as f32);
     let mut out = vec![];
     for go in vm.eng.gos.clone() {
         let tr = with_go(&go, |g| g.transform.clone()).unwrap_or(Value::Null);
         if !with_tr(&tr, |t| t.parent.is_null()).unwrap_or(false) || !with_go(&go, |g| g.active).unwrap_or(false) {
             continue;
         }
-        let x = xf(vm, &tr);
-        walk(&tr, x, sh, sw, &mut out);
+        let x = view_xf(vm, &tr);
+        walk(vm, &tr, x, sh, sw, &mut out);
     }
     out
 }
@@ -288,8 +293,7 @@ pub fn neighbour(list: &[Focusable], cur: &[f32; 4], dir: char) -> Option<usize>
 pub fn navigate(vm: &mut Vm, dir: char) -> Option<Focusable> {
     let list = collect(vm);
     if list.is_empty() {
-        vm.eng.focus = Value::Null;
-        vm.eng.focus_rect = None;
+        clear(vm);
         return None;
     }
     let cur = list.iter().position(|f| same(&f.go, &vm.eng.focus));
@@ -301,17 +305,86 @@ pub fn navigate(vm: &mut Vm, dir: char) -> Option<Focusable> {
         })?,
     };
     let f = list[next].clone();
-    vm.eng.focus = f.go.clone();
-    vm.eng.focus_rect = Some(f.rect);
+    set_focus(vm, f.go.clone(), Some(f.rect));
     Some(f)
 }
 
 /// Point (y up, like `Engine::mouse`) where to click to activate the focused element.
 pub fn activation_point(vm: &mut Vm) -> Option<(f32, f32)> {
+    let at = pointer(vm)?;
+    let go = vm.eng.focus.clone();
+    if kind_of(vm, &go).is_none() {
+        return None;
+    }
+    let hit = raycast(vm, [at.0, at.1]);
+    (!hit.is_null() && (within(&hit, &go) || within(&go, &hit))).then_some(at)
+}
+
+pub fn pointer(vm: &Vm) -> Option<(f32, f32)> {
+    let (x, y) = center(&current_rect(vm)?);
+    Some((x, vm.eng.screen.1 as f32 - y))
+}
+
+fn set_focus(vm: &mut Vm, go: Value, rect: Option<[f32; 4]>) {
+    if !same(&vm.eng.focus, &go) {
+        mark_sel_dirty(&vm.eng.focus);
+        mark_dirty(&vm.eng.focus);
+        mark_sel_dirty(&go);
+        mark_dirty(&go);
+    }
+    vm.eng.focus = go;
+    vm.eng.focus_rect = rect;
+}
+
+pub fn clear(vm: &mut Vm) {
+    set_focus(vm, Value::Null, None);
+}
+
+/// Scroll the focused list, or the closest visible viewport on the current screen.
+pub fn scroll(vm: &mut Vm, dx: f32, dy: f32) {
+    if vm.dropdown_scroll(-dy.signum()) {
+        return;
+    }
     let sh = vm.eng.screen.1 as f32;
-    let f = collect(vm).into_iter().find(|f| same(&f.go, &vm.eng.focus))?;
-    let (cx, cy) = center(&f.rect);
-    Some((cx, sh - cy))
+    let at = pointer(vm);
+    let mut lists = Vec::new();
+    for go in &vm.eng.gos {
+        let Some(components) = with_go(go, |g| {
+            (g.active && !g.port_hidden).then(|| g.comps.clone())
+        }).flatten() else { continue };
+        for comp in components {
+            let Some(viewport) = with_comp(&comp, |c| match &c.k {
+                CK::ScrollRect { viewport, content, horizontal, vertical, .. }
+                    if c.enabled && !content.is_null() &&
+                        (dx != 0.0 && *horizontal || dy != 0.0 && *vertical) =>
+                    Some(if viewport.is_null() { transform_of(go) } else { viewport.clone() }),
+                _ => None,
+            }).flatten() else { continue };
+            if !active_in_hierarchy(go) {
+                continue;
+            }
+            let Some(rect) = visible_rect(vm, bbox(&view_xf(vm, &viewport), sh)) else { continue };
+            let p = at.map_or_else(|| center(&rect), |(x, y)| {
+                (x.clamp(rect[0] + 0.5, rect[2] - 0.5), (sh - y).clamp(rect[1] + 0.5, rect[3] - 0.5))
+            });
+            let owned = within(&vm.eng.focus, go);
+            let distance = at.map_or(0.0, |(x, y)| (x - p.0).hypot(sh - y - p.1));
+            lists.push((comp, go.clone(), viewport, [p.0, sh - p.1], owned, distance));
+        }
+    }
+    lists.sort_by(|a, b| b.4.cmp(&a.4).then_with(|| a.5.total_cmp(&b.5)));
+    let points: Vec<_> = lists.iter().map(|list| list.3).collect();
+    let hits = raycast_points(vm, &canvas_roots(vm), &points);
+    for ((comp, go, viewport, _, _, _), hit) in lists.into_iter().zip(hits) {
+        if !within(&hit, &go) && !within(&hit, &go_of(&viewport)) {
+            continue;
+        }
+        let logical = xf(vm, &viewport);
+        let presented = view_xf(vm, &viewport);
+        vm.scroll_by(&comp, dx * logical.scale[0] / presented.scale[0].abs().max(1e-6),
+            dy * logical.scale[1] / presented.scale[1].abs().max(1e-6));
+        return;
+    }
 }
 
 /// Visible buttons that change menu (`swapMenu`), sorted top to bottom: the game's menu column.
@@ -343,8 +416,7 @@ pub fn menu_step(vm: &mut Vm, delta: i32) -> Option<(f32, f32)> {
     let next = (((cur as i32 + delta) % n) + n) % n;
     vm.eng.menu_idx = next as usize;
     let f = &list[next as usize];
-    vm.eng.focus = f.go.clone();
-    vm.eng.focus_rect = Some(f.rect);
+    set_focus(vm, f.go.clone(), Some(f.rect));
     let (cx, cy) = center(&f.rect);
     Some((cx, vm.eng.screen.1 as f32 - cy))
 }

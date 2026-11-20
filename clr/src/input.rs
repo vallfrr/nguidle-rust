@@ -1,5 +1,5 @@
 //! Pointer input (mouse / touch): UI raycast, hover, press, click, drag and drop, Slider, Toggle.
-use crate::ui::{child_xf, xf, Xf};
+use crate::ui::{view_child_xf, view_width, view_xf, xf, Xf};
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
@@ -58,85 +58,114 @@ fn hit_rect(x: &Xf, p: [f32; 2]) -> bool {
     lx >= x0 && lx <= x0 + x.w && ly >= y0 && ly <= y0 + x.h
 }
 
-fn raycast_node(vm: &mut Vm, tr: &Value, x: Xf, p: [f32; 2], masked_out: bool, hit: &mut Value) {
+struct Probe {
+    point: [f32; 2],
+    hit: Value,
+}
+
+fn raycast_node(
+    vm: &Vm,
+    tr: &Value,
+    x: Xf,
+    probes: &mut [Probe],
+    masks: &mut Vec<Xf>,
+    remaining: &mut usize,
+) {
     let go = go_of(tr);
-    let (active, comps) = match with_go(&go, |g| (g.active, g.comps.clone())) {
-        Some(v) => v,
-        None => return,
-    };
-    if !active {
-        return;
-    }
-    let inside = hit_rect(&x, p);
-    let mut child_masked = masked_out;
-    let mut is_graphic = false;
-    for c in &comps {
-        with_comp(c, |k| {
-            if !k.enabled {
-                return;
+    let Some((graphic, mask)) = with_go(&go, |g| {
+        (g.active && !g.port_hidden).then(|| {
+            let mut graphic = false;
+            let mut mask = false;
+            for c in &g.comps {
+                with_comp(c, |k| {
+                    if !k.enabled {
+                        return;
+                    }
+                    match &k.k {
+                        CK::Image(i) | CK::RawImage(i) => graphic |= i.raycast && i.color[3] > 0.0,
+                        CK::Text(t) => graphic |= t.raycast,
+                        CK::Mask { .. } => mask = true,
+                        _ => {}
+                    }
+                });
             }
-            match &k.k {
-                CK::Image(i) | CK::RawImage(i) => {
-                    if i.raycast && i.color[3] > 0.0 {
-                        is_graphic = true;
-                    }
-                }
-                CK::Text(t) => {
-                    if t.raycast {
-                        is_graphic = true;
-                    }
-                }
-                CK::Mask { .. } => {
-                    if !inside {
-                        child_masked = true;
-                    }
-                }
-                _ => {}
-            }
-        });
-    }
-    if is_graphic && inside && !masked_out {
-        *hit = go.clone();
+            (graphic, mask)
+        })
+    }).flatten() else { return };
+
+    // A later child draws over its siblings and its parent.
+    if mask {
+        masks.push(x);
     }
     let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
-    for ch in children {
-        let cx = match with_tr(&ch, |t| child_xf(&x, t)) {
-            Some(v) => v,
-            None => continue,
-        };
-        raycast_node(vm, &ch, cx, p, child_masked, hit);
+    for child in children.iter().rev() {
+        if *remaining == 0 {
+            break;
+        }
+        if let Some(cx) = view_child_xf(vm, &x, child) {
+            raycast_node(vm, child, cx, probes, masks, remaining);
+        }
+    }
+    if mask {
+        masks.pop();
+    }
+    if graphic && *remaining > 0 {
+        let width = view_width(vm, tr);
+        for p in probes.iter_mut().filter(|p| p.hit.is_null() && p.point[0] < width) {
+            if hit_rect(&x, p.point) && masks.iter().all(|m| hit_rect(m, p.point)) {
+                p.hit = go.clone();
+                *remaining -= 1;
+            }
+        }
     }
 }
 
-pub fn raycast(vm: &mut Vm, p: [f32; 2]) -> Value {
-    let mut hit = Value::Null;
-    let mut roots: Vec<(i32, Value)> = vec![];
-    for go in vm.eng.gos.clone() {
-        if !with_go(&go, |g| g.active).unwrap_or(false) {
-            continue;
-        }
-        let tr = with_go(&go, |g| g.transform.clone()).unwrap_or(Value::Null);
-        if !with_tr(&tr, |t| t.parent.is_null()).unwrap_or(false) {
-            continue;
-        }
-        let mut s = None;
-        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
-            with_comp(&c, |k| {
-                if let CK::Canvas(cd) = &k.k {
-                    s = Some(cd.sorting);
-                }
-            });
-        }
-        if let Some(s) = s {
-            roots.push((s, tr));
-        }
+pub(crate) fn canvas_roots(vm: &Vm) -> Vec<(i32, Value)> {
+    let mut roots = Vec::new();
+    for go in &vm.eng.gos {
+        let Some((sorting, tr)) = with_go(go, |g| {
+            if !g.active || g.port_hidden || !with_tr(&g.transform, |t| t.parent.is_null()).unwrap_or(false) {
+                return None;
+            }
+            let sorting = g.comps.iter().filter_map(|c| {
+                with_comp(c, |k| match &k.k {
+                    CK::Canvas(canvas) => Some(canvas.sorting),
+                    _ => None,
+                }).flatten()
+            }).last()?;
+            Some((sorting, g.transform.clone()))
+        }).flatten() else { continue };
+        roots.push((sorting, tr));
     }
     roots.sort_by_key(|r| r.0);
-    for (_, tr) in roots {
-        let x = xf(vm, &tr);
-        raycast_node(vm, &tr, x, p, false, &mut hit);
+    roots
+}
+
+pub(crate) fn raycast_points(vm: &Vm, roots: &[(i32, Value)], points: &[[f32; 2]]) -> Vec<Value> {
+    let width = vm.eng.desktop_layout.width().max(vm.eng.screen.0 as f32);
+    let height = vm.eng.screen.1 as f32;
+    let mut remaining = 0;
+    let mut probes: Vec<_> = points.iter().map(|&point| {
+        let valid = (0.0..width).contains(&point[0]) && (0.0..height).contains(&point[1]);
+        remaining += usize::from(valid);
+        Probe { point: if valid { point } else { [f32::INFINITY; 2] }, hit: Value::Null }
+    }).collect();
+    let mut masks = Vec::new();
+    for (_, root) in roots.iter().rev() {
+        if remaining == 0 {
+            break;
+        }
+        raycast_node(vm, root, view_xf(vm, root), &mut probes, &mut masks, &mut remaining);
     }
-    hit
+    probes.into_iter().map(|p| p.hit).collect()
+}
+
+pub fn raycast(vm: &Vm, p: [f32; 2]) -> Value {
+    let width = vm.eng.desktop_layout.width().max(vm.eng.screen.0 as f32);
+    if !(0.0..width).contains(&p[0]) || !(0.0..vm.eng.screen.1 as f32).contains(&p[1]) {
+        return Value::Null;
+    }
+    raycast_points(vm, &canvas_roots(vm), &[p]).pop().unwrap_or_default()
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -206,7 +235,7 @@ impl Vm {
                         }
                     }
                     CK::Sel(s) => match (s.kind, e) {
-                        (SelKind::Button, Ev::Click) | (SelKind::Toggle, Ev::Click) | (SelKind::InputField, Ev::Click) => 3,
+                        (SelKind::Button, Ev::Click) | (SelKind::Toggle, Ev::Click) | (SelKind::InputField, Ev::Click) | (SelKind::Dropdown, Ev::Click) => 3,
                         (SelKind::Slider, Ev::Down) | (SelKind::Slider, Ev::Drag) => 3,
                         _ => 0,
                     },
@@ -244,6 +273,11 @@ impl Vm {
     }
 
     pub fn dispatch(&mut self, go: &Value, e: Ev, ped: &Value) {
+        if e == Ev::Click && with_ped(ped, |p| p.button == 0).unwrap_or(true)
+            && crate::save_slots::click(self, go, self.eng.mouse.0)
+        {
+            return;
+        }
         let comps = with_go(go, |g| g.comps.clone()).unwrap_or_default();
         for c in comps {
             let k = with_comp(&c, |k| {
@@ -305,6 +339,7 @@ impl Vm {
                                 .unwrap_or_default();
                                 self.eng.text_req = Some(TextReq { comp: c.clone(), text: txt, max, numeric: ct == 2 || ct == 3, pending: true });
                             }
+                            SelKind::Dropdown => self.open_dropdown(&c),
                             SelKind::Toggle => {
                                 let now = with_comp(&c, |k| match &mut k.k {
                                     CK::Sel(s) => {
@@ -347,18 +382,32 @@ impl Vm {
         if same(&old, &new) {
             return;
         }
+        let ancestry = |mut go: Value| {
+            let mut branch = Vec::new();
+            while !go.is_null() {
+                let tr = with_go(&go, |g| g.transform.clone()).unwrap_or_default();
+                branch.push(go);
+                let parent = with_tr(&tr, |t| t.parent.clone()).unwrap_or_default();
+                go = go_of(&parent);
+            }
+            branch
+        };
+        let mut exits = ancestry(old);
+        let mut enters = ancestry(new.clone());
+        while exits.last().zip(enters.last()).is_some_and(|(a, b)| same(a, b)) {
+            exits.pop();
+            enters.pop();
+        }
         let ped = self.mk_ped(pos);
-        if !old.is_null() {
-            let h = self.find_ev_handler(&old, Ev::Exit);
-            if !h.is_null() {
-                self.dispatch(&h, Ev::Exit, &ped);
+        for go in exits {
+            if self.has_handler(&go, Ev::Exit) {
+                self.dispatch(&go, Ev::Exit, &ped);
             }
         }
-        self.eng.ptr.hover = new.clone();
-        if !new.is_null() {
-            let h = self.find_ev_handler(&new, Ev::Enter);
-            if !h.is_null() {
-                self.dispatch(&h, Ev::Enter, &ped);
+        self.eng.ptr.hover = new;
+        for go in enters {
+            if self.has_handler(&go, Ev::Enter) {
+                self.dispatch(&go, Ev::Enter, &ped);
             }
         }
     }
@@ -376,6 +425,9 @@ impl Vm {
     }
 
     fn pointer_update_inner(&mut self) {
+        if self.dropdown_pointer() {
+            return;
+        }
         let pos = self.eng.mouse;
         let down = self.eng.mouse_down;
         let (edge_d, edge_u) = (self.eng.mouse_down_edge, self.eng.mouse_up_edge);
@@ -463,7 +515,7 @@ impl Vm {
     fn slider_drag(&mut self, go: &Value, p: [f32; 2]) {
         let comps = with_go(go, |g| g.comps.clone()).unwrap_or_default();
         let tr = with_go(go, |g| g.transform.clone()).unwrap_or(Value::Null);
-        let x = xf(self, &tr);
+        let x = view_xf(self, &tr);
         let (dx, dy) = (p[0] - x.origin[0], p[1] - x.origin[1]);
         let (c, s) = ((-x.rot).cos(), (-x.rot).sin());
         let lx = (c * dx - s * dy) / x.scale[0].max(1e-6);
@@ -529,14 +581,14 @@ impl Vm {
             let (v_top, v_h) = (vx.origin[1] + (1.0 - vx.pivot[1]) * vx.h * vx.scale[1], vx.h * vx.scale[1]);
             let (c_top, c_h) = (cx.origin[1] + (1.0 - cx.pivot[1]) * cx.h * cx.scale[1], cx.h * cx.scale[1]);
             let want = c_top + dy;
-            let new_top = if c_h > v_h { want.clamp(v_top, v_top + (c_h - v_h)) } else { v_top };
+            let new_top = if c_h > v_h { want.clamp(v_top, v_top + (c_h - v_h)) } else { c_top };
             my = new_top - c_top;
         }
         if horizontal {
             let (v_left, v_w) = (vx.origin[0] - vx.pivot[0] * vx.w * vx.scale[0], vx.w * vx.scale[0]);
             let (c_left, c_w) = (cx.origin[0] - cx.pivot[0] * cx.w * cx.scale[0], cx.w * cx.scale[0]);
             let want = c_left + dx;
-            let new_left = if c_w > v_w { want.clamp(v_left - (c_w - v_w), v_left) } else { v_left };
+            let new_left = if c_w > v_w { want.clamp(v_left - (c_w - v_w), v_left) } else { c_left };
             mx = new_left - c_left;
         }
         if mx == 0.0 && my == 0.0 {
@@ -695,7 +747,7 @@ pub fn key_by_name(n: &str) -> i32 {
 impl Vm {
     /// Mouse wheel over a ScrollRect (Unity: content moves by `delta * scrollSensitivity` pixels).
     pub fn scroll_wheel(&mut self, notches: f32) {
-        if notches == 0.0 {
+        if notches == 0.0 || self.dropdown_scroll(notches) {
             return;
         }
         let pos = self.eng.mouse;

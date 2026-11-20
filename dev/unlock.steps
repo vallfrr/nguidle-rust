@@ -1,5 +1,5 @@
 # Unlocks the menus of a new game (conditions taken from ButtonShower.cs). Usage: step `do,dev/unlock.steps`.
-set,Character.settings.tutorialOffForever,true
+call,HoverTooltip.offForever
 call,HoverTooltip.hideTutorialTooltip
 set,Character.firstBossEver,false
 set,Character.bossID,150

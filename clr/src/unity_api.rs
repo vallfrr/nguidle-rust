@@ -379,7 +379,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             if let Value::Obj(o) = &go {
                 let name = a.get(1).and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "GameObject".into());
                 let tr = new_comp(vm, "UnityEngine.Transform", go.clone(), CK::Transform(Box::new(Tr { parent: Value::Null, children: vec![], pos: [0.0; 3], scale: [1.0; 3], rot_z: 0.0, amin: [0.5; 2], amax: [0.5; 2], pivot: [0.5; 2], apos: [0.0; 2], size: [0.0; 2], is_rect: false })));
-                *o.x.borrow_mut() = Ext::Native(Box::new(GoData { name, active: true, layer: 0, tag: "Untagged".into(), comps: vec![tr.clone()], transform: tr, destroyed: false, dirty: true, cache: None, in_layout: false }));
+                *o.x.borrow_mut() = Ext::Native(Box::new(GoData { name, active: true, port_hidden: false, layer: 0, tag: "Untagged".into(), comps: vec![tr.clone()], transform: tr, destroyed: false, dirty: true, cache: None, in_layout: false }));
                 vm.eng.gos.push(go.clone());
             }
             Ok(Value::Null)
@@ -604,13 +604,18 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             Ok(Value::Null)
         },
         "UnityEngine.Resources::Load" => |vm, a| {
-            let name = a[0].as_str().unwrap_or("").to_string();
-            let tys: Vec<String> = vm.targs.clone().map(|t| t.iter().map(|x| crate::lower::ty_name(x, vm)).collect()).unwrap_or_default();
-            let _ = tys;
-            if let Some(clip) = name.strip_prefix("Sounds/") {
-                return Ok(Value::str(&format!("clip:{clip}")));
-            }
-            Ok(vm.eng.keys.get(&format!("res:{}", name)).cloned().unwrap_or(Value::Null))
+            let path = a[0].as_str().unwrap_or("").to_ascii_lowercase();
+            let ty = vm.targs.as_deref().and_then(|args| args.first()).map(|t| crate::lower::ty_name(t, vm));
+            let asset = vm.eng.resources.get(&path).and_then(|assets| {
+                assets.iter().find(|asset| match ty.as_deref() {
+                    None | Some("UnityEngine.Object" | "System.Object") => true,
+                    Some(ty) => matches!(asset, Value::Obj(o) if {
+                        let name = vm.types[o.ty as usize].name.as_str();
+                        name == ty || (name == "UnityEngine.Texture2D" && ty == "UnityEngine.Texture")
+                    }),
+                })
+            });
+            Ok(asset.cloned().unwrap_or(Value::Null))
         },
         "UnityEngine.TextAsset::get_text" => |vm, a| {
             let v = rv(vm, &a[0]);
@@ -728,7 +733,12 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             })
             .unwrap_or(Value::Null))
         },
-        "UnityEngine.UI.Slider::set_value" | "UnityEngine.UI.Scrollbar::set_value" | "UnityEngine.UI.Dropdown::set_value" => |vm, a| {
+        "UnityEngine.UI.Dropdown::set_value" => |vm, a| {
+            let comp = rv(vm, &a[0]);
+            set_dropdown_value(vm, &comp, a[1].as_i32());
+            Ok(Value::Null)
+        },
+        "UnityEngine.UI.Slider::set_value" | "UnityEngine.UI.Scrollbar::set_value" => |vm, a| {
             let v = rv(vm, &a[0]);
             let nv = a[1].as_f64() as f32;
             let (changed, on_change, kind) = sel(&v, |s| {
@@ -738,7 +748,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
                 (ch, s.on_change.clone(), s.kind)
             })
             .unwrap_or((false, Value::Null, SelKind::Slider));
-            if kind != SelKind::Dropdown && changed {
+            if changed {
                 slider_visuals(vm, &v);
             }
             if kind == SelKind::Scrollbar && changed {
@@ -771,10 +781,15 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         },
         "UnityEngine.UI.Dropdown::ClearOptions" => |vm, a| {
             let v = rv(vm, &a[0]);
+            vm.hide_dropdown(&v);
             sel(&v, |s| s.options.clear());
             Ok(Value::Null)
         },
-        "UnityEngine.UI.Dropdown::Hide" => stub0!(),
+        "UnityEngine.UI.Dropdown::Hide" => |vm, a| {
+            let comp = rv(vm, &a[0]);
+            vm.hide_dropdown(&comp);
+            Ok(Value::Null)
+        },
         "UnityEngine.UI.Dropdown::RefreshShownValue" => |vm, a| {
             // the caption shows the text of the selected option
             let v = rv(vm, &a[0]);
@@ -855,16 +870,23 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         "UnityEngine.Sprite::Create" => stub0!(),
         "UnityEngine.AudioSource::set_mute" => stub0!(),
         "UnityEngine.AudioSource::set_clip" => |vm, a| {
-            // a clip is the string "clip:<name>" (see Resources.Load); remembered per AudioSource object
-            if let (Value::Obj(o), Some(c)) = (&a[0], a[1].as_str()) {
-                vm.eng.audio_clips.insert(Rc::as_ptr(o) as *const u8 as usize, c.to_string());
+            if let Value::Obj(o) = &a[0] {
+                let id = Rc::as_ptr(o) as usize;
+                if let Some(name) = with_comp(&a[1], |c| match &c.k {
+                    CK::AudioClip(name) => Some(name.clone()),
+                    _ => None,
+                }).flatten() {
+                    vm.eng.audio_clips.insert(id, name);
+                } else {
+                    vm.eng.audio_clips.remove(&id);
+                }
             }
             Ok(Value::Null)
         },
         "UnityEngine.AudioSource::Play" => |vm, a| {
             if let Value::Obj(o) = &a[0] {
-                if let Some(c) = vm.eng.audio_clips.get(&(Rc::as_ptr(o) as *const u8 as usize)).cloned() {
-                    vm.eng.sound_queue.push(c.trim_start_matches("clip:").to_string());
+                if let Some(name) = vm.eng.audio_clips.get(&(Rc::as_ptr(o) as usize)) {
+                    vm.eng.sound_queue.push(name.clone());
                 }
             }
             Ok(Value::Null)
@@ -877,6 +899,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         "UnityEngine.WWW::get_text" => |_vm, _a| Ok(Value::str("")),
         "UnityEngine.WWWForm::.ctor" | "UnityEngine.WWWForm::AddField" => stub0!(),
         // ------------------------------------------------------- Steam / Kartridge (stubs)
+        "Steamworks.SteamUserStats::SetAchievement" => |_vm, _a| Ok(Value::bool(false)),
         k if k.starts_with("Steamworks.") || k.starts_with("Kongregate.") => {
             if k.ends_with("::Init") || k.ends_with("KongregateAPI_IsReady") {
                 |_vm, _a| Ok(Value::I32(0))
@@ -969,7 +992,7 @@ fn key_arg(vm: &mut Vm, v: &Value) -> i32 {
 }
 
 /// Access to a Dropdown option object.
-fn opt_data<R>(v: &Value, f: impl FnOnce(&mut OptD) -> R) -> Option<R> {
+pub(crate) fn opt_data<R>(v: &Value, f: impl FnOnce(&mut OptD) -> R) -> Option<R> {
     if let Value::Obj(o) = v {
         if let Ext::Native(b) = &mut *o.x.borrow_mut() {
             if let Some(d) = b.downcast_mut::<OptD>() {
@@ -978,4 +1001,19 @@ fn opt_data<R>(v: &Value, f: impl FnOnce(&mut OptD) -> R) -> Option<R> {
         }
     }
     None
+}
+
+pub(crate) fn set_dropdown_value(vm: &mut Vm, comp: &Value, value: i32) {
+    let Some((changed, event, caption, option, value)) = sel(comp, |s| {
+        let value = (value.max(0) as usize).min(s.options.len().saturating_sub(1));
+        let changed = s.value as usize != value;
+        s.value = value as f32;
+        (changed, s.on_change.clone(), s.caption.clone(), s.options.get(value).cloned(), value)
+    }) else { return };
+    if let Some(text) = option.and_then(|item| opt_data(&item, |d| d.text.clone())) {
+        set_text_comp(&caption, &text);
+    }
+    if changed && !event.is_null() {
+        vm.invoke_event(&event, vec![Value::I32(value as i32)]);
+    }
 }

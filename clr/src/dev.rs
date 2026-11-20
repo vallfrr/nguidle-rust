@@ -275,6 +275,9 @@ pub fn uimap(vm: &mut Vm) -> (String, String) {
     let mut json = String::new();
     let mut md = String::from("| # | menu | buttons | other interactive | texts | images | stretched | large simple images (drawn layout, candidates to redraw) |\n|---|---|---|---|---|---|---|---|\n");
     for (i, root) in roots.iter().enumerate() {
+        if with_go(root, |g| g.port_hidden).unwrap_or(false) {
+            continue;
+        }
         if let (Some(Value::Obj(so)), true) = (&swapper, !root.is_null()) {
             if let Some(m) = vm.find_method(so.ty, "swapMenu", 2) {
                 let _ = vm.invoke(m, vec![Value::Obj(so.clone()), Value::I32(i as i32)]);

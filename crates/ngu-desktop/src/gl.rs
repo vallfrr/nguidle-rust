@@ -5,9 +5,11 @@
 use crate::actions::{apply, Action};
 use crate::{layout, Options, LOGIC_DT, VIRT_H, VIRT_W};
 use clr::render::{Quad, Renderer, ATLAS_SIZE, TEX_ATLAS, TEX_WHITE};
+use clr::unity::{mark_dirty, with_comp, with_go, with_tr, CK, SelKind};
+use clr::value::Value;
 use clr::Vm;
 use miniquad::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 const VERTEX: &str = r#"#version 100
@@ -48,6 +50,86 @@ struct Uniforms {
 /// Quads per upload: 16-bit indices address 65,536 vertices.
 const CHUNK: usize = 16_000;
 
+/// Interpolate the rendered HUD fill between game ticks. The Slider value stays authoritative.
+struct EnergyFill {
+    transform: Value,
+    samples: VecDeque<(f64, f32)>,
+}
+
+impl EnergyFill {
+    fn new(vm: &Vm) -> Self {
+        let transform = vm.eng.gos.iter().find(|go| {
+            with_go(go, |g| g.name == "Energy Bar").unwrap_or(false)
+        }).and_then(|go| {
+            with_go(go, |g| {
+                g.comps.iter().find_map(|component| {
+                    with_comp(component, |c| match &c.k {
+                        CK::Sel(s) if s.kind == SelKind::Slider && s.direction == 0 => {
+                            Some(s.fill_rect.clone())
+                        }
+                        _ => None,
+                    }).flatten()
+                })
+            }).flatten()
+        }).unwrap_or_default();
+        let current = with_tr(&transform, |t| t.amax[0]).unwrap_or(0.0);
+        Self {
+            transform,
+            samples: VecDeque::from([(vm.eng.time, current)]),
+        }
+    }
+
+    fn sample_tick(&mut self, vm: &Vm) {
+        let Some(bar) = vm.eng.invokes.iter().find(|timer| timer.method == "updateBar") else { return };
+        let time = bar.next - bar.repeat;
+        if time > vm.eng.time {
+            return;
+        }
+        let value = with_tr(&self.transform, |t| t.amax[0]).unwrap_or_default();
+        if self.samples.back().is_some_and(|(last, _)| *last == time) {
+            return;
+        }
+        if self.samples.back().is_some_and(|(last, _)| *last > time) {
+            self.samples.clear();
+        }
+        if self.samples.len() == 4 {
+            self.samples.pop_front();
+        }
+        self.samples.push_back((time, value));
+    }
+
+    fn at(&self, time: f64) -> f32 {
+        let Some(&(mut before, mut value)) = self.samples.front() else { return 0.0 };
+        for &(after, next) in self.samples.iter().skip(1) {
+            if time < after {
+                return energy_fill_at(value, next, ((time - before) / (after - before)) as f32);
+            }
+            (before, value) = (after, next);
+        }
+        value
+    }
+
+    fn set_rendered(&self, value: f32) -> Option<f32> {
+        let old = with_tr(&self.transform, |t| std::mem::replace(&mut t.amax[0], value))?;
+        if old != value {
+            mark_dirty(&self.transform);
+        }
+        Some(old)
+    }
+}
+
+fn energy_fill_at(previous: f32, current: f32, fraction: f32) -> f32 {
+    let fraction = fraction.clamp(0.0, 1.0);
+    if current >= previous {
+        previous + (current - previous) * fraction
+    } else if previous >= 0.8 && current <= 0.2 && fraction < 1.0 {
+        // Complete the visible fill before the next tick starts at the reset value.
+        previous + (1.0 - previous) * fraction
+    } else {
+        current
+    }
+}
+
 struct Stage {
     ctx: Box<dyn RenderingBackend>,
     vm: &'static mut Vm,
@@ -62,6 +144,7 @@ struct Stage {
     // real-time loop
     last: Instant,
     acc: f32,
+    energy_fill: EnergyFill,
     // input
     nav_mode: bool,
     #[cfg(windows)]
@@ -75,12 +158,17 @@ struct Stage {
     synth_phase: u8,
     perf: bool,
     p: [f32; 4],
+    previous_present: Option<Instant>,
+    longest_frame_ms: f32,
+    missed_frames: u32,
     frames: u64,
     t0: Instant,
-    /// screen profile (`NGU_LAYOUT=vita` or a file, `layouts/README.md`); None = the whole game space letterboxed
+    /// An explicit classic, Vita or custom region profile.
     profile: Option<clr::profile::Profile>,
     hold: bool,
-    pointer_y: f32,
+    pointer: Option<(f32, f32)>,
+    focus_input: bool,
+    hover_at: (f32, f32),
 }
 
 impl Stage {
@@ -113,7 +201,15 @@ impl Stage {
         let atlas = ctx.new_texture_from_rgba8(ATLAS_SIZE as u16, ATLAS_SIZE as u16, &vec![0u8; ATLAS_SIZE * ATLAS_SIZE * 4]);
         ctx.texture_set_filter(atlas, FilterMode::Nearest, MipmapFilterMode::None);
         vm.eng.screen = (VIRT_W as i32, VIRT_H as i32);
+        vm.eng.hover_always = true;
+        vm.eng.mouse = (-1.0, -1.0);
         let (w, h) = window::screen_size();
+        let profile = std::env::var("NGU_LAYOUT").ok().filter(|name| name != "pc").and_then(|name| {
+            clr::profile::load(if name == "classic" { "pc" } else { &name })
+                .map_err(|e| eprintln!("[layout] {e}")).ok()
+        });
+        vm.eng.desktop_layout.pc_resolutions = profile.is_none();
+        let energy_fill = EnergyFill::new(vm);
         Stage {
             ctx,
             vm,
@@ -127,6 +223,7 @@ impl Stage {
             size: (w, h),
             last: Instant::now(),
             acc: 0.0,
+            energy_fill,
             nav_mode: false,
             #[cfg(windows)]
             audio: rodio::OutputStream::try_default().ok(),
@@ -139,11 +236,72 @@ impl Stage {
             synth_phase: 0,
             perf: std::env::var("NGU_PERF").is_ok() && o.fps > 0,
             p: [0.0; 4],
+            previous_present: None,
+            longest_frame_ms: 0.0,
+            missed_frames: 0,
             frames: 0,
             t0: Instant::now(),
-            profile: std::env::var("NGU_LAYOUT").ok().and_then(|n| clr::profile::load(&n).map_err(|e| eprintln!("[layout] {e}")).ok()),
+            profile,
             hold: false,
-            pointer_y: 0.0,
+            pointer: None,
+            focus_input: false,
+            hover_at: (-1.0, -1.0),
+        }
+    }
+
+    fn viewport(&self, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        let (scale, ox, oy) = layout(w.max(1.0) as usize, h.max(1.0) as usize);
+        if self.profile.is_none() {
+            (scale, 0.0, oy, w / scale)
+        } else {
+            (scale, ox, oy, VIRT_W)
+        }
+    }
+
+    fn map_pointer(&mut self) -> bool {
+        if self.focus_input {
+            return false;
+        }
+        let Some((x, y)) = self.pointer else { return false };
+        let mapped = if self.profile.is_some() {
+            clr::profile::dev_to_game(&self.rend.regions, x, y)
+        } else {
+            let (w, h) = self.size;
+            let (scale, ox, oy, width) = self.viewport(w, h);
+            let (gx, gy) = ((x - ox) / scale, (y - oy) / scale);
+            (gx >= 0.0 && gx < width && gy >= 0.0 && gy < VIRT_H).then_some((gx, gy))
+        };
+        if self.pending.is_empty() && self.synth_phase == 0 {
+            self.vm.eng.mouse = mapped.map_or((-1.0, -1.0), |(gx, gy)| (gx, VIRT_H - gy));
+        }
+        mapped.is_some()
+    }
+
+    fn navigate(&mut self, action: Action) {
+        if self.vm.eng.text_req.is_some() {
+            if action == Action::Back {
+                self.vm.eng.text_req = None;
+                self.text_buf.clear();
+            }
+            return;
+        }
+        self.focus_input = true;
+        if let Some(click) = apply(self.vm, action) {
+            self.pending.push(click);
+        }
+    }
+
+    fn update_hover(&mut self) {
+        if !self.pending.is_empty() || self.synth_phase != 0 || self.vm.eng.mouse_down ||
+            self.vm.eng.mouse_down_edge || self.vm.eng.mouse_up_edge {
+            return;
+        }
+        if self.focus_input {
+            self.vm.eng.mouse = clr::focus::pointer(self.vm).unwrap_or((-1.0, -1.0));
+        }
+        if self.vm.eng.mouse != self.hover_at {
+            self.hover_at = self.vm.eng.mouse;
+            self.vm.pointer_update();
         }
     }
 
@@ -275,6 +433,7 @@ impl EventHandler for Stage {
                     window::set_fullscreen(fs);
                 }
                 if !fs {
+                    let (w, h) = if self.profile.is_none() { clr::desktop_layout::pc_resolution(w, h) } else { (w, h) };
                     window::set_window_size(w.max(320) as u32, h.max(200) as u32);
                 }
             }
@@ -292,15 +451,10 @@ impl EventHandler for Stage {
         }
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]
-        if let Some(p) = self.pad.as_mut() {
-            for a in p.poll() {
-                if self.vm.eng.text_req.is_none() {
-                    if let Some(pt) = apply(self.vm, a) {
-                        self.pending.push(pt);
-                    }
-                }
-            }
+        for action in self.pad.as_mut().map(|pad| pad.poll()).unwrap_or_default() {
+            self.navigate(action);
         }
+        self.update_hover();
         // fixed logic steps caught up on real time
         let now = Instant::now();
         self.acc += (now - self.last).as_secs_f32().min(0.25);
@@ -322,6 +476,7 @@ impl EventHandler for Stage {
                 }
             }
             self.vm.frame(LOGIC_DT);
+            self.energy_fill.sample_tick(self.vm);
             self.acc -= LOGIC_DT;
             steps += 1;
         }
@@ -333,15 +488,27 @@ impl EventHandler for Stage {
 
     fn draw(&mut self) {
         let (w, h) = window::screen_size();
-        if (w, h) != self.size || self.rend.w == 1 {
-            self.size = (w, h);
+        if w < 1.0 || h < 1.0 {
+            return;
         }
+        self.size = (w, h);
         self.rend.resize(w as usize, h as usize, false);
-        let (scale, ox, oy) = layout(w as usize, h as usize);
+        let (scale, ox, oy, width) = self.viewport(w, h);
         if let Some(p) = &self.profile {
-            self.rend.regions = p.place(w, h, self.hold, self.pointer_y);
+            self.rend.regions = p.place(w, h, self.hold, self.pointer.map_or(0.0, |(_, y)| y));
         }
+        self.vm.eng.desktop_layout.set_width(width);
+        if self.profile.is_none() {
+            self.map_pointer();
+        }
+        // updateBar is scheduled every 20 ms, so successive simulation ticks can
+        // run it a different number of times. Render on its clock.
+        let time = self.vm.eng.time + f64::from(self.acc) - f64::from(LOGIC_DT) - 0.02;
+        let saved_fill = self.energy_fill.set_rendered(self.energy_fill.at(time));
         self.rend.emit_frame(self.vm, scale, ox, oy);
+        if let Some(saved_fill) = saved_fill {
+            self.energy_fill.set_rendered(saved_fill);
+        }
         let t_draw = Instant::now();
         if self.rend.atlas_take_dirty() {
             self.ctx.texture_update(self.atlas, self.rend.atlas_pixels());
@@ -384,41 +551,47 @@ impl EventHandler for Stage {
         self.p[1] += self.rend.t_emit;
         self.p[2] += t_draw.elapsed().as_secs_f32() * 1000.0;
         self.frames += 1;
+        if self.perf {
+            let now = Instant::now();
+            if let Some(previous) = self.previous_present.replace(now) {
+                let ms = (now - previous).as_secs_f32() * 1000.0;
+                self.longest_frame_ms = self.longest_frame_ms.max(ms);
+                self.missed_frames += u32::from(ms > 20.0);
+            }
+        }
         if self.perf && self.frames % 120 == 0 {
             let s = self.t0.elapsed().as_secs_f32();
             eprintln!("[perf] gpu {:.1} img/s | per frame (ms): logic {:.1} emit {:.1} draw+submit {:.1} | {}x{}", 120.0 / s, self.p[0] / 120.0, self.p[1] / 120.0, self.p[2] / 120.0, w as i32, h as i32);
+            eprintln!("[perf] frame interval | max {:.1} ms, {} >20 ms", self.longest_frame_ms, self.missed_frames);
             self.p = [0.0; 4];
+            self.longest_frame_ms = 0.0;
+            self.missed_frames = 0;
             self.t0 = Instant::now();
         }
     }
 
-    fn resize_event(&mut self, width: f32, height: f32) {
-        self.size = (width, height);
-    }
-
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
-        let (w, h) = window::screen_size();
-        let (scale, ox, oy) = layout(w as usize, h as usize);
-        self.pointer_y = y;
-        if self.pending.is_empty() {
-            if self.profile.is_some() {
-                // through the regions placed for the last frame (a point between regions keeps the previous position)
-                if let Some((gx, gy)) = clr::profile::dev_to_game(&self.rend.regions, x, y) {
-                    self.vm.eng.mouse = (gx, VIRT_H - gy);
-                }
-            } else {
-                self.vm.eng.mouse = ((x - ox) / scale, VIRT_H - (y - oy) / scale);
-            }
+        if self.focus_input && self.pointer != Some((x, y)) {
+            self.focus_input = false;
+            clr::focus::clear(self.vm);
         }
+        self.pointer = Some((x, y));
+        self.map_pointer();
     }
 
     fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
-        self.vm.scroll_wheel(y.signum() * y.abs().min(3.0));
+        if self.map_pointer() {
+            self.vm.scroll_wheel(y.signum() * y.abs().min(3.0));
+        }
     }
 
     fn mouse_button_down_event(&mut self, b: MouseButton, x: f32, y: f32) {
-        self.mouse_motion_event(x, y);
-        self.button(b, true);
+        self.focus_input = false;
+        clr::focus::clear(self.vm);
+        self.pointer = Some((x, y));
+        if self.map_pointer() {
+            self.button(b, true);
+        }
     }
 
     fn mouse_button_up_event(&mut self, b: MouseButton, x: f32, y: f32) {
@@ -435,6 +608,11 @@ impl EventHandler for Stage {
             KeyCode::F1 if !repeat => {
                 self.nav_mode = !self.nav_mode;
                 self.vm.eng.keys_down.clear();
+                if !self.nav_mode {
+                    self.focus_input = false;
+                    clr::focus::clear(self.vm);
+                    self.map_pointer();
+                }
             }
             // profile hold action (Vita L): held = page list in place of the player column
             KeyCode::F2 => self.hold = true,
@@ -469,9 +647,7 @@ impl EventHandler for Stage {
                 _ => None,
             };
             if let Some(a) = a {
-                if let Some(p) = apply(self.vm, a) {
-                    self.pending.push(p);
-                }
+                self.navigate(a);
             }
             return;
         }
@@ -493,11 +669,25 @@ pub fn run_gl(vm: &'static mut Vm, o: Options) {
         window_width: o.width as i32,
         window_height: o.height as i32,
         window_resizable: true,
-        high_dpi: false,
+        high_dpi: cfg!(windows),
         sample_count: 1,
         // vsync like the original; NGU_VSYNC=0 disables it (diagnostics: measures the raw frame cost)
         platform: conf::Platform { swap_interval: Some(if std::env::var("NGU_VSYNC").map(|v| v == "0").unwrap_or(false) { 0 } else { 1 }), ..Default::default() },
         ..Default::default()
     };
     start(conf, move || Box::new(Stage::new(vm, &o)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::energy_fill_at;
+
+    #[test]
+    fn fill_smooths_growth_and_resets_without_a_reverse_animation() {
+        assert_eq!(energy_fill_at(0.25, 0.75, 0.5), 0.5);
+        assert_eq!(energy_fill_at(0.875, 0.0, 0.5), 0.9375);
+        assert_eq!(energy_fill_at(0.875, 0.0, 1.0), 0.0);
+        assert_eq!(energy_fill_at(0.5, 0.125, 0.5), 0.125);
+        assert_eq!(energy_fill_at(0.75, 0.75, 0.5), 0.75);
+    }
 }

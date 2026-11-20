@@ -40,6 +40,8 @@ fn game(a: &[String]) {
     let frames: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
     vm.eng.screen = (960, 600);
     vm.eng.save_dir = format!("{}/save", dir);
+    vm.eng.desktop_panels = true;
+    vm.eng.read_live_fields = Some(ngu_host::live_fields);
     ngu_host::install_panic_hook();
     vm.native_mode = true;
     vm.native_inv = Some(gen::hook);
@@ -188,6 +190,8 @@ fn window(a: &[String], cpu: bool) {
     let dir = a[1].clone();
     vm.eng.screen = (960, 600);
     vm.eng.save_dir = format!("{}/save", dir);
+    vm.eng.desktop_panels = true;
+    vm.eng.read_live_fields = Some(ngu_host::live_fields);
     ngu_host::install_panic_hook();
     vm.native_mode = true;
     vm.native_inv = Some(gen::hook);
@@ -195,7 +199,15 @@ fn window(a: &[String], cpu: bool) {
     unity_api::load_prefs(&mut vm);
     vm.load_scene(&dir).expect("scene");
     vm.awake_all();
+    if let Ok(st) = std::env::var("NGU_STEPS") {
+        for _ in 0..40 {
+            vm.frame(1.0 / 30.0);
+        }
+        let steps = st.split(';').map(str::to_owned).collect::<Vec<_>>();
+        ngu_host::clr::script::run_steps(&mut vm, &steps);
+    }
     let o = ngu_desktop::Options {
+        height: if cpu { 800 } else { 720 },
         fps: a.get(2).and_then(|s| s.parse().ok()).unwrap_or(60),
         max_frames: a.get(3).and_then(|s| s.parse().ok()),
         screenshot: a.get(4).cloned(),
