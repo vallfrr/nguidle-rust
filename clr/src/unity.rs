@@ -1205,10 +1205,16 @@ impl Vm {
 
     fn run_invokes(&mut self) {
         let now = self.eng.time;
+        // a repeating invocation that is late runs once per missed period (Unity's delayed-call queue re-inserts it and keeps
+        // popping while it is due), so its rate does not depend on the frame rate; capped to bound a very long frame
         let mut due = vec![];
         for (i, inv) in self.eng.invokes.iter().enumerate() {
             if inv.next <= now {
                 due.push(i);
+                if inv.repeat > 0.0 {
+                    let missed = (((now - inv.next) / inv.repeat) as usize).min(49);
+                    due.extend(std::iter::repeat(i).take(missed));
+                }
             }
         }
         let mut remove = vec![];
