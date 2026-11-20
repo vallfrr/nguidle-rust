@@ -32,7 +32,8 @@
 2. **Enlarged images**: simply enlarged (default filtering); revisit later.
 3. **Style**: keep **the original drawings as much as possible**. A new interface is allowed if it **copies the original exactly**.
 4. **Display**: offer **common resolutions** (+ fullscreen) in addition to free resizing. **No frame-rate setting for the player**: runs like the original. Measured: the original forces `QualitySettings.vSyncCount = 1` (`Character.cs`), i.e. synchronised to the monitor (60, 144, 200 Hz...) through Direct3D 11. We do the same: vsync, one frame per refresh.
-5. **Platform order**: PC first, then web, then Vita (the Vita is not available now; web is testable without hardware and keeps the platform separation clean).
+5. **Rendering stack** (2026-11-20): `miniquad` (OpenGL / WebGL, pure Rust) for PC and web; a vitaGL host in C for the Vita; all fed by the engine's quad list.
+5b. **Platform order**: PC first, then web, then Vita (the Vita is not available now; web is testable without hardware and keeps the platform separation clean).
 6. **GPU**: of course, like the original.
 7. **Dev mode** in the game: see everything, unlock everything, test without depending on a save or clicks (`docs/DEV.md`); it is used first by the assistant.
 8. **Free publication, three repositories (GPL-3.0)**: `nguidle-rust` (engine + conversion of the original game to Rust + PC version), `nguidle-web` and `nguidle-vita` (they use only the engine: a Cargo dependency on a tagged version of `nguidle-rust`; their build calls the conversion on the player's own files). Nothing from the game is published (no code, assets, extracted texts, saves) and no personal information.

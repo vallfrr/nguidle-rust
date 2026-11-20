@@ -42,7 +42,7 @@ WSL (`/mnt/j/NGUvita/nguvita`):
 Windows (PowerShell, in `J:\NGUvita\nguvita`): the window does not display through WSLg, use Windows.
 - Generate `gen.rs` first on the WSL side (`tools/iter.sh 1`), then build:
   `$env:RUST_MIN_STACK="536870912"; $env:CARGO_TARGET_DIR="J:\NGUvita\build-ngu-win"; .\tools\capbuild.ps1 14 cargo build --profile game -p ngu-gen`
-- Run: `J:\NGUvita\build-ngu-win\game\ngu-gen.exe window "J:\NGUvita\NGU IDLE\NGUIdle_Data\Managed\Assembly-CSharp.dll" out/ngu 60` (+ `NGU_PERF=1` for per-frame timings on stderr).
+- Run (GPU window; `window-cpu` = software window with `[capture.png]`; `NGU_VSYNC=0` removes vsync for measurements; F1 = focus navigation, F11 = fullscreen): `J:\NGUvita\build-ngu-win\game\ngu-gen.exe window "J:\NGUvita\NGU IDLE\NGUIdle_Data\Managed\Assembly-CSharp.dll" out/ngu 60` (+ `NGU_PERF=1` for per-frame timings on stderr).
 - Original game for comparison: `. .\tools\orig.ps1; Start-Orig` (launches through Steam).
 
 ## What the maintainer said (respect it)
