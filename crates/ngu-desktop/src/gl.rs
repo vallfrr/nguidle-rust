@@ -152,6 +152,8 @@ struct Stage {
     #[cfg(windows)]
     pad: Option<crate::pad::Pad>,
     fullscreen: bool,
+    #[cfg(windows)]
+    windowed_bounds: Option<((u32, u32), (u32, u32))>,
     typed: Vec<char>,
     text_buf: String,
     pending: Vec<(f32, f32)>,
@@ -230,6 +232,8 @@ impl Stage {
             #[cfg(windows)]
             pad: crate::pad::Pad::new(),
             fullscreen: false,
+            #[cfg(windows)]
+            windowed_bounds: None,
             typed: vec![],
             text_buf: String::new(),
             pending: vec![],
@@ -288,6 +292,26 @@ impl Stage {
         self.focus_input = true;
         if let Some(click) = apply(self.vm, action) {
             self.pending.push(click);
+        }
+    }
+
+    fn set_fullscreen(&mut self, enabled: bool) {
+        if self.fullscreen == enabled {
+            return;
+        }
+        #[cfg(windows)]
+        if enabled {
+            let (width, height) = window::screen_size();
+            self.windowed_bounds = Some(((width as u32, height as u32), window::get_window_position()));
+        }
+        self.fullscreen = enabled;
+        window::set_fullscreen(enabled);
+        #[cfg(windows)]
+        if !enabled {
+            if let Some(((width, height), (x, y))) = self.windowed_bounds.take() {
+                window::set_window_size(width, height);
+                window::set_window_position(x, y);
+            }
         }
     }
 
@@ -428,10 +452,7 @@ impl EventHandler for Stage {
         // Screen.SetResolution from a game button: resize the window or toggle fullscreen (start-up calls are ignored)
         if let Some((w, h, fs, at)) = self.vm.eng.resolution_req.take() {
             if at > 120 {
-                if fs != self.fullscreen {
-                    self.fullscreen = fs;
-                    window::set_fullscreen(fs);
-                }
+                self.set_fullscreen(fs);
                 if !fs {
                     let (w, h) = if self.profile.is_none() { clr::desktop_layout::pc_resolution(w, h) } else { (w, h) };
                     window::set_window_size(w.max(320) as u32, h.max(200) as u32);
@@ -617,8 +638,7 @@ impl EventHandler for Stage {
             // profile hold action (Vita L): held = page list in place of the player column
             KeyCode::F2 => self.hold = true,
             KeyCode::F11 if !repeat => {
-                self.fullscreen = !self.fullscreen;
-                window::set_fullscreen(self.fullscreen);
+                self.set_fullscreen(!self.fullscreen);
             }
             _ => {}
         }

@@ -7,7 +7,8 @@
   The batch measures engine navigation from a boosted save.
 - Controller-equivalent inputs selected an Adventure dropdown option and
   scrolled Augmentation and the patch notes. Focus has an interior yellow tint.
-  Physical controller testing of this version is still open.
+  A scripted sweep collected focus on all 58 menu indices and performed 116
+  moves. Physical controller testing of this version is still open.
 - The right-hand panels retain their Settings frame style. Inventory's tooltip
   stays above Save Game and is clamped to the visible screen.
 - The standalone milestone page showed 61 entries from the local game. A clean
@@ -24,6 +25,10 @@
   120-frame sample. A diagnostic run with VSYNC disabled generated quads
   at over 1,100 FPS. This measures renderer capacity and frame pacing in that
   session, with no guarantee of monitor-rate delivery in every display mode.
+- The native Windows settings applied 960 × 540 and 1280 × 720. F11 moved
+  from 1280 × 720 to 1440 × 900 and restored the exact size and position on
+  exit. Live resize kept the window responsive at 284 × 821 and 1334 × 181.
+  Headless rendering confirmed the unused bands stay black in a tall window.
 - The portable Windows preparer validates the 115 files in the supported
   installation with SHA-256, exports the scene, runs the converter and builds
   the Windows executable. Verified with a clean extraction and tests for
