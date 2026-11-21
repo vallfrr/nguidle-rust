@@ -274,17 +274,26 @@ impl Renderer {
         }
         roots.sort_by_key(|r| r.0);
         let stats = std::env::var("CLR_EMITSTATS").is_ok();
+        let sidebar_edge = crate::save_slots::is_open(vm)
+            .then(|| self.to_dev([crate::save_slots::CONTENT_LEFT, 0.0])[0].floor() as i32);
         for (_, tr) in roots {
             let x = view_xf(vm, &tr);
             let (q0, t0) = (self.quads.len(), std::time::Instant::now());
             let mut clip = full;
-            if crate::save_slots::is_open(vm) && !crate::save_slots::owns(&go_of(&tr)) {
-                clip.x1 = clip.x1.min(self.to_dev([crate::save_slots::CONTENT_LEFT, 0.0])[0].floor() as i32);
+            if let Some(edge) = sidebar_edge.filter(|_| !crate::save_slots::owns(&go_of(&tr))) {
+                clip.x1 = clip.x1.min(edge);
             }
             self.draw_node(vm, &tr, x, clip, 0);
             if stats {
                 let n = with_go(&go_of(&tr), |g| g.name.clone()).unwrap_or_default();
                 crate::elog!("  racine {:<28} {:>5} quads {:>9.3?}", n, self.quads.len() - q0, t0.elapsed());
+            }
+        }
+        if let (Some(edge), Some(junctions)) = (sidebar_edge, crate::save_slots::frame_junctions(vm)) {
+            // The sidebar's top and bottom bolts bridge the seam, above the content frame.
+            let clip = Clip { x0: full.x0.max(edge), ..full };
+            for tr in junctions.iter().filter(|tr| !tr.is_null()) {
+                self.draw_node(vm, tr, view_xf(vm, tr), clip, 1);
             }
         }
         self.draw_dropdown(vm);

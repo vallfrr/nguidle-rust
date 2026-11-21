@@ -5,6 +5,8 @@ use crate::unity::*;
 use crate::value::{Ext, Obj, Value};
 use crate::Vm;
 use md5::{Digest, Md5};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -14,6 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const SLOT_COUNT: usize = 5;
 const ROW_COUNT: usize = SLOT_COUNT + 1;
 const NO_SLOT: usize = ROW_COUNT;
+const ACHIEVEMENT_COLUMNS: usize = 8;
+const ACHIEVEMENTS_PER_PAGE: usize = ACHIEVEMENT_COLUMNS * 4;
 pub(crate) const CONTENT_LEFT: f32 = 292.0;
 const MAX_SAVE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -37,6 +41,7 @@ enum Pending {
 #[derive(Clone, Copy)]
 enum Action {
     Row(usize),
+    Achievement(usize),
     Primary,
     Secondary,
     Back,
@@ -93,8 +98,21 @@ struct Screen {
     previous: (Value, Value),
     next: (Value, Value),
     main_menu: (Value, Value),
+    achievements: AchievementGrid,
+    frame_junctions: [Value; 2],
     actions: Vec<(Value, Action)>,
     themed: Vec<(Value, Value)>,
+}
+
+struct AchievementGrid {
+    root: Value,
+    tiles: Vec<((Value, Value), Value)>,
+    details: Value,
+    icon: Value,
+    name: Value,
+    description: Value,
+    state: Value,
+    sprites: RefCell<HashMap<i32, Value>>,
 }
 
 fn member<'a>(node: &'a N, field: &str) -> Option<&'a N> {
@@ -723,6 +741,34 @@ fn build(vm: &mut Vm) -> Screen {
     let back = button(vm, &parent, Action::Back, [0.035, 0.168], 18.0, 37.0, 16);
     let previous = button(vm, &left, Action::Previous, [0.066, 0.35], 366.0, 34.0, 15);
     let next = button(vm, &left, Action::Next, [0.65, 0.934], 366.0, 34.0, 15);
+    let grid = new_node(vm, "Achievement Grid", &left, [0.0, 1.0], 53.0, 306.0);
+    let tiles = (0..ACHIEVEMENTS_PER_PAGE).map(|i| {
+        let x = 0.09 + 0.82 * (i % ACHIEVEMENT_COLUMNS) as f32 / (ACHIEVEMENT_COLUMNS - 1) as f32;
+        let y = 18.0 + 67.0 * (i / ACHIEVEMENT_COLUMNS) as f32;
+        let tile = button(vm, &tr(&grid), Action::Achievement(i), [x, x], y, 43.0, 9);
+        with_tr(&tr(&tile.0), |t| {
+            t.apos[0] = -21.5;
+            t.size[0] = 43.0;
+        });
+        let art = new_node(vm, "Achievement Icon", &tr(&tile.0), [0.11, 0.89], 4.73, 33.54);
+        (tile, image(vm, &art, None, false))
+    }).collect();
+    let details = new_node(vm, "Achievement Details", &right, [0.0, 1.0], 56.0, 340.0);
+    let details_parent = tr(&details);
+    let art = new_node(vm, "Selected Achievement Icon", &details_parent, [0.5, 0.5], 17.0, 96.0);
+    with_tr(&tr(&art), |t| {
+        t.apos[0] = -48.0;
+        t.size[0] = 96.0;
+    });
+    let icon = image(vm, &art, None, false);
+    let title_node = new_node(vm, "Selected Achievement Name", &details_parent, [0.09, 0.91], 125.0, 57.0);
+    let name = text(vm, &title_node, section_style.as_ref(), Some(20), 4);
+    let description_node = new_node(vm, "Condition", &details_parent, [0.09, 0.91], 190.0, 98.0);
+    let description = text(vm, &description_node, body_style.as_ref(), Some(16), 4);
+    let state_node = new_node(vm, "Unlock State", &details_parent, [0.09, 0.91], 301.0, 30.0);
+    let state = text(vm, &state_node, subtitle_style.as_ref(), Some(15), 4);
+    let canvas = named_go(vm, "Canvas").unwrap_or_default();
+    let frame_junctions = ["Middle Bolt", "Middle Bolt (3)"].map(|name| tr(&child(&canvas, name)));
     Screen {
         root,
         panel,
@@ -741,6 +787,10 @@ fn build(vm: &mut Vm) -> Screen {
         previous,
         next,
         main_menu,
+        achievements: AchievementGrid {
+            root: grid, tiles, details, icon, name, description, state, sprites: RefCell::default(),
+        },
+        frame_junctions,
         actions,
         themed,
     }
@@ -810,6 +860,7 @@ pub(crate) fn prepare_title(vm: &mut Vm) {
         mark_dirty(&original);
     }
     let original = child(&panel, "Standalone Save");
+    let load = child(&panel, "Standalone Load");
     let background = style(&original, |k| match k {
         CK::Image(i) => Some(i.as_ref().clone()),
         _ => None,
@@ -818,7 +869,17 @@ pub(crate) fn prepare_title(vm: &mut Vm) {
         CK::Text(t) => Some(t.as_ref().clone()),
         _ => None,
     });
-    let button = new_node(vm, "Port Achievements", &tr(&panel), [0.06, 0.94], 498.0, 29.0);
+    let button = new_node(vm, "Port Achievements", &tr(&panel), [0.0, 0.0], 498.0, 29.0);
+    let panel_rect = crate::ui::xf(vm, &tr(&panel));
+    let save_rect = crate::ui::xf(vm, &tr(&original));
+    let load_rect = crate::ui::xf(vm, &tr(&load));
+    let panel_left = panel_rect.origin[0] - panel_rect.pivot[0] * panel_rect.w;
+    let save_left = save_rect.origin[0] - save_rect.pivot[0] * save_rect.w;
+    let load_right = load_rect.origin[0] + (1.0 - load_rect.pivot[0]) * load_rect.w;
+    with_tr(&tr(&button), |t| {
+        t.apos[0] = save_left - panel_left;
+        t.size[0] = load_right - save_left;
+    });
     let graphic = image(vm, &button, background.as_ref(), true);
     let mut selectable = default_sel(SelKind::Button);
     selectable.target_graphic = graphic;
@@ -836,30 +897,85 @@ pub(crate) fn refresh_achievements(vm: &mut Vm) {
     }
 }
 
+fn achievement_sprite(vm: &mut Vm, grid: &AchievementGrid, id: i32) -> Value {
+    let mut sprites = grid.sprites.borrow_mut();
+    if let Some(sprite) = sprites.get(&id) {
+        return sprite.clone();
+    }
+    let ty = vm.type_id("SteamManager/Achievement");
+    let sprite = crate::bcl_core::enum_name(vm, ty, id)
+        .map(|name| format!("steam-achievements/{name}"))
+        .filter(|key| crate::assets::read(&format!("tex/{key}.png")).is_some())
+        .map(|key| {
+            let texture = new_comp(vm, "UnityEngine.Texture2D", Value::Null, CK::Texture(Box::new(TexD {
+                name: key.clone(), key: key.clone(), w: 64, h: 64,
+            })));
+            new_comp(vm, "UnityEngine.Sprite", Value::Null, CK::Sprite(Box::new(SpriteD {
+                name: key, tex: texture, rect: [0.0, 0.0, 64.0, 64.0],
+                border: [0.0; 4], pivot: [0.5, 0.5], ppu: 100.0,
+            })))
+        }).unwrap_or_default();
+    sprites.insert(id, sprite.clone());
+    sprite
+}
+
+fn paint_achievement(comp: &Value, sprite: Value, earned: bool) {
+    let brightness = if earned { 1.0 } else { 0.45 };
+    let alpha = if sprite.is_null() { 0.0 } else { 1.0 };
+    with_comp(comp, |c| {
+        if let CK::Image(image) = &mut c.k {
+            image.sprite = sprite;
+            image.color = [brightness, brightness, brightness, alpha];
+        }
+    });
+    mark_dirty(comp);
+}
+
 fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
-    let start = state.page * ROW_COUNT;
-    let entries = &vm.eng.achievements.entries;
-    let count = entries.len();
-    let earned = entries.iter().filter(|e| e.earned).count();
-    let pages = count.div_ceil(ROW_COUNT).max(1);
+    let grid = &ui.achievements;
+    let start = state.page * ACHIEVEMENTS_PER_PAGE;
+    let count = vm.eng.achievements.entries.len();
+    let earned = vm.eng.achievements.entries.iter().filter(|e| e.earned).count();
+    let pages = count.div_ceil(ACHIEVEMENTS_PER_PAGE).max(1);
     label(&ui.title, "ACHIEVEMENTS".into());
     label(&ui.detail, format!("{earned} of {count} unlocked"));
     label(&ui.status, if vm.eng.achievements.write_failed {
         "Could not save achievements. The game will try again.".into()
     } else { format!("Page {} of {pages}", state.page + 1) });
-    for (i, row) in ui.rows.iter().enumerate() {
-        let entry = vm.eng.achievements.entries.get(start + i).map(|e| (e.name.clone(), e.earned));
-        vm.set_active(&row.0, entry.is_some());
-        let (name, status) = entry.as_ref().map_or(("", ""), |(name, earned)| {
-            (name.as_str(), if *earned { "Unlocked" } else { "Locked" })
-        });
-        caption(row, name, state.selected == start + i);
-        label(&ui.row_info[i], status.into());
+    for (row, info) in ui.rows.iter().zip(&ui.row_info) {
+        vm.set_active(&row.0, false);
+        vm.set_active(&go_of(info), false);
     }
-    let selected = vm.eng.achievements.entries.get(state.selected);
-    label(&ui.selection, selected.map_or_else(|| "Choose an achievement".into(), |e| {
-        format!("{}\n\n{}", e.name, e.description)
-    }));
+    for (i, (tile, icon)) in grid.tiles.iter().enumerate() {
+        let entry = vm.eng.achievements.entries.get(start + i).map(|e| (e.id, e.name.clone(), e.earned));
+        vm.set_active(&tile.0, entry.is_some());
+        if let Some((id, name, earned)) = entry {
+            let sprite = achievement_sprite(vm, grid, id);
+            let has_icon = !sprite.is_null();
+            caption(tile, &name, state.selected == start + i);
+            // Retain an input label for focus and scripted navigation.
+            with_comp(&tile.1, |comp| {
+                if let CK::Text(text) = &mut comp.k {
+                    text.color[3] = if has_icon { 0.0 } else { 1.0 };
+                }
+            });
+            paint_achievement(icon, sprite, earned);
+        }
+    }
+    let selected = vm.eng.achievements.entries.get(state.selected)
+        .map(|e| (e.id, e.name.clone(), e.description.clone(), e.earned));
+    if let Some((id, name, description, earned)) = selected {
+        let icon = achievement_sprite(vm, grid, id);
+        paint_achievement(&grid.icon, icon, earned);
+        label(&grid.name, name);
+        label(&grid.description, description);
+        label(&grid.state, if earned { "Unlocked" } else { "Locked" }.into());
+    } else {
+        paint_achievement(&grid.icon, Value::Null, false);
+        label(&grid.name, "Choose an achievement".into());
+        label(&grid.description, String::new());
+        label(&grid.state, String::new());
+    }
     for button in [&ui.primary, &ui.secondary, &ui.main_menu] {
         vm.set_active(&button.0, false);
     }
@@ -891,9 +1007,13 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         return;
     };
     let choosing = mode == Mode::Choose;
+    let achievements = mode == Mode::Achievements;
     vm.set_active(&ui.locked_sidebar, choosing);
     vm.set_active(&ui.back.0, !choosing);
-    if mode == Mode::Achievements {
+    vm.set_active(&ui.achievements.root, achievements);
+    vm.set_active(&ui.achievements.details, achievements);
+    vm.set_active(&go_of(&ui.selection), !achievements);
+    if achievements {
         vm.set_active(&ui.title_sidebar, false);
         draw_achievements(vm, state, ui);
         return;
@@ -930,6 +1050,7 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     );
     label(&ui.status, state.status.clone());
     for (i, row) in ui.rows.iter().enumerate() {
+        vm.set_active(&go_of(&ui.row_info[i]), true);
         if let Some(files) = &state.import_files {
             let file = files.get(state.page * ROW_COUNT + i);
             vm.set_active(&row.0, file.is_some());
@@ -1056,6 +1177,10 @@ pub(crate) fn owns(go: &Value) -> bool {
 
 pub(crate) fn is_open(vm: &Vm) -> bool {
     vm.eng.save_slots.mode.is_some()
+}
+
+pub(crate) fn frame_junctions(vm: &Vm) -> Option<[Value; 2]> {
+    vm.eng.save_slots.ui.as_ref().map(|ui| ui.frame_junctions.clone())
 }
 
 pub(crate) fn choosing_save(vm: &Vm) -> bool {
@@ -1195,7 +1320,7 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
     }
     state.selected = match mode {
         Mode::Choose => NO_SLOT,
-        Mode::Achievements => usize::MAX,
+        Mode::Achievements => 0,
         Mode::Save => (1..ROW_COUNT)
             .find(|&i| matches!(state.entries[i], Entry::Empty))
             .unwrap_or(1),
@@ -1214,12 +1339,6 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
     let achievements = mode == Mode::Achievements;
     label(&ui.headings[0], if achievements { "Steam Milestones" } else { "Save Slots" }.into());
     label(&ui.headings[1], if achievements { "Details" } else { "Selected Save" }.into());
-    for ((row, _), info) in ui.rows.iter().zip(&ui.row_info) {
-        with_tr(&tr(row), |t| t.amax[0] = if achievements { 0.65 } else { 0.32 });
-        with_tr(&transform_of(info), |t| t.amin[0] = if achievements { 0.70 } else { 0.36 });
-        mark_dirty(row);
-        mark_dirty(info);
-    }
     refresh_theme(ui);
     vm.set_active(&ui.root, true);
 }
@@ -1313,18 +1432,23 @@ fn perform(
 fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
     let Some(mode) = state.mode else { return };
     if mode == Mode::Achievements {
+        let previous_page = state.page;
         match action {
             Action::Back => close(vm, state),
-            Action::Row(i) => state.selected = state.page * ROW_COUNT + i,
+            Action::Achievement(i) => state.selected = state.page * ACHIEVEMENTS_PER_PAGE + i,
             Action::Previous => state.page = state.page.saturating_sub(1),
-            Action::Next if (state.page + 1) * ROW_COUNT < vm.eng.achievements.entries.len() => {
+            Action::Next if (state.page + 1) * ACHIEVEMENTS_PER_PAGE < vm.eng.achievements.entries.len() => {
                 state.page += 1;
             }
             _ => {}
         }
+        if previous_page != state.page {
+            state.selected = state.page * ACHIEVEMENTS_PER_PAGE;
+        }
         return;
     }
     match action {
+        Action::Achievement(_) => {},
         Action::Back => {
             if state.pending.take().is_some() {
                 state.status.clear();

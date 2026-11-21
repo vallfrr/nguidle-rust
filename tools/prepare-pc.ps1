@@ -22,6 +22,8 @@ foreach ($destination in $out, $target) {
 if ($LASTEXITCODE -ne 0) { throw 'Game data verification failed.' }
 & $Python (Join-Path $PSScriptRoot 'nguprep.py') --game-data $game --out $out
 if ($LASTEXITCODE -ne 0) { throw 'Game data extraction failed.' }
+& $Python (Join-Path $PSScriptRoot 'fetch-achievement-icons.py') $out
+if ($LASTEXITCODE -ne 0) { Write-Warning 'Steam achievement icons are temporarily unavailable. The game will show text in their place.' }
 if ($ExtractOnly) { return }
 
 $env:CARGO_TARGET_DIR = $target

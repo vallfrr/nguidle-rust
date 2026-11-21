@@ -25,11 +25,15 @@
 - The tooltip pass uses the visible viewport for the tutorial, hover and
   timed messages. Standard scene elements retain their clipping rules so
   menus moved offscreen stay hidden.
-- The standalone milestone page showed 61 entries from the local game. A clean
-  profile had zero unlocked and the boosted test save unlocked 44. The count
-  persisted across a new process and the final page was reachable. A separate
+- The standalone milestone grid shows 61 Steam Community icons across two
+  pages. Mouse and scripted focus select both earned and locked milestones.
+  The detail pane shows the original name and unlock condition. A clean
+  profile had zero unlocked and the boosted test save unlocked 44. A separate
   fixture that meets all original conditions yielded all 61 IDs in the native
   runtime. The 153 BP achievements still use the original game page.
+- Save, Load and Achievements draw the original sidebar bolts over their
+  shared frame. The Achievements button spans the same horizontal bounds as
+  the Save Game and Load Game pair.
 - The runtime follows the pointer at render frequency and uses the Energy
   timer's 20 ms schedule for display interpolation. Game rules continue to
   advance in fixed steps.

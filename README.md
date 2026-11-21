@@ -41,5 +41,10 @@ or an empty numbered slot and **Create New Game** to start. Autosave is
 separate from the numbered slots. The in-game **Save Game** page writes
 manual snapshots.
 
+The preparer caches the achievement icons from Steam Community in the local
+data directory. Refresh a prepared profile with
+`python tools/fetch-achievement-icons.py out/pc`. The game reads the cache
+offline and shows achievement names when an icon is unavailable.
+
 ## License
 GPL-3.0 (see `LICENSE`). NGU Idle and its contents belong to their authors; this project is not affiliated with 4G.
