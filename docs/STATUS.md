@@ -3,12 +3,13 @@
 ## Desktop verification on 2026-11-21
 
 - Windows starts at the three-button home screen. The enlarged autosave action
-  starts without a focus tint. Load Game and Create New Game open separate slot
-  pickers, with zero stats and inactive gameplay controls. Creating a game in an
-  empty slot writes its timestamp and character name. Occupied slots are cleared
-  with two inline confirmations. Save Game selects the loaded numbered slot,
-  and the autosave remembers which slot it came from. Returning home preserves
-  the saved data already on disk.
+  starts without a focus tint. The home screen credits vallfrr for the port
+  alongside the original game and art credits. Load Game and Create New Game
+  open separate slot pickers, with zero stats and inactive gameplay controls.
+  Creating a game in an empty slot writes its timestamp and character name.
+  Occupied slots are cleared with two inline confirmations. Save Game selects
+  the loaded numbered slot, and the autosave remembers which slot it came
+  from. Returning home preserves the saved data already on disk.
   Periodic autosave preserved the manual slots byte for byte. Creation refused
   a slot that became occupied after selection. Scripted focus navigation also
   created a save from a blank profile.

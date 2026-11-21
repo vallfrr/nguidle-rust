@@ -1489,6 +1489,24 @@ fn prepare_home(vm: &mut Vm) -> Result<Home, String> {
     if [&autosave, &load, &create].iter().any(|go| go.is_null()) {
         return Err("The home buttons are unavailable.".into());
     }
+    let credits = child(&title, "By me");
+    let credit_lines = with_go(&credits, |go| {
+        go.comps.iter().find_map(|comp| {
+            with_comp(comp, |c| match &c.k {
+                CK::Text(text) => Some((comp.clone(), text.text.clone(), text.size as f32)),
+                _ => None,
+            }).flatten()
+        })
+    }).flatten();
+    if let Some((caption, original, line_height)) = credit_lines {
+        label(&caption, format!("{original}\n<b>Ported by vallfrr</b>"));
+        // Expand upward so the last credit keeps the original bottom margin.
+        let height = line_height + 3.0;
+        with_tr(&tr(&credits), |transform| {
+            transform.size[1] += height;
+            transform.apos[1] += height * transform.pivot[1];
+        });
+    }
     for name in ["Cloud Save Border", "RightPic", "Text", "Discord Button (1)", "Kartridge Button", "Kong Button"] {
         let node = child(&title, name);
         with_go(&node, |g| g.port_hidden = true);
