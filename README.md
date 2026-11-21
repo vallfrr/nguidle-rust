@@ -52,11 +52,12 @@ offline and shows achievement names when an icon is unavailable.
 
 ## Web host
 
-The browser host starts the same Rust runtime and keeps a personal profile on
-the server. It uses a separate save folder and can exchange numbered saves
-with the desktop game. The web repository contains the local Windows launcher
-and Docker Compose configuration. The Docker service requires verified Steam
-Windows 1.260 data mounted read-only. See the
+The browser runs the shared Rust engine and CIL interpreter in WebAssembly
+and draws the game with WebGL. The host serves the build and stores a personal
+profile with leased save slots. Save files can move between desktop and web.
+The web repository contains the local Windows launcher and Docker Compose
+configuration. Docker requires verified Steam Windows 1.260 data mounted
+read-only. See the
 [web host guide](https://github.com/vallfrr/nguidle-web) for setup and controls.
 
 ## License

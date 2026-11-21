@@ -65,11 +65,14 @@ pub(crate) fn tick(vm: &mut Vm) {
         });
     }
     let file = Path::new(&vm.eng.save_dir).join("achievements.json");
+    let shared_profile = vm.browser_saves_enabled();
     let book = &mut vm.eng.achievements;
     let last_failure = book.write_failed;
-    if book.saved.is_none() {
-        book.earned = std::fs::read(&file).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default();
-        book.saved = Some(book.earned.clone());
+    if book.saved.is_none() || shared_profile {
+        let stored: BTreeSet<i32> = std::fs::read(&file).ok()
+            .and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default();
+        book.earned.extend(stored.iter().copied());
+        book.saved = Some(stored);
     }
     for entry in &mut catalog {
         if entry.earned {

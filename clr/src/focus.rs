@@ -43,6 +43,12 @@ fn current_rect(vm: &Vm) -> Option<[f32; 4]> {
     visible_rect(vm, bbox(&view_xf(vm, &tr), vm.eng.screen.1 as f32))
 }
 
+pub fn node_rect(vm: &Vm, go: &Value) -> Option<[f32; 4]> {
+    if !active_in_hierarchy(go) { return None; }
+    let node = with_go(go, |g| g.transform.clone())?;
+    visible_rect(vm, bbox(&view_xf(vm, &node), vm.eng.screen.1 as f32))
+}
+
 fn visible_rect(vm: &Vm, r: [f32; 4]) -> Option<[f32; 4]> {
     let [x0, y0, x1, y1] = r;
     let r = [x0.max(0.0), y0.max(0.0), x1.min(vm.eng.desktop_layout.width()),

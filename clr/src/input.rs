@@ -63,6 +63,11 @@ struct Probe {
     hit: Value,
 }
 
+pub(crate) fn offline_screen_visible(vm: &Vm) -> bool {
+    // The built-in OfflinePanel covers the game until "On To The Game!".
+    vm.eng.desktop_panels && vm.eng.keys.get("level0:1165").is_some_and(active_in_hierarchy)
+}
+
 fn raycast_node(
     vm: &Vm,
     tr: &Value,
@@ -73,7 +78,7 @@ fn raycast_node(
 ) {
     let go = go_of(tr);
     let Some((graphic, mask)) = with_go(&go, |g| {
-        (g.active && !g.port_hidden).then(|| {
+        (g.active && !g.port_hidden && !(g.name == "Hover Tooltip" && offline_screen_visible(vm))).then(|| {
             let mut graphic = false;
             let mut mask = false;
             for c in &g.comps {

@@ -75,20 +75,28 @@
   missing or changed input files.
 - See [Release audit](RELEASE-AUDIT.md) for coverage and the web/Vita boundary.
 
-## Personal web preview on 2026-11-21
+## Browser port on 2026-11-21
 
-- The localhost host renders the same game with the native Rust worker.
-  Chromium created a named character, played the opening menus, imported and
-  downloaded a save byte for byte, and rejected attempts to overwrite an
-  occupied slot. The personal profile autosaved while the browser was closed.
-  Keyboard focus, a simulated gamepad event, and a landscape touchscreen
-  viewport were exercised.
-- The read-only installation manifest accepted all 115 required files.
-  A private snapshot passed the same hashes. Extraction from that snapshot
-  and rendering a browser frame with the Linux worker both succeeded in WSL.
-- The Compose configuration, startup script, and health endpoint were
-  checked separately. A full Docker run, LAN access from a physical phone,
-  and a live Nginx deployment still need target-environment validation.
+- `ngu-browser` builds the shared CIL interpreter, UI and layout as a WASI
+  WebAssembly reactor. The browser draws textured quads with WebGL and hosts
+  the original game canvas, including the save controls and tooltips.
+- Chromium captured all 55 enabled menu indices with a boosted fixture at
+  1280 × 720, 250 × 900 and 1500 × 200. The wide views were compared with
+  Windows captures from the same fixture. All tall captures stayed clear
+  outside the game area. The two BP pages and the Steam tab use the game UI.
+- Browser acceptance covered new game naming, byte-exact import from the
+  desktop fixture, manual saving, 30-second autosave, second-device locks,
+  offline export, and two-hour offline progression on reopening. Firefox
+  also started the engine and opened the save picker. In Chromium a
+  touchscreen drag moved inventory equipment between slots, and an emulated
+  gamepad shoulder press changed menus.
+- The verified Windows Steam 1.260 manifest accepted all 115 files. The
+  Compose file, startup script, asset packing and local server were checked.
+  Seven save-service tests and three Rust library tests passed. The
+  interpreter/native comparison passed including the Rebirth energy reset,
+  input, 84 number cases, and save round trips.
+  A full Docker run, a physical phone and gamepad, and a live reverse proxy
+  still require verification.
 
 ## Historical baseline on 2026-11-20
 

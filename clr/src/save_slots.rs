@@ -50,6 +50,7 @@ enum Action {
     Achievement(usize),
     Primary,
     Secondary,
+    BrowserImport,
     Back,
     Previous,
     Next,
@@ -94,6 +95,31 @@ pub(crate) struct SaveSlots {
     entries: Vec<Entry>,
     ui: Option<Screen>,
     returned_title: Value,
+    browser: Option<BrowserSlots>,
+}
+
+struct BrowserSlots {
+    online: bool,
+    locked: u8,
+    granted: Option<usize>,
+    requested: Option<(usize, Pending)>,
+    timer_label: Value,
+    file_request: Option<(&'static str, Option<usize>)>,
+}
+
+impl SaveSlots {
+    fn blocked(&self, index: usize) -> bool {
+        self.browser.as_ref().is_some_and(|browser| {
+            !browser.online || (index < ROW_COUNT && browser.locked & (1 << index) != 0)
+        })
+    }
+
+    fn browser_import_target(&self) -> Option<usize> {
+        let index = self.selected;
+        (self.browser.is_some() && self.mode == Some(Mode::Load) && index > 0 && index < ROW_COUNT
+            && !self.blocked(index) && matches!(self.entries.get(index), Some(Entry::Empty))
+            && self.pending.is_none()).then_some(index)
+    }
 }
 
 struct Home {
@@ -134,6 +160,7 @@ struct Screen {
     name_input: Value,
     primary: (Value, Value),
     secondary: (Value, Value),
+    browser_import: (Value, Value),
     back: (Value, Value),
     previous: (Value, Value),
     next: (Value, Value),
@@ -227,7 +254,11 @@ fn write_save_file(path: &Path, bytes: &[u8], replace: bool) -> std::io::Result<
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let temp = dir.join(format!(".save-{}-{stamp}.tmp", std::process::id()));
+    #[cfg(not(target_family = "wasm"))]
+    let process = std::process::id();
+    #[cfg(target_family = "wasm")]
+    let process = 0;
+    let temp = dir.join(format!(".save-{process}-{stamp}.tmp"));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -906,6 +937,7 @@ fn build(vm: &mut Vm) -> Screen {
     let status = text(vm, &message, body_style.as_ref(), Some(16), 4);
     let primary = button(vm, &right, Action::Primary, [0.08, 0.92], 213.0, 41.0, 16);
     let secondary = button(vm, &right, Action::Secondary, [0.08, 0.92], 266.0, 41.0, 16);
+    let browser_import = button(vm, &right, Action::BrowserImport, [0.08, 0.92], 319.0, 41.0, 16);
     let main_menu = button(vm, &parent, Action::MainMenu, [0.035, 0.168], 18.0, 37.0, 16);
     let back = button(vm, &parent, Action::Back, [0.035, 0.168], 18.0, 37.0, 16);
     let previous = button(vm, &left, Action::Previous, [0.066, 0.35], 366.0, 34.0, 15);
@@ -968,6 +1000,7 @@ fn build(vm: &mut Vm) -> Screen {
         name_input,
         primary,
         secondary,
+        browser_import,
         back,
         previous,
         next,
@@ -1169,7 +1202,7 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
         label(&grid.description, String::new());
         label(&grid.state, String::new());
     }
-    for button in [&ui.primary, &ui.secondary, &ui.main_menu] {
+    for button in [&ui.primary, &ui.secondary, &ui.browser_import, &ui.main_menu] {
         vm.set_active(&button.0, false);
     }
     vm.set_active(&ui.previous.0, state.page > 0);
@@ -1238,6 +1271,8 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
             "Choose a slot for a snapshot of your current game."
         } else if state.from_title {
             "Choose a saved game to continue."
+        } else if state.browser.is_some() {
+            "Choose a saved game to continue. Save any current progress first."
         } else {
             "Choose a saved game to continue. Your current game is backed up before loading."
         }
@@ -1269,12 +1304,14 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     for (i, row) in ui.rows.iter().enumerate() {
         let confirming = state.deleting.as_ref().is_some_and(|delete| delete.index == i);
         let visible = (!choosing || i > 0) && !confirming;
-        let available = !choosing || slot_available(mode, state.entries.get(i));
+        let browser_load = state.browser.is_some() && mode == Mode::Load;
+        let available = (!choosing || browser_load || slot_available(mode, state.entries.get(i))) &&
+            (importing || !state.blocked(i));
         set_interactable(&row.0, available);
         vm.set_active(&go_of(&ui.row_info[i]), visible);
         if let Some(button) = i.checked_sub(1).and_then(|i| ui.delete_buttons.get(i)) {
             let occupied = matches!(state.entries.get(i), Some(Entry::Save(..) | Entry::Invalid));
-            vm.set_active(&button.0, creating && occupied && !confirming);
+            vm.set_active(&button.0, creating && occupied && !confirming && !state.blocked(i));
             with_tr(&tr(&button.0), |t| t.apos[1] = -row_y(i));
             caption(button, &format!("Delete Slot {i}"), false);
         }
@@ -1306,7 +1343,9 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         } else {
             format!("Slot {i}")
         };
-        let contents = match state.entries.get(i).unwrap_or(&Entry::Empty) {
+        let contents = if state.browser.as_ref().is_some_and(|browser| browser.locked & (1 << i) != 0) {
+            "In use on another device".into()
+        } else { match state.entries.get(i).unwrap_or(&Entry::Empty) {
             Entry::Empty => "Empty".into(),
             Entry::Invalid => "Unreadable save".into(),
             Entry::Save(info, _) => {
@@ -1320,7 +1359,7 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
                     format!("{}   |   {time}", clean_label(&info.player, 20))
                 }
             }
-        };
+        }};
         caption(row, &name, state.selected == i);
         label(&ui.row_info[i], contents);
     }
@@ -1352,8 +1391,18 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     label(&ui.selection, selection);
     vm.set_active(&ui.primary.0, (!importing || state.pending.is_some()) && state.deleting.is_none());
     with_tr(&tr(&ui.primary.0), |t| t.apos[1] = if creating { -251.0 } else { -213.0 });
-    set_interactable(&ui.primary.0, !choosing || slot_available(mode, state.entries.get(state.selected)));
-    vm.set_active(&ui.secondary.0, !importing && !choosing);
+    let waiting = state.browser.as_ref().is_some_and(|browser| browser.requested.is_some());
+    let server_action = !matches!(state.pending, Some(Pending::MainMenu));
+    set_interactable(&ui.primary.0, !waiting && (!server_action || !state.blocked(state.selected)) &&
+        (!choosing || slot_available(mode, state.entries.get(state.selected))));
+    let web = state.browser.is_some();
+    vm.set_active(&ui.secondary.0, !importing && if web { !creating && state.pending.is_none() } else { !choosing });
+    set_interactable(&ui.secondary.0, if web && mode == Mode::Save { state.active_slot.is_some() }
+        else if web { !state.blocked(state.selected) && matches!(state.entries.get(state.selected), Some(Entry::Save(..))) }
+        else { !state.blocked(state.selected) });
+    vm.set_active(&ui.browser_import.0, web && mode == Mode::Load && state.pending.is_none());
+    set_interactable(&ui.browser_import.0, state.browser_import_target().is_some());
+    caption(&ui.browser_import, "Import Save File", false);
     vm.set_active(&ui.main_menu.0, !state.from_title && !cancelling);
     caption(&ui.main_menu, "Main Menu", false);
     let pages = state
@@ -1385,7 +1434,9 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     );
     caption(
         &ui.secondary,
-        if mode == Mode::Save {
+        if web && mode == Mode::Save {
+            "Export Current Game"
+        } else if mode == Mode::Save {
             "Import Save"
         } else {
             "Export Save"
@@ -1583,11 +1634,13 @@ fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), Strin
     close(vm, state);
     state.returned_title = Value::Null;
     state.home_active = true;
-    let home = state.home.as_mut().ok_or("The home screen is unavailable.")?;
     let entries = load_entries(dir);
-    let autosave_available = matches!(entries.first(), Some(Entry::Save(..)));
+    let autosave_available = !state.blocked(0) && matches!(entries.first(), Some(Entry::Save(..)));
     let numbered_available = entries[1..].iter().any(|entry| matches!(entry, Entry::Save(..)));
-    let description = match entries.first() {
+    let description = if state.blocked(0) {
+        if state.browser.as_ref().is_some_and(|b| b.online) { "Autosave in use on another device".into() }
+        else { "Save server unavailable".into() }
+    } else { match entries.first() {
         Some(Entry::Save(info, _)) => {
             let name = if info.player.is_empty() { "Unknown character" } else { &info.player };
             let played = info.seconds.map(play_time).unwrap_or_else(|| "Unknown".into());
@@ -1595,7 +1648,8 @@ fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), Strin
         }
         Some(Entry::Invalid) => "Autosave unreadable".into(),
         _ => "No autosave yet".into(),
-    };
+    }};
+    let home = state.home.as_mut().ok_or("The home screen is unavailable.")?;
     label(&home.details, description);
     set_interactable(&home.autosave, autosave_available);
     home.default = if autosave_available { home.autosave.clone() }
@@ -1616,6 +1670,133 @@ fn open_picker(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode) -> Re
 }
 
 impl Vm {
+    pub fn enable_browser_saves(&mut self) {
+        let timer = named_go(self, "Rebirth Time Text").unwrap_or_default();
+        let timer_label = with_go(&timer, |go| go.comps.iter().find(|c| {
+            with_comp(c, |c| matches!(c.k, CK::Text(_))) == Some(true)
+        }).cloned()).flatten().unwrap_or_default();
+        self.eng.save_slots.browser = Some(BrowserSlots {
+            online: true, locked: 0, granted: None, requested: None, timer_label, file_request: None,
+        });
+    }
+
+    pub fn browser_profile_changed(&mut self, online: bool, locked: u8, reload: bool) {
+        let mut state = std::mem::take(&mut self.eng.save_slots);
+        if let Some(browser) = &mut state.browser {
+            let changed = online != browser.online || locked != browser.locked;
+            browser.online = online;
+            browser.locked = locked;
+            if changed || reload {
+                let dir = PathBuf::from(&self.eng.save_dir);
+                if state.home_active {
+                    let _ = show_home(self, &mut state, &dir);
+                } else if matches!(state.mode, Some(Mode::Create | Mode::Save | Mode::Load)) {
+                    state.entries = load_entries(&dir);
+                    if !online { state.status = "Save server unavailable.".into(); }
+                    else if state.status == "Save server unavailable." { state.status.clear(); }
+                    draw_state(self, &state);
+                }
+            }
+        }
+        self.eng.save_slots = state;
+    }
+
+    pub fn browser_requested_slot(&self) -> Option<usize> {
+        self.eng.save_slots.browser.as_ref()?.requested.as_ref().map(|(slot, _)| *slot)
+    }
+
+    pub fn browser_active_slot(&self) -> Option<usize> {
+        self.eng.save_slots.active_slot
+    }
+
+    pub(crate) fn browser_saves_enabled(&self) -> bool {
+        self.eng.save_slots.browser.is_some()
+    }
+
+    pub fn browser_finish_request(&mut self, granted: bool) -> Result<(), String> {
+        let mut state = std::mem::take(&mut self.eng.save_slots);
+        let request = state.browser.as_mut().and_then(|b| b.requested.take());
+        let result = if let Some((slot, action)) = request {
+            let dir = PathBuf::from(&self.eng.save_dir);
+            let result = if granted {
+                state.browser.as_mut().unwrap().granted = Some(slot);
+                let result = perform(self, &mut state, &dir, action);
+                state.browser.as_mut().unwrap().granted = None;
+                result
+            } else {
+                Err("Save unavailable. It may be in use on another device.".into())
+            };
+            match &result {
+                Ok(message) => state.status = message.clone(),
+                Err(message) => {
+                    state.status = message.clone();
+                    if state.home_active {
+                        if let Some(home) = &state.home { label(&home.details, message.clone()); }
+                    }
+                }
+            }
+            draw_state(self, &state);
+            result.map(|_| ())
+        } else {
+            Err("The requested save operation was cancelled.".into())
+        };
+        self.eng.save_slots = state;
+        result
+    }
+
+    pub fn browser_current_save(&mut self) -> Result<String, String> {
+        if self.browser_active_slot().is_none() || self.at_desktop_start() {
+            return Err("Load or create a game before exporting.".into());
+        }
+        current_snapshot(self).map(|save| save.to_string())
+    }
+
+    pub fn browser_export(&mut self, slot: Option<usize>) -> Result<String, String> {
+        match slot {
+            None => self.browser_current_save(),
+            Some(index) if index < ROW_COUNT && !self.eng.save_slots.blocked(index) => {
+                read_save(&slot_path(Path::new(&self.eng.save_dir), index)).map(|(data, _)| data)
+            }
+            _ => Err("Choose an available save.".into()),
+        }
+    }
+
+    pub fn browser_file_request(&mut self) -> Option<(&'static str, Option<usize>)> {
+        self.eng.save_slots.browser.as_mut()?.file_request.take()
+    }
+
+    pub fn browser_import_control(&self) -> Option<(usize, [f32; 4])> {
+        let state = &self.eng.save_slots;
+        let index = state.browser_import_target()?;
+        let rect = crate::focus::node_rect(self, &state.ui.as_ref()?.browser_import.0)?;
+        Some((index, rect))
+    }
+
+    pub fn browser_save_notice(&mut self, message: String) {
+        let mut state = std::mem::take(&mut self.eng.save_slots);
+        state.status = message;
+        if state.home_active {
+            if let Some(home) = &state.home { label(&home.details, state.status.clone()); }
+        } else {
+            draw_state(self, &state);
+        }
+        self.eng.save_slots = state;
+    }
+
+    pub fn browser_autosave_label(&mut self, message: &str) {
+        if self.at_desktop_start() { return; }
+        let Some(browser) = &self.eng.save_slots.browser else { return };
+        let caption = &browser.timer_label;
+        if let Some(old) = with_comp(caption, |c| match &c.k {
+            CK::Text(text) => Some(text.text.clone()),
+            _ => None,
+        }).flatten() {
+            let prefix = old.lines().take(2).collect::<Vec<_>>().join("\n");
+            let next = format!("{prefix}\n{message}");
+            if old != next { label(caption, next); }
+        }
+    }
+
     /// Install a browser upload into an explicitly chosen empty numbered slot.
     pub fn import_browser_save(&mut self, name: &str, slot: usize) -> Result<(), String> {
         if !(1..=SLOT_COUNT).contains(&slot) || self.eng.save_dir.is_empty() {
@@ -1738,6 +1919,7 @@ fn close(vm: &mut Vm, state: &mut SaveSlots) {
     state.pending = None;
     state.deleting = None;
     state.import_files = None;
+    if let Some(browser) = &mut state.browser { browser.requested = None; }
     if let Some(ui) = &state.ui {
         if vm.eng.text_req.as_ref().is_some_and(|input| same(&input.comp, &ui.name_input)) {
             vm.eng.text_req = None;
@@ -1810,6 +1992,25 @@ fn perform(
     dir: &Path,
     action: Pending,
 ) -> Result<String, String> {
+    let requested_slot = match &action {
+        Pending::Load(0) => Some(autosave_slot(dir, &slot_path(dir, 0)).unwrap_or(0)),
+        Pending::Load(slot) | Pending::Create(slot) => Some(*slot),
+        _ => None,
+    };
+    if let Some(browser) = &mut state.browser {
+        if !browser.online && !matches!(action, Pending::MainMenu) {
+            return Err("Save server unavailable.".into());
+        }
+        if let Some(slot) = requested_slot {
+            if browser.granted != Some(slot) && state.active_slot != Some(slot) {
+                if browser.locked & (1 << slot) != 0 {
+                    return Err("Save in use on another device.".into());
+                }
+                browser.requested = Some((slot, action));
+                return Ok("Checking the save slot…".into());
+            }
+        }
+    }
     match action {
         Pending::Create(index) => {
             let template = state.new_game.as_deref().ok_or("The new game template is unavailable.")?;
@@ -1858,7 +2059,11 @@ fn perform(
             write_save_file(&slot_path(dir, index), data.as_bytes(), replace)
                 .map_err(|e| format!("Could not write to Slot {index}: {e}"))?;
             state.active_slot.get_or_insert(index);
-            Ok(format!("Saved to Slot {index}."))
+            if state.browser.is_some() {
+                Ok(format!("Saving Slot {index}…"))
+            } else {
+                Ok(format!("Saved to Slot {index}."))
+            }
         }
         Pending::Import(file, index) => {
             let (data, _) = read_save(&file)?;
@@ -1886,7 +2091,9 @@ fn perform(
                 game_call(vm, &controller, "finishMainMenu", vec![])?;
                 state.returned_title = Value::Null;
             }
-            state.active_slot = if index == 0 { autosave_slot(dir, &path) } else { Some(index) };
+            state.active_slot = if index == 0 {
+                autosave_slot(dir, &path).or_else(|| state.browser.is_some().then_some(0))
+            } else { Some(index) };
             let autosave = if index == 0 { Ok(()) } else {
                 current_snapshot(vm).and_then(|data| {
                     atomic_write(&slot_path(dir, 0), data.as_bytes()).map_err(|e| e.to_string())?;
@@ -1900,7 +2107,11 @@ fn perform(
             if let Err(error) = autosave {
                 crate::elog!("Game loaded. Autosave could not be updated: {error}");
             }
-            Ok("Game loaded. The previous game is in save/before-load.txt.".into())
+            if state.browser.is_some() {
+                Ok("Game loaded.".into())
+            } else {
+                Ok("Game loaded. The previous game is in save/before-load.txt.".into())
+            }
         }
         Pending::MainMenu => {
             if state.home.is_some() {
@@ -1973,6 +2184,7 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::CancelDelete => { state.deleting = None; }
         Action::ConfirmDelete => {
+            if state.deleting.as_ref().is_some_and(|d| state.blocked(d.index)) { return; }
             state.status = confirm_delete(state, dir).unwrap_or_else(|e| e);
             state.entries = load_entries(dir);
             crate::focus::clear(vm);
@@ -1994,7 +2206,9 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Row(index) => {
             state.deleting = None;
-            if state.from_title && state.home.is_some() && (index == 0 || !slot_available(mode, state.entries.get(index))) {
+            let browser_load = state.browser.is_some() && mode == Mode::Load;
+            if state.from_title && state.home.is_some() &&
+                (index == 0 || !browser_load && !slot_available(mode, state.entries.get(index))) {
                 return;
             }
             if let Some(files) = &state.import_files {
@@ -2014,6 +2228,11 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Previous => state.page = state.page.saturating_sub(1),
         Action::Next => state.page += 1,
+        Action::BrowserImport => {
+            if let Some(index) = state.browser_import_target() {
+                state.browser.as_mut().unwrap().file_request = Some(("import", Some(index)));
+            }
+        }
         Action::MainMenu => {
             state.pending = Some(Pending::MainMenu);
             state.status = "Return to the main menu? Unsaved progress will be lost.".into();
@@ -2055,7 +2274,11 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
                     state.entries = load_entries(dir);
                 } else {
                     state.pending = Some(action);
-                    state.status = "Load this save and replace the current game? The current game will be backed up.".into();
+                    state.status = if state.browser.is_some() {
+                        "Load this save? Unsaved progress in the current game will be lost.".into()
+                    } else {
+                        "Load this save and replace the current game? The current game will be backed up.".into()
+                    };
                 }
             } else {
                 state.status = "Choose a valid saved game.".into();
@@ -2063,6 +2286,10 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Secondary => {
             state.pending = None;
+            if let Some(browser) = &mut state.browser {
+                browser.file_request = Some(("export", (mode == Mode::Load).then_some(state.selected)));
+                return;
+            }
             if mode == Mode::Save {
                 if state.selected == 0 {
                     state.status = "Choose a manual slot before importing.".into();

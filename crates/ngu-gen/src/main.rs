@@ -8,7 +8,6 @@ mod ext {
 }
 mod gen;
 mod entry;
-mod web;
 
 use ngu_host::clr::{unity_api, Vm};
 
@@ -25,13 +24,6 @@ fn main() {
     }
     if a.first().map(|s| s.as_str()) == Some("fuzz") {
         return fuzz(&a[1..]);
-    }
-    if a.first().map(|s| s.as_str()) == Some("web-worker") {
-        if let Err(error) = web::run(&a[1..]) {
-            eprintln!("web worker: {error}");
-            std::process::exit(1);
-        }
-        return;
     }
     // engine native calls (object concatenation...) require a VM: NGU_DLL loads it (unit bench)
     if let Ok(d) = std::env::var("NGU_DLL") {

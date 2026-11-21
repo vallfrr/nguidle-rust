@@ -338,7 +338,8 @@ impl Renderer {
         }
         self.draw_dropdown(vm);
         if let Some(tooltip) = self.tooltip.clone().filter(|tr| {
-            !crate::save_slots::choosing_save(vm) && active_in_hierarchy(&go_of(tr))
+            !crate::save_slots::choosing_save(vm) && !crate::input::offline_screen_visible(vm)
+                && active_in_hierarchy(&go_of(tr))
         }) {
             let mut x = view_xf(vm, &tooltip);
             let (mx, my) = vm.eng.mouse;

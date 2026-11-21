@@ -14,11 +14,11 @@ requires evidence from the target runtime.
 ## Repository boundaries
 
 - **nguidle-rust** owns extraction, IL conversion, runtime compatibility, the UI scene model, layout, draw commands, focus and scrolling. The Windows executable owns OS input and audio, high DPI, display settings, frame pacing and filesystem UI. The desktop save and milestone pages are enabled explicitly by the desktop entry point. The Vita C API keeps its separate entry point.
-- **nguidle-web** owns the browser input and frame transport, the localhost
-  launcher, and the self-hosted Compose configuration. The worker in
-  `ngu-gen` runs the same converted game and manages one server-side save
-  profile. The container reads Steam Windows 1.260 data from a read-only mount
-  and verifies the SHA-256 manifest before extraction or compilation. Build
+- **nguidle-web** owns the browser input and WebGL adapter, the save API and
+  slot leases, the localhost launcher, and the Compose configuration.
+  The `ngu-browser` reactor runs the shared CIL engine in the browser.
+  The container reads Steam Windows 1.260 data from a read-only mount and
+  verifies the SHA-256 manifest before extraction or compilation. Build
   output and saves use separate volumes. The default published port is local.
 - **nguidle-vita** owns the VitaSDK host, packaging, touch/buttons and console deployment. V1 runs the interpreter. V2 still needs a generated-Rust build, the console renderer and memory/frame pacing tests on device. The 5-inch interface needs its own layout and interaction validation.
 
@@ -37,5 +37,3 @@ when the web runtime has a concrete integration.
 - Offer an offline way to earn the gold themes. The original conditions still
   use the purchase flag in the save, and the Windows port preserves that flag
   for imported saves.
-- Web layout profiles for wide windows and touch. Allow local file import/export
-  alongside browser autosave and document where its data is stored.
