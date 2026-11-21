@@ -93,8 +93,8 @@
 - Web hover uses the engine's pointer enter and exit callbacks at display
   cadence. Pointer coordinates are remapped when the viewport changes.
   Holding a touch exposes the existing tooltip without activating a button.
-  A Chromium test verified the original Rebirth tooltip and dismissal by
-  pointer movement, resize and a subsequent tap.
+  A Chromium test verified the original Rebirth tooltip with mouse movement,
+  viewport resizing, keyboard focus, emulated controller focus and touch.
 - The verified Windows Steam 1.260 manifest accepted all 115 files. The
   Compose file, startup script, asset packing and local server were checked.
   Seven save-service tests and three Rust library tests passed. The
@@ -102,6 +102,29 @@
   input, 84 number cases, and save round trips.
   A full Docker run, a physical phone and gamepad, and a live reverse proxy
   still require verification.
+
+## PS Vita port on 2026-11-21
+
+- The interpreter VPK installed on a Vita and displayed the shared 960 × 544
+  layout through vitaGL. Directional input and Cross opened Load Game. Touch
+  loaded an autosave, displayed offline progress and entered Basic Training.
+- A real autosave from the earlier Vita interpreter passed its legacy checksum,
+  converted to the shared save format and loaded on the console. The original
+  copy was retained. The console also wrote a subsequent autosave.
+- The device log measured about 60 FPS on the idle home page and roughly 29–31
+  FPS in the basic training session outside the screenshot capture. The latter
+  result covers one character and one screen.
+- Both engine builds passed Vita cross-compilation and structural VPK checks.
+  The packer produced a separate player-supplied data archive. The console
+  smoke test used the data archive already on the device.
+- The translated-Rust VPK also installed, booted and opened the same autosave.
+  On the offline-progress screen its logs reported about 2 FPS and about
+  3 MiB free user RAM after initialization, compared with about 21 MiB free
+  for the interpreter. The interpreter is the default and was reinstalled
+  for testing and play.
+- Inventory dragging, naming with the Vita keyboard, dense late-game screens,
+  suspend/resume, sustained memory use and playability at five inches remain
+  to be checked on device.
 
 ## Historical baseline on 2026-11-20
 

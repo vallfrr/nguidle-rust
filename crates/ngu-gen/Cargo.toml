@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "Code genere (non versionne) + banc de comparaison"
 
+[lib]
+name = "ngu_native_vita"
+path = "src/vita.rs"
+crate-type = ["staticlib"]
+
 [dependencies]
 ngu-rt = { path = "../ngu-rt" }
 ngu-host = { path = "../ngu-host" }
+
+[target.'cfg(not(target_os = "vita"))'.dependencies]
 ngu-desktop = { path = "../ngu-desktop" }

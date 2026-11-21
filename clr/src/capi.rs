@@ -25,7 +25,7 @@ pub struct NguBatch {
 }
 
 struct State {
-    vm: Vm,
+    vm: Box<Vm>,
     rend: Renderer,
     verts: Vec<NguVertex>,
     batches: Vec<NguBatch>,
@@ -33,7 +33,9 @@ struct State {
     scale: f32,
     ox: f32,
     oy: f32,
-    prev_down: bool,
+    touch_down: bool,
+    pad_focus: bool,
+    pad_click: Option<((f32, f32), bool)>,
     frames: u64,
 }
 
@@ -52,6 +54,11 @@ fn pack(c: [f32; 4]) -> u32 {
 /// data_dir: folder containing ngu.pak (or the files). dev_w/dev_h: screen size in pixels.
 #[no_mangle]
 pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i32 {
+    init_vita(data_dir, dev_w, dev_h, |_| {})
+}
+
+/// Initialize the Vita host, optionally attaching translated game methods.
+pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(&mut Vm)) -> i32 {
     let dir = unsafe { CStr::from_ptr(data_dir) }.to_string_lossy().to_string();
     crate::assets::set_log(&format!("{}/log.txt", dir));
     crate::assets::init(&dir);
@@ -64,12 +71,14 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
         }
     };
     let t0 = std::time::Instant::now();
-    let mut vm = Vm::from_bytes(dll);
+    let mut vm = Box::new(Vm::from_bytes(dll));
     crate::elog!("[ngu] VM prete en {:?}", t0.elapsed());
     vm.eng.screen = (960, 600);
+    vm.eng.desktop_panels = true;
     vm.eng.save_dir = format!("{}/save", dir);
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
     crate::unity_api::load_prefs(&mut vm);
+    configure(&mut vm);
     let t1 = std::time::Instant::now();
     if let Err(e) = vm.load_scene(&dir) {
         crate::elog!("[ngu] load_scene: {}", e);
@@ -79,13 +88,20 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
     let t2 = std::time::Instant::now();
     vm.awake_all();
     crate::elog!("[ngu] Awake en {:?}", t2.elapsed());
-    // virtual 960x600 -> screen, keeps proportions, centred
+    vm.enable_visual_motion();
+    if let Err(error) = vm.start_desktop_save_picker() {
+        crate::elog!("[ngu] save picker: {error}");
+        return 3;
+    }
+    // Keep the native proportions and reflow the desktop UI to use the full Vita screen.
     let scale = (dev_w as f32 / 960.0).min(dev_h as f32 / 600.0);
-    let ox = (dev_w as f32 - 960.0 * scale) * 0.5;
+    let ox = 0.0;
     let oy = (dev_h as f32 - 600.0 * scale) * 0.5;
-    let rend = Renderer::new(dev_w as usize, dev_h as usize);
+    vm.eng.desktop_layout.set_width(dev_w as f32 / scale);
+    let mut rend = Renderer::new(dev_w as usize, dev_h as usize);
+    rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, prev_down: false, frames: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, frames: 0 });
     }
     0
 }
@@ -99,18 +115,72 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     };
     let (vx, vy_dev) = ((x - s.ox) / s.scale, (y - s.oy) / s.scale);
     let vy = 600.0 - vy_dev; // bottom-left origin (Unity)
-    let d = down != 0;
-    s.vm.eng.mouse = (vx, vy);
-    s.vm.eng.mouse_down_edge = d && !s.prev_down;
-    s.vm.eng.mouse_up_edge = !d && s.prev_down;
-    s.vm.eng.mouse_down = d;
-    s.prev_down = d;
+    let touch = down != 0;
+    if let Some((at, press)) = s.pad_click.take() {
+        s.vm.eng.mouse = at;
+        s.vm.eng.mouse_down = press;
+        s.vm.eng.mouse_down_edge = press;
+        s.vm.eng.mouse_up_edge = !press;
+        if press { s.pad_click = Some((at, false)); }
+    } else if touch || s.touch_down {
+        if s.pad_focus { crate::focus::clear(&mut s.vm); }
+        s.pad_focus = false;
+        s.vm.eng.mouse = (vx, vy);
+        s.vm.eng.mouse_down = touch;
+        s.vm.eng.mouse_down_edge = touch && !s.touch_down;
+        s.vm.eng.mouse_up_edge = !touch && s.touch_down;
+        s.touch_down = touch;
+    } else {
+        s.vm.eng.mouse = if s.pad_focus {
+            crate::focus::pointer(&s.vm).unwrap_or((-1.0, -1.0))
+        } else {
+            (-1.0, -1.0)
+        };
+    }
+    s.vm.eng.hover_always = s.pad_focus || touch;
     let t = std::time::Instant::now();
     let steps0 = s.vm.steps;
     s.vm.frame(dt.min(1.0 / 3.0));
     s.frames += 1;
     if s.frames <= 12 || s.frames % 100 == 0 {
         crate::elog!("[ngu] frame {} dt={:.3} logique {:?} instr={}", s.frames, dt, t.elapsed(), s.vm.steps - steps0);
+    }
+}
+
+/// Shared focus, dropdown and menu navigation. The host sends ASCII actions.
+#[no_mangle]
+pub extern "C" fn ngu_pad(action: u32) {
+    let Some(s) = st() else { return };
+    if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return; }
+    let Some(action) = char::from_u32(action) else { return };
+    s.pad_focus = true;
+    if s.vm.dropdown_navigate(action) { return; }
+    let click = match action {
+        'a' => {
+            let at = crate::focus::activation_point(&mut s.vm);
+            if at.is_none() {
+                crate::focus::navigate(&mut s.vm, 'd');
+                crate::focus::activation_point(&mut s.vm)
+            } else { at }
+        }
+        'b' => {
+            if !s.vm.back_from_desktop_picker() { crate::focus::clear(&mut s.vm); }
+            None
+        }
+        'p' => crate::focus::menu_step(&mut s.vm, -1),
+        'n' => crate::focus::menu_step(&mut s.vm, 1),
+        'u' | 'd' | 'l' | 'r' => { crate::focus::navigate(&mut s.vm, action); None }
+        _ => None,
+    };
+    if let Some(at) = click { s.pad_click = Some((at, true)); }
+}
+
+#[no_mangle]
+pub extern "C" fn ngu_scroll(dx: f32, dy: f32) {
+    let Some(s) = st() else { return };
+    if !s.touch_down && s.vm.eng.text_req.is_none() {
+        s.pad_focus = true;
+        crate::focus::scroll(&mut s.vm, dx, dy);
     }
 }
 

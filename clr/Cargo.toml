@@ -12,6 +12,9 @@ crate-type = ["rlib", "staticlib"]
 name = "clr"
 path = "src/main.rs"
 
+[features]
+legacy-vita-save = []
+
 [dependencies]
 ngu-rt = { path = "../crates/ngu-rt" }
 dotnetdll = "0.5"

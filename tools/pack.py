@@ -1,43 +1,37 @@
-"""Packs out/ngu (+ Assembly-CSharp.dll) into a single ngu.pak file (NGUPAK1 format).
-Usage: python pack.py [output_folder]   (default: out/ngu_pak)
-Format: "NGUPAK1\\0" u32 n; n x (u16 len, name, u64 offset, u64 size); data.
-"""
-import os, struct, sys
+"""Pack prepared game data into the engine's NGUPAK1 format."""
 
-SRC = r"J:\NGUvita\nguvita\out\ngu"
-DLL = r"J:\NGUvita\NGU IDLE\NGUIdle_Data\Managed\Assembly-CSharp.dll"
-OUT = sys.argv[1] if len(sys.argv) > 1 else r"J:\NGUvita\nguvita\out\ngu_pak"
-os.makedirs(OUT, exist_ok=True)
+import argparse
+import shutil
+import struct
+from pathlib import Path
 
-files = []
-for root, _, names in os.walk(SRC):
-    for n in names:
-        p = os.path.join(root, n)
-        rel = os.path.relpath(p, SRC).replace("\\", "/")
-        if rel.startswith("save/") or rel.endswith(".pak"):
-            continue
-        files.append((rel, p))
-files.append(("Assembly-CSharp.dll", DLL))
-files.sort()
 
-hdr = 12 + sum(2 + len(r.encode()) + 16 for r, _ in files)
-off = hdr
-index = []
-for rel, p in files:
-    size = os.path.getsize(p)
-    index.append((rel, off, size))
-    off += size
-with open(os.path.join(OUT, "ngu.pak"), "wb") as f:
-    f.write(b"NGUPAK1\0" + struct.pack("<I", len(files)))
-    for rel, o, s in index:
-        b = rel.encode()
-        f.write(struct.pack("<H", len(b)) + b + struct.pack("<QQ", o, s))
-    assert f.tell() == hdr
-    for rel, p in files:
-        with open(p, "rb") as g:
-            while True:
-                chunk = g.read(1 << 20)
-                if not chunk:
-                    break
-                f.write(chunk)
-print(f"{len(files)} files, {off/1e6:.1f} Mo -> {OUT}\\ngu.pak")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("assets", type=Path, help="Output directory from nguprep")
+    parser.add_argument("dll", type=Path, help="Assembly-CSharp.dll from your verified game installation")
+    parser.add_argument("output", type=Path, help="Output file, typically ngu.pak")
+    args = parser.parse_args()
+
+    assets = args.assets
+    files = {"Assembly-CSharp.dll": args.dll, "scene.json": assets / "scene.json", "tags.json": assets / "tags.json"}
+    for folder in ("audio", "fonts", "tex", "text"):
+        files.update((p.relative_to(assets).as_posix(), p) for p in (assets / folder).rglob("*") if p.is_file())
+    index = [(name.encode("utf-8"), path, path.stat().st_size) for name, path in sorted(files.items())]
+    offset = 12 + sum(18 + len(name) for name, _, _ in index)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    staging = args.output.with_suffix(".pending")
+    with staging.open("wb") as output:
+        output.write(struct.pack("<8sI", b"NGUPAK1\0", len(index)))
+        for name, _, size in index:
+            output.write(struct.pack("<H", len(name)) + name + struct.pack("<QQ", offset, size))
+            offset += size
+        for _, source, _ in index:
+            with source.open("rb") as input_file:
+                shutil.copyfileobj(input_file, output)
+    staging.replace(args.output)
+    print(f"Packed {len(index)} files ({offset:,} bytes) in {args.output.name}.")
+
+
+if __name__ == "__main__":
+    main()

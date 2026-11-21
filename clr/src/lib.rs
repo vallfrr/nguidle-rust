@@ -10,6 +10,8 @@ mod dropdown;
 pub mod focus;
 pub mod input;
 pub mod layout;
+#[cfg(feature = "legacy-vita-save")]
+pub mod legacy_save;
 pub mod profile;
 pub mod lower;
 mod motion;

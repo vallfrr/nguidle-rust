@@ -20,7 +20,7 @@ requires evidence from the target runtime.
   The container reads Steam Windows 1.260 data from a read-only mount and
   verifies the SHA-256 manifest before extraction or compilation. Build
   output and saves use separate volumes. The default published port is local.
-- **nguidle-vita** owns the VitaSDK host, packaging, touch/buttons and console deployment. V1 runs the interpreter. V2 still needs a generated-Rust build, the console renderer and memory/frame pacing tests on device. The 5-inch interface needs its own layout and interaction validation.
+- **nguidle-vita** owns the VitaSDK host, packaging, touch/buttons and console deployment. Both interpreter and generated-Rust VPKs build, and the interpreter reached Basic Training on a console. The five-inch interface and frame pacing in dense menus still need device validation. See [Status](STATUS.md) for the measured scope.
 
 The layout/render pipeline is shared. Windows paths, desktop slot management
 and monitor refresh policy belong behind the desktop entry point. Current

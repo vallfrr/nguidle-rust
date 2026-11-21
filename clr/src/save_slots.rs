@@ -254,9 +254,9 @@ fn write_save_file(path: &Path, bytes: &[u8], replace: bool) -> std::io::Result<
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(any(target_family = "wasm", target_os = "vita")))]
     let process = std::process::id();
-    #[cfg(target_family = "wasm")]
+    #[cfg(any(target_family = "wasm", target_os = "vita"))]
     let process = 0;
     let temp = dir.join(format!(".save-{process}-{stamp}.tmp"));
     let mut file = OpenOptions::new()
@@ -269,14 +269,28 @@ fn write_save_file(path: &Path, bytes: &[u8], replace: bool) -> std::io::Result<
         if replace {
             fs::rename(&temp, path)
         } else {
-            // Publishing with a link fails atomically if another process filled the slot.
-            fs::hard_link(&temp, path)
+            publish_new_save(&temp, path)
         }
     });
     if !replace || result.is_err() {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+#[cfg(not(target_os = "vita"))]
+fn publish_new_save(temp: &Path, path: &Path) -> std::io::Result<()> {
+    // Publishing with a link fails atomically if another process filled the slot.
+    fs::hard_link(temp, path)
+}
+
+#[cfg(target_os = "vita")]
+fn publish_new_save(temp: &Path, path: &Path) -> std::io::Result<()> {
+    // The Vita's local volume has no hard links and the game has one writer.
+    if path.try_exists()? {
+        return Err(std::io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(temp, path)
 }
 
 fn slot_path(dir: &Path, slot: usize) -> PathBuf {

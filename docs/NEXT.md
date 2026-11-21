@@ -11,7 +11,7 @@ Goal and decisions: `docs/VISION.md`. Proof of conformance to the original game:
 - The game's C# is translated to Rust (99.4 % of methods) and produces exactly the same state as the reference interpreter (same visible state, saves, thousands of clicks).
 - The PC window runs at ~58 img/s at 1280x800 with a CPU rasterizer (13 ms/frame). The original runs at the monitor rate (200 Hz here), 8 % of one core, 341 MB.
 - Done today: dev mode (`docs/DEV.md`), first comparison with the real game (`docs/COMPARISON.md`), disabled-button tint, system-culture number formatting, Unity-like text metrics.
-- Nothing of V2 has run on the Vita (only V1, the interpreter at ~19 img/s, was installed on a console).
+- The current Vita host runs on a console with the shared responsive layout, original tooltips, save panels, touch and controller focus. Both engine builds cross-compile and package. See [Status](STATUS.md) for the device checks.
 
 ## Rule for comparisons with the original
 Compare **behaviour and content** (what is shown, states, text that fits its box), not pixel-exact output. Do not spend time on
@@ -66,7 +66,13 @@ Principles and trade-offs in `docs/VISION.md`.
 - [~] **W2** The browser runs the shared CIL engine via WebAssembly and draws the desktop scene locally. The game UI handles file import/export, the host stores a personal profile with slot leases, and gameplay continues through a network interruption. Follow the browser verification in STATUS.md. Complete physical phone and gamepad sessions and a private reverse proxy deployment.
 
 ## Phase 6: Vita V2 (when the console is available)
-- [ ] **C1** Cross-compile the generated Rust (`armv7-sony-vita-newlibeabihf`, nightly + build-std), always under the memory cap. **C2** vitaGL GPU rendering from the quad list, texture atlas within the 112 MB VRAM. **C3** Touch = mouse, buttons = actions of phase 4, system keyboard for text. **C4** Fast start: binary scene instead of `scene.json` (V1: 20 s load, target < 5 s). **C5** Measurements: 30 img/s in every menu at 333/166 MHz, RAM, autosave, sleep/resume, 1 h session. **C6** "Preparer" tool producing the SD-card data folder (+ VPK). **C7** Official LiveArea assets **[maintainer]**.
+- [x] **C1** Cross-compile and package both the shared interpreter and the generated Rust (`armv7-sony-vita-newlibeabihf`, nightly + build-std), under the memory cap (2026-11-21).
+- [x] **C2** Render the shared draw list with vitaGL. Verify the home, slot picker and Basic Training on a console (2026-11-21).
+- [~] **C3** Touch, directional focus, confirmation, menu shortcuts, scrolling and the system keyboard are wired. Confirm a full inventory drag, save naming and navigation through dense screens on device.
+- [ ] **C4** Measure cold start and optimize scene loading toward < 5 s.
+- [ ] **C5** Measure dense and late-game menus, save writes, memory, sleep/resume and a long session on device. Profile the translated-Rust build before using it as the default. The first build reached the offline-progress screen at about 2 FPS and left 3 MiB of free user RAM after startup.
+- [x] **C6** Build the VPK separately from the prepared SD-card data pack (2026-11-21).
+- [ ] **C7** Official LiveArea assets **[maintainer]**.
 
 ## Phase 7: polish
 - [ ] README for installation, readability on 5 inches (R3/R5 refinement), release process.
