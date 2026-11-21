@@ -268,11 +268,16 @@ impl Renderer {
     }
 
     // ---------------------------------------------------------------- quad production
-    /// Builds the quad list of the current frame (self.quads).
-    pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
+    /// Reflow the scene before hit-testing a resized view.
+    pub fn prepare_layout(&mut self, vm: &mut Vm) {
         self.run_layout(vm);
         crate::desktop_layout::rebuild(vm);
         crate::save_slots::reflow(vm);
+    }
+
+    /// Builds the quad list of the current frame (self.quads).
+    pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
+        self.prepare_layout(vm);
         self.quads.clear();
         self.scale = scale;
         self.ox = ox;

@@ -127,6 +127,7 @@ struct Batch {
 
 struct Button {
     at: (f32, f32),
+    from_device: bool,
     kind: i32,
     down: bool,
 }
@@ -137,6 +138,7 @@ struct State {
     view: View,
     accumulator: f32,
     mouse: (f32, f32),
+    presented_pointer: (f32, f32),
     using_focus: bool,
     buttons: VecDeque<Button>,
     vertices: Vec<Vertex>,
@@ -186,6 +188,7 @@ pub extern "C" fn web_boot() -> i32 {
             view: View::new(960, 540),
             accumulator: 0.0,
             mouse: (-1.0, -1.0),
+            presented_pointer: (-1.0, -1.0),
             using_focus: false,
             buttons: VecDeque::new(),
             vertices: Vec::new(),
@@ -237,20 +240,29 @@ pub extern "C" fn web_frame(width: u32, height: u32, seconds: f32) -> usize {
         if width == 0 || height == 0 {
             return 0;
         }
+        let resized = (width, height) != (s.view.width, s.view.height);
         s.view = View::new(width, height);
         s.vm.eng
             .desktop_layout
             .set_width(width as f32 / s.view.scale);
         s.renderer.resize(width as usize, height as usize, false);
+        if resized {
+            s.renderer.prepare_layout(&mut s.vm);
+        }
         s.accumulator += seconds.clamp(0.0, 0.25);
         while s.accumulator >= STEP {
             s.tick();
             s.accumulator -= STEP;
         }
         let point = s.pointer();
-        if s.buttons.is_empty() && s.vm.eng.mouse != point {
+        if s.buttons.is_empty() && (resized || s.presented_pointer != point) {
+            s.presented_pointer = point;
             s.vm.eng.mouse = point;
-            if !s.vm.eng.mouse_down || s.vm.pointer_holds_scroll_view() || s.vm.dropdown_is_open() {
+            if (resized || s.vm.eng.ptr.last_pos != point)
+                && (!s.vm.eng.mouse_down
+                    || s.vm.pointer_holds_scroll_view()
+                    || s.vm.dropdown_is_open())
+            {
                 s.vm.pointer_update();
             }
             s.vm.update_color_picker_pointer();
@@ -359,13 +371,17 @@ impl State {
         if self.using_focus {
             focus::pointer(&self.vm).unwrap_or((-1.0, -1.0))
         } else {
-            self.mouse
+            self.view.point(self.mouse.0, self.mouse.1)
         }
     }
 
     fn tick(&mut self) {
         if let Some(button) = self.buttons.pop_front() {
-            self.vm.eng.mouse = button.at;
+            self.vm.eng.mouse = if button.from_device {
+                self.view.point(button.at.0, button.at.1)
+            } else {
+                button.at
+            };
             self.vm.eng.mouse_button = button.kind;
             self.vm.eng.mouse_down = button.down;
             self.vm.eng.mouse_down_edge = button.down;
@@ -383,18 +399,19 @@ impl State {
                     focus::clear(&mut self.vm);
                 }
                 self.using_focus = false;
-                self.mouse = self.view.point(x, y);
+                self.mouse = (x, y);
             }
             Event::Button { x, y, button, down } if (0..=2).contains(&button) => {
                 if self.using_focus {
                     focus::clear(&mut self.vm);
                 }
                 self.using_focus = false;
-                self.mouse = self.view.point(x, y);
+                self.mouse = (x, y);
                 let kind = [0, 2, 1][button as usize];
                 if self.buttons.len() < 128 {
                     self.buttons.push_back(Button {
                         at: self.mouse,
+                        from_device: true,
                         kind,
                         down,
                     });
@@ -472,12 +489,15 @@ impl State {
             }
             Event::Reset => {
                 self.buttons.clear();
+                self.using_focus = false;
+                focus::clear(&mut self.vm);
                 self.mouse = (-1.0, -1.0);
                 self.vm.eng.keys_down.clear();
                 self.vm.eng.keys_edge.clear();
                 if self.vm.eng.mouse_down {
                     self.buttons.push_back(Button {
                         at: self.mouse,
+                        from_device: true,
                         kind: self.vm.eng.mouse_button,
                         down: false,
                     });
@@ -523,11 +543,13 @@ impl State {
         if let Some(at) = click {
             self.buttons.push_back(Button {
                 at,
+                from_device: false,
                 kind: 0,
                 down: true,
             });
             self.buttons.push_back(Button {
                 at,
+                from_device: false,
                 kind: 0,
                 down: false,
             });

@@ -90,6 +90,11 @@
   also started the engine and opened the save picker. In Chromium a
   touchscreen drag moved inventory equipment between slots, and an emulated
   gamepad shoulder press changed menus.
+- Web hover uses the engine's pointer enter and exit callbacks at display
+  cadence. Pointer coordinates are remapped when the viewport changes.
+  Holding a touch exposes the existing tooltip without activating a button.
+  A Chromium test verified the original Rebirth tooltip and dismissal by
+  pointer movement, resize and a subsequent tap.
 - The verified Windows Steam 1.260 manifest accepted all 115 files. The
   Compose file, startup script, asset packing and local server were checked.
   Seven save-service tests and three Rust library tests passed. The
