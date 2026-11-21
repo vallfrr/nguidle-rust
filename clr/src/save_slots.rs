@@ -741,6 +741,8 @@ fn build(vm: &mut Vm) -> Screen {
             scale_factor: 1.0,
         })),
     );
+    vm.eng.canvases.push((10000, tr(&root)));
+    vm.eng.canvases.sort_by_key(|(sorting, _)| *sorting);
     let panel = new_node(vm, "Save Management", &tr(&root), [0.0, 0.0], 0.0, 600.0);
     with_tr(&tr(&panel), |t| {
         t.apos[0] = CONTENT_LEFT;

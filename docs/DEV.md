@@ -28,6 +28,9 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
 | `tree,<depth>` | active hierarchy under the root objects with rectangles (960x600, top-left), canvases marked: names for screen profiles |
 | `pngl,<png>,<profile>,<w>,<h>[,hold][,pointer y]` | capture through a screen profile (`layouts/README.md`) |
+| `visual_motion` | enable desktop visual interpolation in a headless run |
+| `pngl,<png>,desktop,<w>,<h>[,<ms>]` | capture the responsive layout, optionally sampling between fixed game ticks |
+| `pointer,x,y`, `release_pointer` | move the pointer without advancing a tick, or release a held button and advance one tick |
 | `uimap,<json>,<md>` | UI map of the 58 menus (see `docs/UI-MAP.md`) |
 | `sounds` | prints (and clears) the sounds the game asked to play |
 | `png,file` | 960x600 capture |

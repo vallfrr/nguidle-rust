@@ -12,6 +12,7 @@ pub mod input;
 pub mod layout;
 pub mod profile;
 pub mod lower;
+mod motion;
 pub mod nrbf;
 pub mod serial;
 pub mod program;

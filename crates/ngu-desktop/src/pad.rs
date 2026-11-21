@@ -8,18 +8,20 @@ pub struct Pad {
     g: Gilrs,
     held: Option<Action>,
     next_repeat: Instant,
-    scroll: (i8, i8),
-    next_scroll: Instant,
+    dropdown_scroll: Option<Action>,
+    next_dropdown_scroll: Instant,
+    last_poll: Instant,
 }
 
 impl Pad {
     pub fn new() -> Option<Pad> {
         Gilrs::new().ok().map(|g| Pad {
-            g, held: None, next_repeat: Instant::now(), scroll: (0, 0), next_scroll: Instant::now(),
+            g, held: None, next_repeat: Instant::now(), dropdown_scroll: None,
+            next_dropdown_scroll: Instant::now(), last_poll: Instant::now(),
         })
     }
 
-    pub fn poll(&mut self) -> Vec<Action> {
+    pub fn poll(&mut self, dropdown_open: bool) -> Vec<Action> {
         let mut out = vec![];
         while let Some(ev) = self.g.next_event() {
             if let EventType::ButtonPressed(b, _) = ev.event {
@@ -34,7 +36,7 @@ impl Pad {
         }
         // held direction (d-pad or left stick) with repeat
         let mut dir = None;
-        let mut scroll = (0, 0);
+        let mut scroll = (0.0, 0.0);
         for (_, gp) in self.g.gamepads() {
             let (x, y) = (gp.value(Axis::LeftStickX), gp.value(Axis::LeftStickY));
             if gp.is_pressed(Button::DPadUp) || y > 0.5 {
@@ -48,14 +50,16 @@ impl Pad {
             }
             let stick = |axis, sign: f32| {
                 let v = gp.value(axis) * sign;
-                if v.abs() > 0.52 { v.signum() as i8 } else { 0 }
+                v.signum() * ((v.abs() - 0.22) / 0.78).clamp(0.0, 1.0)
             };
             let position = (stick(Axis::RightStickX, 1.0), stick(Axis::RightStickY, -1.0));
-            if position != (0, 0) {
+            if position != (0.0, 0.0) {
                 scroll = position;
             }
         }
         let now = Instant::now();
+        let dt = (now - self.last_poll).as_secs_f32().min(0.05);
+        self.last_poll = now;
         match dir {
             Some(d) if self.held != Some(d) => {
                 self.held = Some(d);
@@ -69,11 +73,24 @@ impl Pad {
             None => self.held = None,
             _ => {}
         }
-        if scroll != (0, 0) && (scroll != self.scroll || now >= self.next_scroll) {
-            self.next_scroll = now + Duration::from_millis(82);
-            out.push(Action::Scroll { x: scroll.0, y: scroll.1 });
+        let direction = if !dropdown_open || scroll.1.abs() < 0.38 {
+            None
+        } else if scroll.1 > 0.0 {
+            Some(Action::Down)
+        } else {
+            Some(Action::Up)
+        };
+        if let Some(direction) = direction {
+            if self.dropdown_scroll != Some(direction) || now >= self.next_dropdown_scroll {
+                self.next_dropdown_scroll = now + Duration::from_millis(82);
+                out.push(direction);
+            }
         }
-        self.scroll = scroll;
+        self.dropdown_scroll = direction;
+        if !dropdown_open && scroll != (0.0, 0.0) {
+            let distance = 390.0 * dt;
+            out.push(Action::Scroll { x: -scroll.0 * distance, y: scroll.1 * distance });
+        }
         out
     }
 }

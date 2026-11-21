@@ -205,7 +205,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
             }
             #[cfg(windows)]
             if let Some(p) = pad.as_mut() {
-                acts.extend(p.poll());
+                acts.extend(p.poll(vm.dropdown_is_open()));
             }
             for a in acts {
                 if let Some(p) = apply(vm, a) {
@@ -244,6 +244,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
         p_logic += t_logic.elapsed().as_secs_f32() * 1000.0;
         p_steps += steps as u32;
         // ---- display
+        rend.set_subframe_time(acc);
         rend.render(vm, scale, ox, oy);
         p_emit += rend.t_emit;
         p_raster += rend.t_raster;

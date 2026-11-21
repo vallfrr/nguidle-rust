@@ -485,6 +485,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let cur = crate::ui::world_pos(vm, &t);
             let np = [sf(&p, 0), sf(&p, 1), sf(&p, 2)];
             if (cur[0] - np[0]).abs() > 1e-4 || (cur[1] - np[1]).abs() > 1e-4 || with_tr(&t, |x| !x.is_rect && (x.pos[2] - np[2]).abs() > 1e-4).unwrap_or(false) {
+                crate::motion::world_position_changed(vm, &t, cur, np);
                 crate::ui::set_world_pos(vm, &t, np);
                 mark_dirty(&t);
             }
@@ -650,13 +651,16 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         "UnityEngine.UI.Graphic::set_color" => |vm, a| {
             let v = rv(vm, &a[0]);
             let c = to_col(&rv(vm, &a[1]));
-            let ch = with_comp(&v, |k| match &mut k.k {
-                CK::Image(i) | CK::RawImage(i) => std::mem::replace(&mut i.color, c) != c,
-                CK::Text(t) => std::mem::replace(&mut t.color, c) != c,
-                _ => false,
-            })
-            .unwrap_or(false);
+            let (ch, old_text) = with_comp(&v, |k| match &mut k.k {
+                CK::Image(i) | CK::RawImage(i) => (std::mem::replace(&mut i.color, c) != c, None),
+                CK::Text(t) => {
+                    let old = std::mem::replace(&mut t.color, c);
+                    (old != c, Some(old))
+                }
+                _ => (false, None),
+            }).unwrap_or_default();
             if ch {
+                if let Some(old) = old_text { crate::motion::text_color_changed(vm, &v, old, c); }
                 mark_dirty(&v);
             }
             Ok(Value::Null)
@@ -945,9 +949,8 @@ pub fn native_field(vm: &mut Vm, o: &Value, key: &str) -> R<Value> {
 
 /// Updates fill/handle of a Slider / Scrollbar according to its value.
 pub fn slider_visuals(vm: &mut Vm, v: &Value) {
-    let _ = vm;
-    let info = sel(v, |s| (s.kind, s.value, s.min, s.max, s.direction, s.fill_rect.clone(), s.handle_rect.clone(), s.size));
-    let (kind, val, min, max, dir, fill, handle, size) = match info {
+    let info = sel(v, |s| (s.kind, s.value, s.min, s.max, s.direction, s.fill_rect.clone(), s.handle_rect.clone(), s.size, s.interactable));
+    let (kind, val, min, max, dir, fill, handle, size, interactable) = match info {
         Some(i) => i,
         None => return,
     };
@@ -961,6 +964,11 @@ pub fn slider_visuals(vm: &mut Vm, v: &Value) {
         _ => (1, true),
     };
     if kind == SelKind::Slider {
+        if vm.eng.motion.enabled && !interactable {
+            if let Some(old) = with_tr(&fill, |t| if rev { 1.0 - t.amin[axis] } else { t.amax[axis] }) {
+                crate::motion::slider_changed(vm, v, &fill, &handle, (axis, rev), old.clamp(0.0, 1.0), n);
+            }
+        }
         mark_dirty(&fill);
         mark_dirty(&handle);
         with_tr(&fill, |t| {

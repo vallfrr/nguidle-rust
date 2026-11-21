@@ -121,28 +121,13 @@ fn raycast_node(
 }
 
 pub(crate) fn canvas_roots(vm: &Vm) -> Vec<(i32, Value)> {
-    let mut roots = Vec::new();
     let choosing_save = crate::save_slots::choosing_save(vm);
-    for go in &vm.eng.gos {
-        if choosing_save && !crate::save_slots::owns(go) {
-            continue;
-        }
-        let Some((sorting, tr)) = with_go(go, |g| {
-            if !g.active || g.port_hidden || !with_tr(&g.transform, |t| t.parent.is_null()).unwrap_or(false) {
-                return None;
-            }
-            let sorting = g.comps.iter().filter_map(|c| {
-                with_comp(c, |k| match &k.k {
-                    CK::Canvas(canvas) => Some(canvas.sorting),
-                    _ => None,
-                }).flatten()
-            }).last()?;
-            Some((sorting, g.transform.clone()))
-        }).flatten() else { continue };
-        roots.push((sorting, tr));
-    }
-    roots.sort_by_key(|r| r.0);
-    roots
+    vm.eng.canvases.iter().filter(|(_, tr)| {
+        let go = go_of(tr);
+        (!choosing_save || crate::save_slots::owns(&go)) &&
+            with_go(&go, |g| g.active && !g.port_hidden).unwrap_or(false) &&
+            with_tr(tr, |t| t.parent.is_null()).unwrap_or(false)
+    }).cloned().collect()
 }
 
 pub(crate) fn raycast_points(vm: &Vm, roots: &[(i32, Value)], points: &[[f32; 2]]) -> Vec<Value> {
@@ -428,6 +413,16 @@ impl Vm {
         }
     }
 
+    /// Scroll views can follow a held pointer between game ticks without dispatching
+    /// the scripted drag events used by inventory items and cards.
+    pub fn pointer_holds_scroll_view(&self) -> bool {
+        self.eng.mouse_down && with_go(&self.eng.ptr.drag, |go| {
+            go.comps.iter().any(|component| {
+                with_comp(component, |c| matches!(c.k, CK::ScrollRect { .. })).unwrap_or(false)
+            })
+        }).unwrap_or(false)
+    }
+
     fn pointer_update_inner(&mut self) {
         if self.dropdown_pointer() {
             return;
@@ -439,7 +434,7 @@ impl Vm {
             return;
         }
         let p = [pos.0, pos.1];
-        let hit = if edge_d || down || edge_u || self.eng.hover_always { raycast(self, p) } else { Value::Null };
+        let hit = if edge_d || edge_u || (!down && self.eng.hover_always) { raycast(self, p) } else { Value::Null };
         if edge_d {
             self.set_hover(hit.clone(), pos);
             self.eng.ptr.down_pos = pos;

@@ -39,11 +39,24 @@
   the Save Game and Load Game pair. Achievement icons fill their tile frames
   and the detail pane uses the same themed frame around its larger icon.
   Selection uses the save picker color inside the icon frame.
-- The runtime follows the pointer at render frequency and uses the Energy
-  timer's 20 ms schedule for display interpolation. Game rules continue to
-  advance in fixed steps.
-- The Windows 1280 × 720 GPU test reported around 60 FPS with VSYNC on the
-  session's 60 Hz display, verified from the window's active display mode.
+- All 121 noninteractive scene sliders use one renderer-side interpolation
+  path. It draws between the original timer samples, preserves forward
+  progress through a cycle, and lets damage reduce a health bar smoothly.
+  The Inventory and Cards drag previews use the latest mapped pointer
+  position and stay beneath tooltips. Held scrolling and the color picker
+  accept mouse movement between game ticks. The controller's right stick
+  scrolls by elapsed time, with discrete navigation in dropdowns.
+  The fixed-step simulation still owns combat, resource gain, and saving.
+- Native screenshots covered all 58 menu indices at 1280 × 720, 400 × 900,
+  and 1800 × 270. The unused portrait bands stayed black. Pixel checks
+  sampled the Basic Training bar every 5 ms and moved Inventory and Cards
+  drag previews without advancing the simulation.
+- On the 200 Hz Windows display, GPU runs at 1280 × 720 with VSYNC enabled
+  had median frame rates of 197.7–199.8 FPS across Basic Training, Inventory,
+  Cards, and Wishes. Fixed game updates still produced longer intervals in
+  these runs. The slowest measured interval was 31.8 ms.
+- An earlier Windows 1280 × 720 GPU test reported around 60 FPS with VSYNC
+  on a 60 Hz display, verified from the window's active display mode.
   The Inventory run had 38–41 ms maximum intervals per
   120-frame sample. A diagnostic run with VSYNC disabled generated quads
   at over 1,100 FPS. This measures renderer capacity and frame pacing in that

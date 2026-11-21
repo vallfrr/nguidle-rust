@@ -358,29 +358,25 @@ pub fn scroll(vm: &mut Vm, dx: f32, dy: f32) {
     let sh = vm.eng.screen.1 as f32;
     let at = pointer(vm);
     let mut lists = Vec::new();
-    for go in &vm.eng.gos {
-        let Some(components) = with_go(go, |g| {
-            (g.active && !g.port_hidden).then(|| g.comps.clone())
-        }).flatten() else { continue };
-        for comp in components {
-            let Some(viewport) = with_comp(&comp, |c| match &c.k {
-                CK::ScrollRect { viewport, content, horizontal, vertical, .. }
-                    if c.enabled && !content.is_null() &&
-                        (dx != 0.0 && *horizontal || dy != 0.0 && *vertical) =>
-                    Some(if viewport.is_null() { transform_of(go) } else { viewport.clone() }),
-                _ => None,
-            }).flatten() else { continue };
-            if !active_in_hierarchy(go) {
-                continue;
-            }
-            let Some(rect) = visible_rect(vm, bbox(&view_xf(vm, &viewport), sh)) else { continue };
-            let p = at.map_or_else(|| center(&rect), |(x, y)| {
-                (x.clamp(rect[0] + 0.5, rect[2] - 0.5), (sh - y).clamp(rect[1] + 0.5, rect[3] - 0.5))
-            });
-            let owned = within(&vm.eng.focus, go);
-            let distance = at.map_or(0.0, |(x, y)| (x - p.0).hypot(sh - y - p.1));
-            lists.push((comp, go.clone(), viewport, [p.0, sh - p.1], owned, distance));
+    for comp in &vm.eng.scrollrects {
+        let go = go_of(comp);
+        if with_go(&go, |g| g.port_hidden).unwrap_or(true) || !active_in_hierarchy(&go) {
+            continue;
         }
+        let Some(viewport) = with_comp(comp, |c| match &c.k {
+            CK::ScrollRect { viewport, content, horizontal, vertical, .. }
+                if c.enabled && !content.is_null() &&
+                    (dx != 0.0 && *horizontal || dy != 0.0 && *vertical) =>
+                Some(if viewport.is_null() { transform_of(&go) } else { viewport.clone() }),
+            _ => None,
+        }).flatten() else { continue };
+        let Some(rect) = visible_rect(vm, bbox(&view_xf(vm, &viewport), sh)) else { continue };
+        let p = at.map_or_else(|| center(&rect), |(x, y)| {
+            (x.clamp(rect[0] + 0.5, rect[2] - 0.5), (sh - y).clamp(rect[1] + 0.5, rect[3] - 0.5))
+        });
+        let owned = within(&vm.eng.focus, &go);
+        let distance = at.map_or(0.0, |(x, y)| (x - p.0).hypot(sh - y - p.1));
+        lists.push((comp.clone(), go, viewport, [p.0, sh - p.1], owned, distance));
     }
     lists.sort_by(|a, b| b.4.cmp(&a.4).then_with(|| a.5.total_cmp(&b.5)));
     let points: Vec<_> = lists.iter().map(|list| list.3).collect();

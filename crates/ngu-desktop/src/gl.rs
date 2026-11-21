@@ -5,11 +5,9 @@
 use crate::actions::{apply, Action};
 use crate::{layout, Options, LOGIC_DT, VIRT_H, VIRT_W};
 use clr::render::{Quad, Renderer, ATLAS_SIZE, TEX_ATLAS, TEX_WHITE};
-use clr::unity::{mark_dirty, with_comp, with_go, with_tr, CK, SelKind};
-use clr::value::Value;
 use clr::Vm;
 use miniquad::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::time::Instant;
 
 const VERTEX: &str = r#"#version 100
@@ -50,86 +48,6 @@ struct Uniforms {
 /// Quads per upload: 16-bit indices address 65,536 vertices.
 const CHUNK: usize = 16_000;
 
-/// Interpolate the rendered HUD fill between game ticks. The Slider value stays authoritative.
-struct EnergyFill {
-    transform: Value,
-    samples: VecDeque<(f64, f32)>,
-}
-
-impl EnergyFill {
-    fn new(vm: &Vm) -> Self {
-        let transform = vm.eng.gos.iter().find(|go| {
-            with_go(go, |g| g.name == "Energy Bar").unwrap_or(false)
-        }).and_then(|go| {
-            with_go(go, |g| {
-                g.comps.iter().find_map(|component| {
-                    with_comp(component, |c| match &c.k {
-                        CK::Sel(s) if s.kind == SelKind::Slider && s.direction == 0 => {
-                            Some(s.fill_rect.clone())
-                        }
-                        _ => None,
-                    }).flatten()
-                })
-            }).flatten()
-        }).unwrap_or_default();
-        let current = with_tr(&transform, |t| t.amax[0]).unwrap_or(0.0);
-        Self {
-            transform,
-            samples: VecDeque::from([(vm.eng.time, current)]),
-        }
-    }
-
-    fn sample_tick(&mut self, vm: &Vm) {
-        let Some(bar) = vm.eng.invokes.iter().find(|timer| timer.method == "updateBar") else { return };
-        let time = bar.next - bar.repeat;
-        if time > vm.eng.time {
-            return;
-        }
-        let value = with_tr(&self.transform, |t| t.amax[0]).unwrap_or_default();
-        if self.samples.back().is_some_and(|(last, _)| *last == time) {
-            return;
-        }
-        if self.samples.back().is_some_and(|(last, _)| *last > time) {
-            self.samples.clear();
-        }
-        if self.samples.len() == 4 {
-            self.samples.pop_front();
-        }
-        self.samples.push_back((time, value));
-    }
-
-    fn at(&self, time: f64) -> f32 {
-        let Some(&(mut before, mut value)) = self.samples.front() else { return 0.0 };
-        for &(after, next) in self.samples.iter().skip(1) {
-            if time < after {
-                return energy_fill_at(value, next, ((time - before) / (after - before)) as f32);
-            }
-            (before, value) = (after, next);
-        }
-        value
-    }
-
-    fn set_rendered(&self, value: f32) -> Option<f32> {
-        let old = with_tr(&self.transform, |t| std::mem::replace(&mut t.amax[0], value))?;
-        if old != value {
-            mark_dirty(&self.transform);
-        }
-        Some(old)
-    }
-}
-
-fn energy_fill_at(previous: f32, current: f32, fraction: f32) -> f32 {
-    let fraction = fraction.clamp(0.0, 1.0);
-    if current >= previous {
-        previous + (current - previous) * fraction
-    } else if previous >= 0.8 && current <= 0.2 && fraction < 1.0 {
-        // Complete the visible fill before the next tick starts at the reset value.
-        previous + (1.0 - previous) * fraction
-    } else {
-        current
-    }
-}
-
 struct Stage {
     ctx: Box<dyn RenderingBackend>,
     vm: &'static mut Vm,
@@ -144,7 +62,6 @@ struct Stage {
     // real-time loop
     last: Instant,
     acc: f32,
-    energy_fill: EnergyFill,
     // input
     nav_mode: bool,
     #[cfg(windows)]
@@ -163,7 +80,9 @@ struct Stage {
     previous_present: Option<Instant>,
     longest_frame_ms: f32,
     missed_frames: u32,
+    over_200hz_budget: u32,
     frames: u64,
+    max_frames: Option<u64>,
     t0: Instant,
     /// An explicit classic, Vita or custom region profile.
     profile: Option<clr::profile::Profile>,
@@ -211,7 +130,6 @@ impl Stage {
                 .map_err(|e| eprintln!("[layout] {e}")).ok()
         });
         vm.eng.desktop_layout.pc_resolutions = profile.is_none();
-        let energy_fill = EnergyFill::new(vm);
         Stage {
             ctx,
             vm,
@@ -225,7 +143,6 @@ impl Stage {
             size: (w, h),
             last: Instant::now(),
             acc: 0.0,
-            energy_fill,
             nav_mode: false,
             #[cfg(windows)]
             audio: rodio::OutputStream::try_default().ok(),
@@ -243,7 +160,9 @@ impl Stage {
             previous_present: None,
             longest_frame_ms: 0.0,
             missed_frames: 0,
+            over_200hz_budget: 0,
             frames: 0,
+            max_frames: o.max_frames,
             t0: Instant::now(),
             profile,
             hold: false,
@@ -316,7 +235,7 @@ impl Stage {
     }
 
     fn update_hover(&mut self) {
-        if !self.pending.is_empty() || self.synth_phase != 0 || self.vm.eng.mouse_down ||
+        if !self.pending.is_empty() || self.synth_phase != 0 ||
             self.vm.eng.mouse_down_edge || self.vm.eng.mouse_up_edge {
             return;
         }
@@ -325,7 +244,10 @@ impl Stage {
         }
         if self.vm.eng.mouse != self.hover_at {
             self.hover_at = self.vm.eng.mouse;
-            self.vm.pointer_update();
+            if !self.vm.eng.mouse_down || self.vm.pointer_holds_scroll_view() || self.vm.dropdown_is_open() {
+                self.vm.pointer_update();
+            }
+            self.vm.update_color_picker_pointer();
         }
     }
 
@@ -472,7 +394,7 @@ impl EventHandler for Stage {
         }
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]
-        for action in self.pad.as_mut().map(|pad| pad.poll()).unwrap_or_default() {
+        for action in self.pad.as_mut().map(|pad| pad.poll(self.vm.dropdown_is_open())).unwrap_or_default() {
             self.navigate(action);
         }
         self.update_hover();
@@ -497,7 +419,6 @@ impl EventHandler for Stage {
                 }
             }
             self.vm.frame(LOGIC_DT);
-            self.energy_fill.sample_tick(self.vm);
             self.acc -= LOGIC_DT;
             steps += 1;
         }
@@ -522,14 +443,8 @@ impl EventHandler for Stage {
         if self.profile.is_none() {
             self.map_pointer();
         }
-        // updateBar is scheduled every 20 ms, so successive simulation ticks can
-        // run it a different number of times. Render on its clock.
-        let time = self.vm.eng.time + f64::from(self.acc) - f64::from(LOGIC_DT) - 0.02;
-        let saved_fill = self.energy_fill.set_rendered(self.energy_fill.at(time));
+        self.rend.set_subframe_time(self.acc);
         self.rend.emit_frame(self.vm, scale, ox, oy);
-        if let Some(saved_fill) = saved_fill {
-            self.energy_fill.set_rendered(saved_fill);
-        }
         let t_draw = Instant::now();
         if self.rend.atlas_take_dirty() {
             self.ctx.texture_update(self.atlas, self.rend.atlas_pixels());
@@ -578,16 +493,21 @@ impl EventHandler for Stage {
                 let ms = (now - previous).as_secs_f32() * 1000.0;
                 self.longest_frame_ms = self.longest_frame_ms.max(ms);
                 self.missed_frames += u32::from(ms > 20.0);
+                self.over_200hz_budget += u32::from(ms > 7.5);
             }
         }
         if self.perf && self.frames % 120 == 0 {
             let s = self.t0.elapsed().as_secs_f32();
             eprintln!("[perf] gpu {:.1} img/s | per frame (ms): logic {:.1} emit {:.1} draw+submit {:.1} | {}x{}", 120.0 / s, self.p[0] / 120.0, self.p[1] / 120.0, self.p[2] / 120.0, w as i32, h as i32);
-            eprintln!("[perf] frame interval | max {:.1} ms, {} >20 ms", self.longest_frame_ms, self.missed_frames);
+            eprintln!("[perf] frame interval | max {:.1} ms, {} >7.5 ms, {} >20 ms", self.longest_frame_ms, self.over_200hz_budget, self.missed_frames);
             self.p = [0.0; 4];
             self.longest_frame_ms = 0.0;
             self.missed_frames = 0;
+            self.over_200hz_budget = 0;
             self.t0 = Instant::now();
+        }
+        if self.max_frames.is_some_and(|max| self.frames >= max) {
+            window::quit();
         }
     }
 
@@ -697,18 +617,4 @@ pub fn run_gl(vm: &'static mut Vm, o: Options) {
         ..Default::default()
     };
     start(conf, move || Box::new(Stage::new(vm, &o)));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::energy_fill_at;
-
-    #[test]
-    fn fill_smooths_growth_and_resets_without_a_reverse_animation() {
-        assert_eq!(energy_fill_at(0.25, 0.75, 0.5), 0.5);
-        assert_eq!(energy_fill_at(0.875, 0.0, 0.5), 0.9375);
-        assert_eq!(energy_fill_at(0.875, 0.0, 1.0), 0.0);
-        assert_eq!(energy_fill_at(0.5, 0.125, 0.5), 0.125);
-        assert_eq!(energy_fill_at(0.75, 0.75, 0.5), 0.75);
-    }
 }

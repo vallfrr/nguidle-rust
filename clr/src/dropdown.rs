@@ -82,6 +82,10 @@ pub(crate) fn popup(vm: &Vm) -> Option<Popup> {
 }
 
 impl Vm {
+    pub fn dropdown_is_open(&self) -> bool {
+        !self.eng.dropdown.comp.is_null()
+    }
+
     pub(crate) fn open_dropdown(&mut self, comp: &Value) {
         self.eng.dropdown = Dropdown { comp: comp.clone(), ..Dropdown::default() };
         if let Some(p) = popup(self) {

@@ -106,7 +106,8 @@ pub struct Renderer {
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
     tooltip: Option<Value>,
-    drawing_tooltip: bool,
+    drawing_overlay: bool,
+    subframe_seconds: f64,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
     pub regions: Vec<crate::profile::Region>,
 }
@@ -164,7 +165,8 @@ impl Renderer {
             hits: 0,
             tints: vec![],
             tooltip: None,
-            drawing_tooltip: false,
+            drawing_overlay: false,
+            subframe_seconds: 0.0,
             regions: vec![],
         }
     }
@@ -300,30 +302,10 @@ impl Renderer {
             }).unwrap_or_default());
         }
         self.regions.iter_mut().for_each(|r| r.drawn = false);
-        let mut roots: Vec<(i32, Value)> = vec![];
-        for go in vm.eng.gos.clone() {
-            if !with_go(&go, |g| g.active).unwrap_or(false) {
-                continue;
-            }
-            let tr = with_go(&go, |g| g.transform.clone()).unwrap_or(Value::Null);
-            let parent = with_tr(&tr, |t| t.parent.clone()).unwrap_or(Value::Null);
-            if !parent.is_null() {
-                continue;
-            }
-            let comps = with_go(&go, |g| g.comps.clone()).unwrap_or_default();
-            let mut sorting = None;
-            for c in comps {
-                with_comp(&c, |k| {
-                    if let CK::Canvas(cd) = &k.k {
-                        sorting = Some(cd.sorting);
-                    }
-                });
-            }
-            if let Some(s) = sorting {
-                roots.push((s, tr));
-            }
-        }
-        roots.sort_by_key(|r| r.0);
+        let roots = vm.eng.canvases.iter().filter(|(_, tr)| {
+            with_tr(tr, |t| t.parent.is_null()).unwrap_or(false) &&
+                with_go(&go_of(tr), |g| g.active && !g.port_hidden).unwrap_or(false)
+        }).cloned().collect::<Vec<_>>();
         let stats = std::env::var("CLR_EMITSTATS").is_ok();
         let sidebar_edge = crate::save_slots::is_open(vm)
             .then(|| self.to_dev([crate::save_slots::CONTENT_LEFT, 0.0])[0].floor() as i32);
@@ -347,6 +329,13 @@ impl Renderer {
                 self.draw_node(vm, tr, view_xf(vm, tr), clip, 1);
             }
         }
+        if !crate::save_slots::is_open(vm) && !vm.at_desktop_start() {
+            self.drawing_overlay = true;
+            for (transform, position) in crate::motion::followers(vm) {
+                self.draw_node(vm, &transform, position, full, 2);
+            }
+            self.drawing_overlay = false;
+        }
         self.draw_dropdown(vm);
         if let Some(tooltip) = self.tooltip.clone().filter(|tr| {
             !crate::save_slots::choosing_save(vm) && active_in_hierarchy(&go_of(tr))
@@ -369,9 +358,9 @@ impl Renderer {
             let clip = if self.regions.is_empty() { full } else {
                 Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 }
             };
-            self.drawing_tooltip = true;
+            self.drawing_overlay = true;
             self.draw_node(vm, &tooltip, x, clip, 2);
-            self.drawing_tooltip = false;
+            self.drawing_overlay = false;
         }
     }
 
@@ -386,8 +375,16 @@ impl Renderer {
     /// Quad list of the frame; `t_emit` receives the time taken (ms). The GPU backends draw `self.quads`.
     pub fn emit_frame(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
         let t = std::time::Instant::now();
+        let undo = if vm.eng.motion.enabled {
+            Some(crate::motion::present(vm, vm.eng.time + self.subframe_seconds))
+        } else { None };
         self.emit(vm, scale, ox, oy);
+        if let Some(undo) = undo { undo.apply(vm); }
         self.t_emit = t.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    pub fn set_subframe_time(&mut self, seconds: f32) {
+        self.subframe_seconds = f64::from(seconds.max(0.0));
     }
 
     /// Changes the device size without losing the textures and the glyph atlas (GPU backends keep no framebuffer).
@@ -590,10 +587,15 @@ impl Renderer {
         }
         let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
         for ch in children {
-            if self.tooltip.as_ref().is_some_and(|tooltip| same(tooltip, &ch)) {
+            if self.tooltip.as_ref().is_some_and(|tooltip| same(tooltip, &ch)) || crate::motion::is_follower(vm, &ch) {
                 continue;
             }
-            let cx = match view_child_xf(vm, &x, &ch) {
+            let child = if self.drawing_overlay {
+                with_tr(&ch, |t| crate::ui::child_xf(&x, t))
+            } else {
+                view_child_xf(vm, &x, &ch)
+            };
+            let cx = match child {
                 Some(v) => v,
                 None => continue,
             };
@@ -640,7 +642,7 @@ impl Renderer {
     }
 
     fn graphic_clip(&self, vm: &Vm, tr: &Value, clip: Clip) -> Clip {
-        if self.regions.is_empty() && !self.drawing_tooltip {
+        if self.regions.is_empty() && !self.drawing_overlay {
             // A parent can contain both parked and projected children. Bound its
             // own graphics without clipping the independently placed children.
             // The tooltip overlay uses the existing frame clip for its entire subtree.

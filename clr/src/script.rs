@@ -217,6 +217,20 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 vm.input_commit(&request.comp, step.split_once(',').map_or("", |(_, text)| text));
                 continue;
             }
+            "visual_motion" => {
+                vm.enable_visual_motion();
+                continue;
+            }
+            "pointer" => {
+                vm.eng.mouse = (p[1].parse().unwrap(), 600.0 - p[2].parse::<f32>().unwrap());
+                continue;
+            }
+            "release_pointer" => {
+                vm.eng.mouse_down = false;
+                vm.eng.mouse_up_edge = true;
+                vm.frame(1.0 / 30.0);
+                continue;
+            }
             "sounds" => {
                 // sounds requested by the game since the last `sounds` step (AudioSource.Play)
                 println!("[sounds] {:?}", std::mem::take(&mut vm.eng.sound_queue));
@@ -310,6 +324,9 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 let old_width = vm.eng.desktop_layout.width();
                 vm.eng.desktop_layout.set_width(w / scale);
                 let mut r = crate::render::Renderer::new(w as usize, h as usize);
+                if let Some(ms) = p.get(5).and_then(|v| v.parse::<f32>().ok()) {
+                    r.set_subframe_time(ms / 1000.0);
+                }
                 r.render(vm, scale, 0.0, (h - 600.0 * scale) / 2.0);
                 r.save_png(p[1]);
                 vm.eng.desktop_layout.set_width(old_width);

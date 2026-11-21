@@ -213,9 +213,11 @@ pub struct Engine {
     pub desktop_panels: bool,
     pub read_live_fields: Option<fn(&Value) -> Option<Vec<Value>>>,
     pub(crate) achievements: crate::achievements::Book,
+    pub(crate) motion: crate::motion::Motion,
     pub keys: HashMap<String, Value>,
     pub(crate) resources: HashMap<String, Vec<Value>>,
     pub gos: Vec<Value>,
+    pub(crate) canvases: Vec<(i32, Value)>,
     pub time: f64,
     pub dt: f32,
     pub frame: u64,
@@ -829,6 +831,18 @@ impl Vm {
                 crate::unity_api::slider_visuals(self, o);
             }
         }
+        self.eng.canvases = self.eng.gos.iter().filter_map(|go| {
+            with_go(go, |g| {
+                let sorting = g.comps.iter().filter_map(|component| {
+                    with_comp(component, |c| match &c.k {
+                        CK::Canvas(canvas) => Some(canvas.sorting),
+                        _ => None,
+                    }).flatten()
+                }).last()?;
+                Some((sorting, g.transform.clone()))
+            }).flatten()
+        }).collect();
+        self.eng.canvases.sort_by_key(|(sorting, _)| *sorting);
         // subtrees under a layout
         for go in self.eng.gos.clone() {
             let has = with_go(&go, |g| g.comps.clone()).unwrap_or_default().iter().any(|c| with_comp(c, |k| matches!(k.k, CK::Layout { .. })).unwrap_or(false));
@@ -1205,6 +1219,9 @@ impl Vm {
         self.eng.dt = dt;
         self.eng.time += dt as f64;
         self.eng.frame += 1;
+        if self.eng.motion.enabled {
+            self.eng.motion.clock = Some((self.eng.time, f64::from(dt)));
+        }
         self.start_pending();
         self.pointer_update();
         // Update: only the components whose class defines Update
@@ -1237,6 +1254,7 @@ impl Vm {
             }
         }
         crate::achievements::tick(self);
+        self.eng.motion.clock = None;
         self.mouse_input_finished();
     }
 
@@ -1263,9 +1281,9 @@ impl Vm {
         }
         let mut remove = vec![];
         for i in due {
-            let (owner, method, repeat) = {
+            let (owner, method, repeat, scheduled) = {
                 let v = &mut self.eng.invokes[i];
-                let r = (v.owner.clone(), v.method.clone(), v.repeat);
+                let r = (v.owner.clone(), v.method.clone(), v.repeat, v.next);
                 if v.repeat > 0.0 {
                     v.next += v.repeat;
                 } else {
@@ -1273,7 +1291,10 @@ impl Vm {
                 }
                 r
             };
-            let _ = repeat;
+            let clock = self.eng.motion.clock;
+            if clock.is_some() && repeat > 0.0 {
+                self.eng.motion.clock = Some((scheduled, repeat));
+            }
             if let Value::Obj(o) = &owner {
                 if let Some(m) = self.find_method(o.ty, &method, 1) {
                     if let Err(e) = self.invoke(m, vec![owner.clone()]) {
@@ -1281,6 +1302,7 @@ impl Vm {
                     }
                 }
             }
+            self.eng.motion.clock = clock;
         }
         for i in remove.into_iter().rev() {
             self.eng.invokes.remove(i);

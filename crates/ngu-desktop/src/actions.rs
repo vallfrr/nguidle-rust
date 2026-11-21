@@ -12,7 +12,7 @@ pub enum Action {
     /// back (circle): removes the focus
     Back,
     /// Scroll the currently focused viewport.
-    Scroll { x: i8, y: i8 },
+    Scroll { x: f32, y: f32 },
     /// previous / next menu (L / R)
     Prev,
     Next,
@@ -21,8 +21,8 @@ pub enum Action {
 /// Applies an action; returns the click point (engine space, y up) for `Activate`.
 pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
     let modal = match a {
-        Action::Up | Action::Scroll { y: -1, .. } => 'u',
-        Action::Down | Action::Scroll { y: 1, .. } => 'd',
+        Action::Up => 'u',
+        Action::Down => 'd',
         Action::Activate => 'a',
         Action::Back => 'b',
         _ => ' ',
@@ -49,7 +49,7 @@ pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
                 clr::focus::clear(vm);
             }
         }
-        Action::Scroll { x, y } => clr::focus::scroll(vm, -f32::from(x) * 32.0, f32::from(y) * 32.0),
+        Action::Scroll { x, y } => clr::focus::scroll(vm, x, y),
         Action::Prev => return clr::focus::menu_step(vm, -1),
         Action::Next => return clr::focus::menu_step(vm, 1),
     }
