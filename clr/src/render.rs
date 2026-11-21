@@ -16,6 +16,51 @@ pub const TEX_WHITE: u32 = 0;
 pub const TEX_ATLAS: u32 = 1;
 pub const ATLAS_SIZE: usize = 1024;
 
+fn select_achievement(mut texture: Tex, locked: bool) -> Tex {
+    let (w, h) = (texture.w, texture.h);
+    let edge = (0..w * h).filter(|i| i % w == 0 || i % w == w - 1 || *i < w || *i >= w * (h - 1));
+    let similar = |pixel: &[u8], color: [u8; 3]| {
+        pixel[..3].iter().zip(color).all(|(&a, b)| a.abs_diff(b) <= 17)
+    };
+    let background = [[120, 134, 143], [90, 130, 142]].into_iter().map(|color| {
+        let count = edge.clone().filter(|&i| similar(&texture.px[i * 4..], color)).count();
+        (count, color)
+    }).max_by_key(|(count, _)| *count).filter(|(count, _)| *count >= (w + h) / 2);
+    let selected = crate::save_slots::SELECTION_COLOR.map(|v| (v * 255.0 + 0.5) as u8);
+    let darken = |pixel: &mut [u8]| {
+        if locked { for channel in &mut pixel[..3] { *channel = (f32::from(*channel) * 0.45) as u8; } }
+    };
+    if let Some((_, color)) = background {
+        let mut seen = vec![false; w * h];
+        let mut stack: Vec<_> = edge.collect();
+        while let Some(i) = stack.pop() {
+            if seen[i] || !similar(&texture.px[i * 4..], color) { continue; }
+            seen[i] = true;
+            if i % w > 0 { stack.push(i - 1); }
+            if i % w + 1 < w { stack.push(i + 1); }
+            if i >= w { stack.push(i - w); }
+            if i + w < w * h { stack.push(i + w); }
+        }
+        for (pixel, replace) in texture.px.chunks_exact_mut(4).zip(seen) {
+            if replace { pixel.copy_from_slice(&selected); } else { darken(pixel); }
+        }
+    } else if w > 8 && h > 8 {
+        // Artwork without a plain background keeps its full image, inset onto the selection fill.
+        let source = texture.px.clone();
+        for (i, pixel) in texture.px.chunks_exact_mut(4).enumerate() {
+            let (x, y) = (i % w, i / w);
+            if (4..w - 4).contains(&x) && (4..h - 4).contains(&y) {
+                let src = ((y - 4) * h / (h - 8) * w + (x - 4) * w / (w - 8)) * 4;
+                pixel.copy_from_slice(&source[src..src + 4]);
+                darken(pixel);
+            } else {
+                pixel.copy_from_slice(&selected);
+            }
+        }
+    }
+    texture
+}
+
 #[derive(Clone)]
 pub struct Quad {
     /// corners in screen pixels: origin, +u, +u+v, +v
@@ -169,10 +214,16 @@ impl Renderer {
             return t.map(|id| (id, self.textures[id as usize - 2].clone()));
         }
         let _ = dir;
-        let rel = format!("tex/{}.png", key.replace(':', "_"));
+        let (source, selection) = match key.split_once('#') {
+            Some((source, "selected")) if source.starts_with("steam-achievements/") => (source, Some(false)),
+            Some((source, "selected-locked")) if source.starts_with("steam-achievements/") => (source, Some(true)),
+            _ => (key, None),
+        };
+        let rel = format!("tex/{}.png", source.replace(':', "_"));
         match crate::assets::read(&rel).and_then(|b| load_png_bytes(&b)) {
             Some(t) => {
                 let id = self.textures.len() as u32 + 2;
+                let t = if let Some(locked) = selection { select_achievement(t, locked) } else { t };
                 let t = Rc::new(t);
                 self.textures.push(t.clone());
                 self.tex_keys.push(key.to_string());

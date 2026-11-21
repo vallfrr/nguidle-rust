@@ -2,10 +2,13 @@
 
 ## Desktop verification on 2026-11-21
 
-- Windows starts at the three-button home screen. The default loads the autosave
-  directly when present. Load Game and Create New Game open separate slot
+- Windows starts at the three-button home screen. The enlarged autosave action
+  starts without a focus tint. Load Game and Create New Game open separate slot
   pickers, with zero stats and inactive gameplay controls. Creating a game in an
-  empty slot writes its initial snapshot with the current game timestamp.
+  empty slot writes its timestamp and character name. Occupied slots are cleared
+  with two inline confirmations. Save Game selects the loaded numbered slot,
+  and the autosave remembers which slot it came from. Returning home preserves
+  the saved data already on disk.
   Periodic autosave preserved the manual slots byte for byte. Creation refused
   a slot that became occupied after selection. Scripted focus navigation also
   created a save from a blank profile.
@@ -35,6 +38,7 @@
   shared frame. The Achievements button spans the same horizontal bounds as
   the Save Game and Load Game pair. Achievement icons fill their tile frames
   and the detail pane uses the same themed frame around its larger icon.
+  Selection uses the save picker color inside the icon frame.
 - The runtime follows the pointer at render frequency and uses the Energy
   timer's 20 ms schedule for display interpolation. Game rules continue to
   advance in fixed steps.

@@ -212,6 +212,11 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 vm.start_desktop_save_picker().expect("save picker");
                 continue;
             }
+            "type" => {
+                let request = vm.eng.text_req.take().expect("no text field selected");
+                vm.input_commit(&request.comp, step.split_once(',').map_or("", |(_, text)| text));
+                continue;
+            }
             "sounds" => {
                 // sounds requested by the game since the last `sounds` step (AudioSource.Play)
                 println!("[sounds] {:?}", std::mem::take(&mut vm.eng.sound_queue));

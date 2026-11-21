@@ -16,6 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const SLOT_COUNT: usize = 5;
 const ROW_COUNT: usize = SLOT_COUNT + 1;
 const NO_SLOT: usize = ROW_COUNT;
+const DEFAULT_NAME: &str = "Butthead";
+const NAME_LIMIT: usize = 24;
+pub(crate) const SELECTION_COLOR: [f32; 4] = [0.93, 0.93, 0.68, 1.0];
 const ACHIEVEMENT_COLUMNS: usize = 8;
 const ACHIEVEMENTS_PER_PAGE: usize = ACHIEVEMENT_COLUMNS * 4;
 pub(crate) const CONTENT_LEFT: f32 = 292.0;
@@ -32,7 +35,7 @@ enum Mode {
 #[derive(Clone)]
 enum Pending {
     Create(usize),
-    Save(usize),
+    Save { index: usize, replace: bool },
     Load(usize),
     Import(PathBuf, usize),
     MainMenu,
@@ -41,6 +44,9 @@ enum Pending {
 #[derive(Clone, Copy)]
 enum Action {
     Row(usize),
+    Delete(usize),
+    CancelDelete,
+    ConfirmDelete,
     Achievement(usize),
     Primary,
     Secondary,
@@ -48,6 +54,13 @@ enum Action {
     Previous,
     Next,
     MainMenu,
+}
+
+struct DeleteSlot {
+    index: usize,
+    modified: SystemTime,
+    size: u64,
+    final_confirmation: bool,
 }
 
 struct Metadata {
@@ -67,6 +80,8 @@ pub(crate) struct SaveSlots {
     home: Option<Home>,
     home_active: bool,
     new_game: Option<Rc<str>>,
+    active_slot: Option<usize>,
+    deleting: Option<DeleteSlot>,
     idle_labels: Vec<(Value, String)>,
     idle_fills: Vec<Value>,
     sidebar_theme: Option<(Value, Value)>,
@@ -100,7 +115,14 @@ struct Screen {
     headings: [Value; 2],
     rows: Vec<(Value, Value)>,
     row_info: Vec<Value>,
+    delete_buttons: Vec<(Value, Value)>,
+    delete_row: Value,
+    delete_prompt: Value,
+    delete_cancel: (Value, Value),
+    delete_confirm: (Value, Value),
     selection: Value,
+    name_panel: Value,
+    name_input: Value,
     primary: (Value, Value),
     secondary: (Value, Value),
     back: (Value, Value),
@@ -122,7 +144,7 @@ struct AchievementGrid {
     name: Value,
     description: Value,
     state: Value,
-    sprites: RefCell<HashMap<i32, Value>>,
+    sprites: RefCell<HashMap<(i32, Option<bool>), Value>>,
 }
 
 fn member<'a>(node: &'a N, field: &str) -> Option<&'a N> {
@@ -230,6 +252,47 @@ fn slot_path(dir: &Path, slot: usize) -> PathBuf {
     }
 }
 
+fn record_autosave_slot(dir: &Path, slot: usize, data: &[u8]) {
+    let metadata = format!("{slot}\n{:x}", Md5::digest(data));
+    if let Err(error) = atomic_write(&dir.join("autosave-slot.txt"), metadata.as_bytes()) {
+        crate::elog!("Could not remember the autosave slot: {error}");
+    }
+}
+
+pub(crate) fn autosave_written(vm: &Vm, path: &Path, data: &[u8]) {
+    let state = &vm.eng.save_slots;
+    if let Some(slot) = state.active_slot.filter(|_| state.home.is_some()) {
+        let dir = Path::new(&vm.eng.save_dir);
+        if path.parent() == Some(dir)
+            && matches!(path.file_name().and_then(|name| name.to_str()), Some("NGUSaveSteam.txt" | "NGUSave.txt"))
+            && !data.is_empty() {
+            record_autosave_slot(dir, slot, data);
+        }
+    }
+}
+
+fn autosave_slot(dir: &Path, path: &Path) -> Option<usize> {
+    if fs::metadata(path).ok()?.len() > MAX_SAVE_BYTES { return None; }
+    let data = fs::read(path).ok()?;
+    if let Ok(info) = fs::read_to_string(dir.join("autosave-slot.txt")) {
+        if let Some((slot, digest)) = info.split_once('\n') {
+            if let Ok(index @ 0..=SLOT_COUNT) = slot.parse::<usize>() {
+                if digest == format!("{:x}", Md5::digest(&data)) {
+                    return (index > 0 && slot_path(dir, index).is_file()).then_some(index);
+                }
+            }
+        }
+    }
+    // Older profiles can be associated only when exactly one slot matches.
+    let mut matches = (1..ROW_COUNT).filter(|&index| {
+        let slot = slot_path(dir, index);
+        fs::metadata(&slot).is_ok_and(|m| m.len() == data.len() as u64)
+            && fs::read(slot).is_ok_and(|save| save == data)
+    });
+    let index = matches.next()?;
+    matches.next().is_none().then_some(index)
+}
+
 fn play_time(seconds: f64) -> String {
     let s = seconds as u64;
     if s >= 86400 {
@@ -314,7 +377,7 @@ fn current_snapshot(vm: &mut Vm) -> Result<Rc<str>, String> {
     Ok(data)
 }
 
-fn snapshot_with_start_time(vm: &mut Vm, template: &str) -> Result<String, String> {
+fn initial_snapshot(vm: &mut Vm, template: &str, name: &str) -> Result<String, String> {
     let epoch = vm.type_id("Epoch");
     let current = vm.find_method(epoch, "Current", 0).ok_or("The game clock is unavailable.")?;
     let now = vm.invoke(current, vec![]).map_err(|_| "Could not read the game clock.")?;
@@ -336,9 +399,14 @@ fn snapshot_with_start_time(vm: &mut Vm, template: &str) -> Result<String, Strin
         let Value::Obj(player_object) = &player else {
             return Err("The new save has invalid player data.");
         };
-        let last_time = vm.types[player_object.ty as usize].fields.iter()
-            .position(|name| name == "lastTime").ok_or("The save timestamp is unavailable.")?;
-        player_object.f.borrow_mut()[last_time] = now;
+        let fields = &vm.types[player_object.ty as usize].fields;
+        let last_time = fields.iter().position(|name| name == "lastTime").ok_or("The save timestamp is unavailable.")?;
+        let player_name = fields.iter().position(|name| name == "playerName").ok_or("The character name is unavailable.")?;
+        {
+            let mut values = player_object.f.borrow_mut();
+            values[last_time] = now;
+            values[player_name] = Value::str(name);
+        }
         let bytes = crate::serial::serialize(vm, &player).map_err(|_| "Could not write the new player data.")?;
         let mut fields = save.f.borrow_mut();
         fields[data] = Value::str(&b64_enc(&bytes));
@@ -593,6 +661,30 @@ fn style<T>(go: &Value, f: impl Fn(&CK) -> Option<T>) -> Option<T> {
     .flatten()
 }
 
+fn set_image_sprite(comp: &Value, sprite: Value) {
+    with_comp(comp, |c| {
+        if let CK::Image(image) = &mut c.k {
+            image.sprite = sprite;
+            image.color = [1.0; 4];
+            image.preserve_aspect = true;
+        }
+    });
+}
+
+fn button_icon(vm: &mut Vm, button: &(Value, Value), sprite: &Value) {
+    if sprite.is_null() {
+        return;
+    }
+    let icon = new_node(vm, "Button Icon", &tr(&button.0), [0.19, 0.81], 5.0, 27.0);
+    let graphic = image(vm, &icon, None, false);
+    set_image_sprite(&graphic, sprite.clone());
+    with_comp(&button.1, |c| {
+        if let CK::Text(text) = &mut c.k {
+            text.color[3] = 0.0;
+        }
+    });
+}
+
 fn build(vm: &mut Vm) -> Screen {
     let settings = named_go(vm, "Settings Menu").unwrap_or_default();
     let image_style = |go: &Value| {
@@ -724,6 +816,26 @@ fn build(vm: &mut Vm) -> Screen {
         133.0,
     );
     let selection = text(vm, &summary, body_style.as_ref(), Some(16), 4);
+    let name_panel = new_node(vm, "Character Name", &right, [0.08, 0.92], 155.0, 88.0);
+    let name_parent = tr(&name_panel);
+    let name_label = new_node(vm, "Name Label", &name_parent, [0.0, 1.0], 0.0, 29.0);
+    label(&text(vm, &name_label, body_style.as_ref(), Some(16), 3), "Character Name".into());
+    let name_field = new_node(vm, "Character Name Input", &name_parent, [0.0, 1.0], 34.0, 37.0);
+    let graphic = image(vm, &name_field, button_frame.as_ref(), true);
+    themed.push((name_field.clone(), settings_back.clone()));
+    let name_text = new_node(vm, "Text", &tr(&name_field), [0.06, 0.94], 0.0, 37.0);
+    let name_placeholder = new_node(vm, "Placeholder", &tr(&name_field), [0.06, 0.94], 0.0, 37.0);
+    let placeholder = text(vm, &name_placeholder, body_style.as_ref(), Some(16), 3);
+    with_comp(&placeholder, |c| {
+        if let CK::Text(text) = &mut c.k { text.color = [0.34, 0.34, 0.34, 1.0]; }
+    });
+    label(&placeholder, DEFAULT_NAME.into());
+    let mut field = default_sel(SelKind::InputField);
+    field.target_graphic = graphic;
+    field.text_component = text(vm, &name_text, body_style.as_ref(), Some(16), 3);
+    field.placeholder = placeholder;
+    field.char_limit = NAME_LIMIT as i32;
+    let name_input = attach(vm, &name_field, "UnityEngine.UI.InputField", CK::Sel(Box::new(field)));
     let mut actions = Vec::new();
     let mut button = |vm: &mut Vm, p: &Value, action, x, y, h, size| {
         let go = new_node(vm, "Save Screen Button", p, x, y, h);
@@ -743,6 +855,9 @@ fn build(vm: &mut Vm) -> Screen {
     };
     let mut rows = Vec::with_capacity(ROW_COUNT);
     let mut row_info = Vec::with_capacity(ROW_COUNT);
+    let mut delete_buttons = Vec::with_capacity(SLOT_COUNT);
+    let trash = vm.eng.keys.get("sharedassets0.assets:3370").cloned().unwrap_or_default();
+    let checkmark = vm.eng.keys.get("sharedassets0.assets:2493").cloned().unwrap_or_default();
     for i in 0..ROW_COUNT {
         let y = 65.0 + i as f32 * 49.0;
         rows.push(button(
@@ -754,9 +869,21 @@ fn build(vm: &mut Vm) -> Screen {
             37.0,
             16,
         ));
-        let info = new_node(vm, "Slot Details", &left, [0.36, 0.94], y, 37.0);
+        let info = new_node(vm, "Slot Details", &left, [0.36, 0.83], y, 37.0);
         row_info.push(text(vm, &info, body_style.as_ref(), Some(16), 3));
+        if i > 0 {
+            let trash_button = button(vm, &left, Action::Delete(i), [0.86, 0.95], y, 37.0, 12);
+            button_icon(vm, &trash_button, &trash);
+            delete_buttons.push(trash_button);
+        }
     }
+    let delete_row = new_node(vm, "Delete Slot Confirmation", &left, [0.066, 0.95], 65.0, 37.0);
+    let delete_parent = tr(&delete_row);
+    let delete_message = new_node(vm, "Delete Prompt", &delete_parent, [0.0, 0.75], 0.0, 37.0);
+    let delete_prompt = text(vm, &delete_message, body_style.as_ref(), Some(13), 3);
+    let delete_cancel = button(vm, &delete_parent, Action::CancelDelete, [0.76, 0.87], 0.0, 37.0, 20);
+    let delete_confirm = button(vm, &delete_parent, Action::ConfirmDelete, [0.89, 1.0], 0.0, 37.0, 18);
+    button_icon(vm, &delete_confirm, &checkmark);
     let message = new_node(
         vm,
         "Save Screen Status",
@@ -768,7 +895,7 @@ fn build(vm: &mut Vm) -> Screen {
     let status = text(vm, &message, body_style.as_ref(), Some(16), 4);
     let primary = button(vm, &right, Action::Primary, [0.08, 0.92], 213.0, 41.0, 16);
     let secondary = button(vm, &right, Action::Secondary, [0.08, 0.92], 266.0, 41.0, 16);
-    let main_menu = button(vm, &right, Action::MainMenu, [0.08, 0.92], 347.0, 40.0, 16);
+    let main_menu = button(vm, &parent, Action::MainMenu, [0.035, 0.168], 18.0, 37.0, 16);
     let back = button(vm, &parent, Action::Back, [0.035, 0.168], 18.0, 37.0, 16);
     let previous = button(vm, &left, Action::Previous, [0.066, 0.35], 366.0, 34.0, 15);
     let next = button(vm, &left, Action::Next, [0.65, 0.934], 366.0, 34.0, 15);
@@ -781,6 +908,11 @@ fn build(vm: &mut Vm) -> Screen {
             t.apos[0] = -21.5;
             t.size[0] = 43.0;
         });
+        for comp in with_go(&tile.0, |g| g.comps.clone()).unwrap_or_default() {
+            with_comp(&comp, |c| {
+                if let CK::Sel(s) = &mut c.k { s.transition = 0; }
+            });
+        }
         let icon = icon_in_frame(vm, &tile.0, 43.0);
         (tile, icon)
     }).collect();
@@ -813,7 +945,14 @@ fn build(vm: &mut Vm) -> Screen {
         headings,
         rows,
         row_info,
+        delete_buttons,
+        delete_row,
+        delete_prompt,
+        delete_cancel,
+        delete_confirm,
         selection,
+        name_panel,
+        name_input,
         primary,
         secondary,
         back,
@@ -931,16 +1070,19 @@ pub(crate) fn refresh_achievements(vm: &mut Vm) {
     }
 }
 
-fn achievement_sprite(vm: &mut Vm, grid: &AchievementGrid, id: i32) -> Value {
+fn achievement_sprite(vm: &mut Vm, grid: &AchievementGrid, id: i32, selected: Option<bool>) -> Value {
     let mut sprites = grid.sprites.borrow_mut();
-    if let Some(sprite) = sprites.get(&id) {
+    if let Some(sprite) = sprites.get(&(id, selected)) {
         return sprite.clone();
     }
     let ty = vm.type_id("SteamManager/Achievement");
     let sprite = crate::bcl_core::enum_name(vm, ty, id)
         .map(|name| format!("steam-achievements/{name}"))
         .filter(|key| crate::assets::read(&format!("tex/{key}.png")).is_some())
-        .map(|key| {
+        .map(|mut key| {
+            if let Some(earned) = selected {
+                key.push_str(if earned { "#selected" } else { "#selected-locked" });
+            }
             let texture = new_comp(vm, "UnityEngine.Texture2D", Value::Null, CK::Texture(Box::new(TexD {
                 name: key.clone(), key: key.clone(), w: 64, h: 64,
             })));
@@ -949,7 +1091,7 @@ fn achievement_sprite(vm: &mut Vm, grid: &AchievementGrid, id: i32) -> Value {
                 border: [0.0; 4], pivot: [0.5, 0.5], ppu: 100.0,
             })))
         }).unwrap_or_default();
-    sprites.insert(id, sprite.clone());
+    sprites.insert((id, selected), sprite.clone());
     sprite
 }
 
@@ -980,26 +1122,29 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
         vm.set_active(&row.0, false);
         vm.set_active(&go_of(info), false);
     }
+    for (button, _) in &ui.delete_buttons { vm.set_active(button, false); }
+    vm.set_active(&ui.delete_row, false);
     for (i, (tile, icon)) in grid.tiles.iter().enumerate() {
         let entry = vm.eng.achievements.entries.get(start + i).map(|e| (e.id, e.name.clone(), e.earned));
         vm.set_active(&tile.0, entry.is_some());
         if let Some((id, name, earned)) = entry {
-            let sprite = achievement_sprite(vm, grid, id);
+            let selected = state.selected == start + i;
+            let sprite = achievement_sprite(vm, grid, id, selected.then_some(earned));
             let has_icon = !sprite.is_null();
-            caption(tile, &name, state.selected == start + i);
+            caption(tile, &name, !has_icon && selected);
             // Retain an input label for focus and scripted navigation.
             with_comp(&tile.1, |comp| {
                 if let CK::Text(text) = &mut comp.k {
                     text.color[3] = if has_icon { 0.0 } else { 1.0 };
                 }
             });
-            paint_achievement(icon, sprite, earned);
+            paint_achievement(icon, sprite, earned || selected);
         }
     }
     let selected = vm.eng.achievements.entries.get(state.selected)
         .map(|e| (e.id, e.name.clone(), e.description.clone(), e.earned));
     if let Some((id, name, description, earned)) = selected {
-        let icon = achievement_sprite(vm, grid, id);
+        let icon = achievement_sprite(vm, grid, id, None);
         vm.set_active(&grid.icon_frame, !icon.is_null());
         paint_achievement(&grid.icon, icon, earned);
         label(&grid.name, name);
@@ -1018,7 +1163,6 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
     vm.set_active(&ui.next.0, state.page + 1 < pages);
     caption(&ui.previous, "Previous", false);
     caption(&ui.next, "Next", false);
-    caption(&ui.back, "Back", false);
 }
 
 fn caption(button: &(Value, Value), value: &str, selected: bool) {
@@ -1027,7 +1171,7 @@ fn caption(button: &(Value, Value), value: &str, selected: bool) {
         with_comp(&c, |c| {
             if let CK::Image(image) = &mut c.k {
                 image.color = if selected {
-                    [0.93, 0.93, 0.68, 1.0]
+                    SELECTION_COLOR
                 } else {
                     [1.0; 4]
                 };
@@ -1045,7 +1189,10 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     let creating = mode == Mode::Create;
     let achievements = mode == Mode::Achievements;
     vm.set_active(&ui.locked_sidebar, choosing);
-    vm.set_active(&ui.back.0, true);
+    let importing = state.import_files.is_some();
+    let cancelling = state.pending.is_some() || importing;
+    vm.set_active(&ui.back.0, !achievements && (state.from_title || cancelling));
+    vm.set_active(&ui.name_panel, creating && state.selected < ROW_COUNT);
     vm.set_active(&ui.achievements.root, achievements);
     vm.set_active(&ui.achievements.details, achievements);
     vm.set_active(&go_of(&ui.selection), !achievements);
@@ -1054,7 +1201,6 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         draw_achievements(vm, state, ui);
         return;
     }
-    let importing = state.import_files.is_some();
     vm.set_active(&ui.title_sidebar, state.from_title && !choosing);
     label(
         &ui.title,
@@ -1085,11 +1231,40 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         .into(),
     );
     label(&ui.status, state.status.clone());
+    let row_y = |i: usize| 65.0 + i as f32 * 49.0 - if choosing { 24.5 } else { 0.0 };
+    vm.set_active(&ui.delete_row, state.deleting.is_some());
+    if let Some(delete) = &state.deleting {
+        with_tr(&tr(&ui.delete_row), |t| t.apos[1] = -row_y(delete.index));
+        mark_dirty(&ui.delete_row);
+        label(&ui.delete_prompt, if delete.final_confirmation {
+            format!("Delete Slot {} for good? The trash can has no undo.", delete.index)
+        } else {
+            format!("Delete the save in Slot {}?", delete.index)
+        });
+        let (left, right) = if delete.final_confirmation {
+            (&ui.delete_confirm, &ui.delete_cancel)
+        } else {
+            (&ui.delete_cancel, &ui.delete_confirm)
+        };
+        for (button, anchors) in [(left, [0.76, 0.87]), (right, [0.89, 1.0])] {
+            with_tr(&tr(&button.0), |t| { t.amin[0] = anchors[0]; t.amax[0] = anchors[1]; });
+            mark_dirty(&button.0);
+        }
+        caption(&ui.delete_cancel, "×", false);
+        caption(&ui.delete_confirm, "✓", false);
+    }
     for (i, row) in ui.rows.iter().enumerate() {
-        let visible = !choosing || i > 0;
+        let confirming = state.deleting.as_ref().is_some_and(|delete| delete.index == i);
+        let visible = (!choosing || i > 0) && !confirming;
         let available = !choosing || slot_available(mode, state.entries.get(i));
         set_interactable(&row.0, available);
         vm.set_active(&go_of(&ui.row_info[i]), visible);
+        if let Some(button) = i.checked_sub(1).and_then(|i| ui.delete_buttons.get(i)) {
+            let occupied = matches!(state.entries.get(i), Some(Entry::Save(..) | Entry::Invalid));
+            vm.set_active(&button.0, creating && occupied && !confirming);
+            with_tr(&tr(&button.0), |t| t.apos[1] = -row_y(i));
+            caption(button, &format!("Delete Slot {i}"), false);
+        }
         if let Some(files) = &state.import_files {
             let file = files.get(state.page * ROW_COUNT + i);
             vm.set_active(&row.0, file.is_some());
@@ -1108,7 +1283,7 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         }
         for node in [&row.0, &go_of(&ui.row_info[i])] {
             with_tr(&tr(node), |t| {
-                t.apos[1] = -(65.0 + i as f32 * 49.0 - if choosing { 24.5 } else { 0.0 });
+                t.apos[1] = -row_y(i);
             });
             mark_dirty(node);
         }
@@ -1158,13 +1333,15 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         Some(Entry::Invalid) => format!("{slot_name}\n\nUnreadable save"),
         None if choosing => "No slot selected".into(),
         None => "Choose a save".into(),
+        _ if creating => format!("{slot_name} — Empty"),
         _ => format!("{slot_name}\n\nEmpty"),
     };
     label(&ui.selection, selection);
-    vm.set_active(&ui.primary.0, !importing || state.pending.is_some());
+    vm.set_active(&ui.primary.0, (!importing || state.pending.is_some()) && state.deleting.is_none());
+    with_tr(&tr(&ui.primary.0), |t| t.apos[1] = if creating { -251.0 } else { -213.0 });
     set_interactable(&ui.primary.0, !choosing || slot_available(mode, state.entries.get(state.selected)));
     vm.set_active(&ui.secondary.0, !importing && !choosing);
-    vm.set_active(&ui.main_menu.0, !state.from_title && !importing && state.pending.is_none());
+    vm.set_active(&ui.main_menu.0, !state.from_title && !cancelling);
     caption(&ui.main_menu, "Main Menu", false);
     let pages = state
         .import_files
@@ -1204,10 +1381,10 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     );
     caption(
         &ui.back,
-        if state.pending.is_some() {
+        if cancelling {
             "Cancel"
         } else {
-            "Back"
+            "Main Menu"
         },
         false,
     );
@@ -1323,12 +1500,12 @@ fn prepare_home(vm: &mut Vm) -> Result<Home, String> {
         t.size[0] = 900.0;
     });
     let parent = tr(&options);
-    for (name, x, size) in [
-        ("Chicken", -255.0, [195.0, 117.0]),
-        ("LeftPic", 0.0, [206.0, 190.0]),
-        ("Brian", 255.0, [205.0, 190.0]),
+    for (name, x, size, bottom) in [
+        ("Chicken", -255.0, [195.0, 117.0], -77.0),
+        ("LeftPic", 0.0, [206.0, 190.0], -77.0),
+        ("Brian", 255.0, [205.0, 190.0], -94.0),
     ] {
-        place_home_node(&child(&title, name), &parent, [x, 166.0 - size[1] / 2.0], size);
+        place_home_node(&child(&title, name), &parent, [x, bottom + size[1] / 2.0], size);
     }
     place_home_node(&pod, &parent, [0.0, -207.0], [226.0, 82.0]);
     place_home_node(&details_node, &tr(&pod), [0.0, 0.0], [206.0, 70.0]);
@@ -1343,13 +1520,14 @@ fn prepare_home(vm: &mut Vm) -> Result<Home, String> {
         (&autosave, 0.0, "Load Autosave"),
         (&create, 255.0, "Create New Game"),
     ] {
-        place_home_node(go, &parent, [x, -106.0], [226.0, 60.0]);
+        let (size, font_size) = if x == 0.0 { ([252.0, 72.0], 22) } else { ([216.0, 60.0], 20) };
+        place_home_node(go, &parent, [x, -106.0], size);
         let caption_node = child(go, "Button Text");
         place_home_node(&caption_node, &tr(go), [0.0, 0.0], [211.0, 52.0]);
         for comp in with_go(&caption_node, |g| g.comps.clone()).unwrap_or_default() {
             if with_comp(&comp, |c| {
                 if let CK::Text(text) = &mut c.k {
-                    text.size = 20;
+                    text.size = font_size;
                     text.best_fit = false;
                     true
                 } else {
@@ -1388,7 +1566,7 @@ fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), Strin
     home.default = if autosave_available { home.autosave.clone() }
         else if numbered_available { home.load.clone() }
         else { home.create.clone() };
-    crate::focus::select_control(vm, &home.default);
+    crate::focus::clear(vm);
     Ok(())
 }
 
@@ -1436,9 +1614,8 @@ impl Vm {
         }
         let mut state = std::mem::take(&mut self.eng.save_slots);
         let dir = PathBuf::from(&self.eng.save_dir);
-        if let Err(e) = show_home(self, &mut state, &dir) {
-            crate::elog!("Could not return to the home screen: {e}");
-        }
+        handle(self, &mut state, &dir, Action::Back);
+        draw_state(self, &state);
         self.eng.save_slots = state;
         true
     }
@@ -1488,8 +1665,12 @@ fn close(vm: &mut Vm, state: &mut SaveSlots) {
     state.mode = None;
     state.from_title = false;
     state.pending = None;
+    state.deleting = None;
     state.import_files = None;
     if let Some(ui) = &state.ui {
+        if vm.eng.text_req.as_ref().is_some_and(|input| same(&input.comp, &ui.name_input)) {
+            vm.eng.text_req = None;
+        }
         vm.set_active(&ui.root, false);
     }
 }
@@ -1506,9 +1687,9 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
     state.selected = match mode {
         Mode::Create => NO_SLOT,
         Mode::Achievements => 0,
-        Mode::Save => (1..ROW_COUNT)
+        Mode::Save => state.active_slot.unwrap_or_else(|| (1..ROW_COUNT)
             .find(|&i| matches!(state.entries[i], Entry::Empty))
-            .unwrap_or(1),
+            .unwrap_or(1)),
         Mode::Load if from_title => NO_SLOT,
         Mode::Load => state
             .entries
@@ -1517,6 +1698,7 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
             .unwrap_or(0),
     };
     state.pending = None;
+    state.deleting = None;
     state.page = 0;
     state.import_files = None;
     state.status.clear();
@@ -1525,6 +1707,7 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
             else { "No saved games in the numbered slots." }.into();
     }
     let ui = state.ui.as_ref().unwrap();
+    if mode == Mode::Create { vm.input_commit(&ui.name_input, ""); }
     let achievements = mode == Mode::Achievements;
     label(&ui.headings[0], if achievements { "Steam Milestones" } else { "Save Slots" }.into());
     label(&ui.headings[1], if achievements { "Details" } else { "Selected Save" }.into());
@@ -1541,11 +1724,18 @@ fn perform(
     match action {
         Pending::Create(index) => {
             let template = state.new_game.as_deref().ok_or("The new game template is unavailable.")?;
-            let data = snapshot_with_start_time(vm, template)?;
+            let typed = state.ui.as_ref().and_then(|ui| with_comp(&ui.name_input, |c| {
+                if let CK::Sel(s) = &c.k { s.text.clone() } else { String::new() }
+            })).unwrap_or_default();
+            let name: String = typed.chars().filter(|c| !c.is_control() && !matches!(c, '<' | '>'))
+                .take(NAME_LIMIT).collect();
+            let name = if name.trim().is_empty() { DEFAULT_NAME } else { name.trim() };
+            let data = initial_snapshot(vm, template, name)?;
             let exporter = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;
             let character = game_component(vm, "Character").ok_or("The player is unavailable.")?;
             let menus = game_component(vm, "MenuSwapper").ok_or("The game menus are unavailable.")?;
             let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
+            let intro = game_component(vm, "StartMenu").ok_or("The intro screen is unavailable.")?;
             let decoded = game_call(vm, &exporter, "getSaveDataFromString", vec![Value::str(&data)])?;
             if decoded.is_null() {
                 return Err("The game rejected the new save.".into());
@@ -1562,18 +1752,23 @@ fn perform(
                 game_call(vm, &exporter, "loadData", vec![decoded])?;
                 game_call(vm, &character, "refreshMenus", vec![])?;
                 game_call(vm, &menus, "swapMenu", vec![Value::I32(0)])?;
-                game_call(vm, &title, "startNewGame", vec![])?;
+                game_call(vm, &title, "finishMainMenu", vec![])?;
+                game_call(vm, &intro, "intro", vec![])?;
                 Ok::<_, String>(())
             })();
             if let Err(error) = start {
                 show_idle_stats(vm, state);
                 return Err(error);
             }
+            state.active_slot = Some(index);
             close(vm, state);
             Ok(String::new())
         }
-        Pending::Save(index) => {
-            write_current(vm, &slot_path(dir, index))?;
+        Pending::Save { index, replace } => {
+            let data = current_snapshot(vm)?;
+            write_save_file(&slot_path(dir, index), data.as_bytes(), replace)
+                .map_err(|e| format!("Could not write to Slot {index}: {e}"))?;
+            state.active_slot.get_or_insert(index);
             Ok(format!("Saved to Slot {index}."))
         }
         Pending::Import(file, index) => {
@@ -1589,7 +1784,8 @@ fn perform(
             if choosing {
                 restore_idle_stats(vm, state);
             }
-            if let Err(error) = apply_save(vm, dir, &slot_path(dir, index), from_title) {
+            let path = slot_path(dir, index);
+            if let Err(error) = apply_save(vm, dir, &path, from_title) {
                 if choosing {
                     show_idle_stats(vm, state);
                 }
@@ -1601,7 +1797,14 @@ fn perform(
                 game_call(vm, &controller, "finishMainMenu", vec![])?;
                 state.returned_title = Value::Null;
             }
-            let autosave = if state.home_active { Ok(()) } else { write_current(vm, &slot_path(dir, 0)) };
+            state.active_slot = if index == 0 { autosave_slot(dir, &path) } else { Some(index) };
+            let autosave = if index == 0 { Ok(()) } else {
+                current_snapshot(vm).and_then(|data| {
+                    atomic_write(&slot_path(dir, 0), data.as_bytes()).map_err(|e| e.to_string())?;
+                    if state.home.is_some() { record_autosave_slot(dir, index, data.as_bytes()); }
+                    Ok(())
+                })
+            };
             state.home_active = false;
             crate::focus::clear(vm);
             close(vm, state);
@@ -1611,14 +1814,48 @@ fn perform(
             Ok("Game loaded. The previous game is in save/before-load.txt.".into())
         }
         Pending::MainMenu => {
-            state.returned_title = return_to_title(vm, dir)?;
-            close(vm, state);
             if state.home.is_some() {
                 show_home(vm, state, dir)?;
+                state.active_slot = None;
+            } else {
+                state.returned_title = return_to_title(vm, dir)?;
+                close(vm, state);
             }
             Ok(String::new())
         }
     }
+}
+
+fn begin_delete(state: &mut SaveSlots, dir: &Path, index: usize) -> Result<(), String> {
+    let path = slot_path(dir, index);
+    let file = fs::symlink_metadata(&path).map_err(|e| format!("Could not read Slot {index}: {e}"))?;
+    if !file.is_file() { return Err(format!("Slot {index} does not contain a save.")); }
+    let modified = file.modified().map_err(|e| format!("Could not check Slot {index}: {e}"))?;
+    state.deleting = Some(DeleteSlot { index, modified, size: file.len(), final_confirmation: false });
+    Ok(())
+}
+
+fn confirm_delete(state: &mut SaveSlots, dir: &Path) -> Result<String, String> {
+    let Some(mut deletion) = state.deleting.take() else { return Ok(String::new()); };
+    let index = deletion.index;
+    let path = slot_path(dir, index);
+    let unchanged = fs::symlink_metadata(&path).is_ok_and(|file| {
+        file.is_file() && file.len() == deletion.size && file.modified().ok() == Some(deletion.modified)
+    });
+    if !unchanged { return Err(format!("Slot {index} changed. Review it before deleting.")); }
+    if !deletion.final_confirmation {
+        deletion.final_confirmation = true;
+        state.deleting = Some(deletion);
+        return Ok(String::new());
+    }
+    let auto = slot_path(dir, 0);
+    let linked = autosave_slot(dir, &auto) == Some(index);
+    fs::remove_file(&path).map_err(|error| format!("Could not delete Slot {index}: {error}"))?;
+    if linked {
+        if let Ok(data) = fs::read(&auto) { record_autosave_slot(dir, 0, &data); }
+    }
+    if state.selected == index { state.selected = NO_SLOT; }
+    Ok(format!("Slot {index} is empty."))
 }
 
 fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
@@ -1641,8 +1878,20 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
     }
     match action {
         Action::Achievement(_) => {},
+        Action::Delete(index) => {
+            state.deleting = None;
+            state.status = begin_delete(state, dir, index).err().unwrap_or_default();
+        }
+        Action::CancelDelete => { state.deleting = None; }
+        Action::ConfirmDelete => {
+            state.status = confirm_delete(state, dir).unwrap_or_else(|e| e);
+            state.entries = load_entries(dir);
+            crate::focus::clear(vm);
+        }
         Action::Back => {
-            if state.from_title && state.home.is_some() {
+            if state.deleting.take().is_some() {
+                state.status.clear();
+            } else if state.from_title && state.home.is_some() {
                 if let Err(e) = show_home(vm, state, dir) {
                     state.status = e;
                 }
@@ -1655,6 +1904,7 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
             }
         }
         Action::Row(index) => {
+            state.deleting = None;
             if state.from_title && state.home.is_some() && (index == 0 || !slot_available(mode, state.entries.get(index))) {
                 return;
             }
@@ -1677,7 +1927,7 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         Action::Next => state.page += 1,
         Action::MainMenu => {
             state.pending = Some(Pending::MainMenu);
-            state.status = "Save the current game and return to the main menu?".into();
+            state.status = "Return to the main menu? Unsaved progress will be lost.".into();
         }
         Action::Primary => {
             if let Some(pending) = state.pending.take() {
@@ -1692,13 +1942,22 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
             } else if mode == Mode::Save {
                 if state.selected == 0 {
                     state.status = "The game manages Autosave. Choose a manual slot.".into();
-                } else if !slot_path(dir, state.selected).exists() {
-                    state.status = perform(vm, state, dir, Pending::Save(state.selected))
-                        .unwrap_or_else(|e| e);
-                    state.entries = load_entries(dir);
                 } else {
-                    state.pending = Some(Pending::Save(state.selected));
-                    state.status = format!("Replace the existing save in Slot {}?", state.selected);
+                    let index = state.selected;
+                    let same_slot = state.active_slot == Some(index);
+                    let occupied = slot_path(dir, index).exists();
+                    let action = Pending::Save { index, replace: same_slot || occupied };
+                    if same_slot || (!occupied && state.active_slot.is_none()) {
+                        state.status = perform(vm, state, dir, action).unwrap_or_else(|e| e);
+                        state.entries = load_entries(dir);
+                    } else {
+                        state.pending = Some(action);
+                        state.status = if occupied {
+                            format!("Overwrite Slot {index}? The save in that slot will be replaced.")
+                        } else {
+                            format!("Save a copy in empty Slot {index}?")
+                        };
+                    }
                 }
             } else if matches!(state.entries.get(state.selected), Some(Entry::Save(..))) {
                 let action = Pending::Load(state.selected);
@@ -1769,6 +2028,12 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
     }
     if choosing_save(vm) && !owns(go) {
         return true;
+    }
+    if let Some(ui) = &vm.eng.save_slots.ui {
+        if same(&go_of(&ui.name_input), go) { return false; }
+        if vm.eng.text_req.as_ref().is_some_and(|input| same(&ui.name_input, &input.comp)) {
+            vm.eng.text_req = None;
+        }
     }
     if vm.eng.save_slots.home_active {
         let mut state = std::mem::take(&mut vm.eng.save_slots);

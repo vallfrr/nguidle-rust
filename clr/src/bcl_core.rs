@@ -1364,8 +1364,13 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             Ok(s) => Ok(Value::str(&s)),
             Err(_) => vm.throw("System.IO.FileNotFoundException", &st(&a[0])),
         },
-        "System.IO.File::WriteAllText" => |_vm, a| {
-            let _ = std::fs::write(st(&a[0]), st(&a[1]));
+        "System.IO.File::WriteAllText" => |vm, a| {
+            let filename = st(&a[0]);
+            let path = std::path::Path::new(&filename);
+            let data = st(&a[1]);
+            if std::fs::write(path, data.as_bytes()).is_ok() {
+                crate::save_slots::autosave_written(vm, path, data.as_bytes());
+            }
             Ok(Value::Null)
         },
         "System.IO.File::WriteAllBytes" => |vm, a| {

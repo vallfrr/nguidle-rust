@@ -38,8 +38,10 @@ extract data without building. The default data and build folders are
 
 The Windows home screen offers **Load Game** for numbered saves,
 **Load Autosave** to resume directly and **Create New Game** to pick an empty
-numbered slot. The autosave is the default when available. The in-game
-**Save Game** page writes manual snapshots.
+numbered slot. The autosave is the default action when available. A new slot
+can have a character name. Occupied slots can be deleted from the new-game
+screen after two confirmations. **Save Game** opens with the current numbered
+slot selected. Returning to the home screen uses the save already on disk.
 
 The preparer caches the achievement icons from Steam Community in the local
 data directory. Refresh a prepared profile with
