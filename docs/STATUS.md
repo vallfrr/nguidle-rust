@@ -23,23 +23,26 @@
   Focus behaviour still needs refinement across some menus. Remapping
   remains a design proposal.
 - The right-hand panels retain their Settings frame style. Inventory's tooltip
-  stays above Save Game and is clamped to the visible screen. The sidebar's
-  Achievements button and the page were checked in Normal, Dark, Gold and Dark
-  Gold using a local fixture that had the original gold-theme entitlement.
+  stays above Save Game and is clamped to the visible screen. The milestone
+  grid was previously checked in Normal, Dark, Gold and Dark Gold using
+  a local fixture with the original gold-theme entitlement.
 - The tooltip pass uses the visible viewport for the tutorial, hover and
   timed messages. Standard scene elements retain their clipping rules so
   menus moved offscreen stay hidden.
-- The standalone milestone grid shows 61 Steam Community icons across two
-  pages. Mouse and scripted focus select both earned and locked milestones.
+- **Info 'n Stuff → Achievements** has the original **1–108** and
+  **109–216** tabs, followed by **Steam Achievements**. The Steam tab
+  opens the 61-milestone grid with two pages. The Windows flow checked both
+  BP tabs, milestone details, pagination, Back, and leaving for Inventory
+  or Save Game. The former player-sidebar shortcut was removed.
+  Mouse and scripted focus select both earned and locked milestones.
   The detail pane shows the original name and unlock condition. A clean
   profile had zero unlocked and the boosted test save unlocked 44. A separate
   fixture that meets all original conditions yielded all 61 IDs in the native
   runtime. The 153 BP achievements still use the original game page.
-- Save, Load and Achievements draw the original sidebar bolts over their
-  shared frame. The Achievements button spans the same horizontal bounds as
-  the Save Game and Load Game pair. Achievement icons fill their tile frames
-  and the detail pane uses the same themed frame around its larger icon.
-  Selection uses the save picker color inside the icon frame.
+- Save and Load draw the original sidebar bolts over their shared frame.
+  Achievement icons fill their tile frames and the detail pane uses the same
+  themed frame around its larger icon. Selection uses the save picker color
+  inside the icon frame.
 - All 121 noninteractive scene sliders use one renderer-side interpolation
   path. It draws between the original timer samples, preserves forward
   progress through a cycle, and lets damage reduce a health bar smoothly.
@@ -71,6 +74,21 @@
   the Windows executable. Verified with a clean extraction and tests for
   missing or changed input files.
 - See [Release audit](RELEASE-AUDIT.md) for coverage and the web/Vita boundary.
+
+## Personal web preview on 2026-11-21
+
+- The localhost host renders the same game with the native Rust worker.
+  Chromium created a named character, played the opening menus, imported and
+  downloaded a save byte for byte, and rejected attempts to overwrite an
+  occupied slot. The personal profile autosaved while the browser was closed.
+  Keyboard focus, a simulated gamepad event, and a landscape touchscreen
+  viewport were exercised.
+- The read-only installation manifest accepted all 115 required files.
+  A private snapshot passed the same hashes. Extraction from that snapshot
+  and rendering a browser frame with the Linux worker both succeeded in WSL.
+- The Compose configuration, startup script, and health endpoint were
+  checked separately. A full Docker run, LAN access from a physical phone,
+  and a live Nginx deployment still need target-environment validation.
 
 ## Historical baseline on 2026-11-20
 

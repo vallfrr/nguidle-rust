@@ -1057,6 +1057,9 @@ dependencies = [
  "ngu-desktop",
  "ngu-host",
  "ngu-rt",
+ "png",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

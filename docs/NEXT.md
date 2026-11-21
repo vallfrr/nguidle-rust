@@ -6,8 +6,8 @@ do the next one, and ask at the end.
 
 Goal and decisions: `docs/VISION.md`. Proof of conformance to the original game: `docs/AUDIT-ILGEN.md`, `docs/STATUS.md`.
 
-## Current state (2026-11-20)
-- For the current Windows validation and the criteria for starting web and Vita, see [Release audit](RELEASE-AUDIT.md) and the current section of [Status](STATUS.md).
+## Current state (2026-11-21)
+- The Windows build and first personal web preview are playable. See [Release audit](RELEASE-AUDIT.md) and [Status](STATUS.md) for coverage and release checks.
 - The game's C# is translated to Rust (99.4 % of methods) and produces exactly the same state as the reference interpreter (same visible state, saves, thousands of clicks).
 - The PC window runs at ~58 img/s at 1280x800 with a CPU rasterizer (13 ms/frame). The original runs at the monitor rate (200 Hz here), 8 % of one core, 341 MB.
 - Done today: dev mode (`docs/DEV.md`), first comparison with the real game (`docs/COMPARISON.md`), disabled-button tint, system-culture number formatting, Unity-like text metrics.
@@ -28,7 +28,7 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 - [x] **P0.1** Everything in English (code comments, program messages, scripts, docs, READMEs, skills); update the scripts that grep program output.
 - [x] **P0.2** Audit: no French left, no personal information, no game content; regression suite all OK.
 - [x] **P0.3** Fresh history pushed to the three repositories (one initial commit each on top of the remote `Initial commit`).
-- [x] **P0.4** `nguidle-web`: README documenting the self-hosting Docker container (documentation only for now).
+- [x] **P0.4** `nguidle-web`: setup and hosting guide for the self-hosted service.
 - [x] **P0.5** Black LiveArea placeholders in `nguidle-vita`.
 
 ## Phase 1: faithful PC base (behaviour)
@@ -54,7 +54,7 @@ Principles and trade-offs in `docs/VISION.md`.
 - [x] **R3. Layout profiles (2026-11-20: `clr/src/profile.rs`, files `layouts/pc.txt`, `layouts/vita.txt`, format `layouts/README.md`; GPU window `NGU_LAYOUT=<name|file>`, capture step `pngl`; unit test `profile::tests`; `pc` = letterbox, see Questions pending 2; `web` = `pc` until portrait screens are handled)** in readable files (`pc`, `vita`, `web`): regions (player column, page list, game area, tooltips), placement, visibility, zoom/scroll of the game area, region shortcuts. Applied by the engine without touching the logic. **Done when:** the `pc` profile fills any window shape without useless bars and `tools/regress.sh` stays OK.
 - [ ] **R4. Documented overrides**: replace a game method by hand-written Rust through one justified table (first use: `NGUResolutions`) + guide `docs/MODIFY.md` ("how to move / hide / redraw / override").
 - [x] **In-game save management (PC)**. **Save Game** and **Load Game** open separate pages in the right-hand pane using the Settings assets. Five manual slots and the existing autosave show the character, play time and last save date. Manual files use the existing game format. Import reads `.txt` files placed in `save/import/`. Export writes a separate file to `save/export/`. Loading over an active game and overwriting a slot require confirmation. Returning to the main menu saves a snapshot first. From the main menu, **Load Game** opens the same slots with no initial selection.
-- [x] **Local platform milestones (PC)**. The desktop Achievements button opens the installed 61-entry catalog. The original conditions use the local profile and earned IDs persist in `save/achievements.json`. The existing BP achievements remain in Info 'n Stuff.
+- [x] **Local platform milestones (PC)**. **Steam Achievements** is the third tab in **Info 'n Stuff → Achievements**, beside **1–108** and **109–216**. The 61 entries use the original conditions and earned IDs persist in `save/achievements.json`.
 - [ ] **Save screen illustration [maintainer]**. When the hand-drawn transparent PNG is available, place it in spare space on the save screens. The layout already works without an illustration.
 - [~] **R5 (2026-11-20: profile `vita` works in captures and the GPU window: page list hidden, F2 held (L on the Vita) shows it in place of the player column, game area 1.2x wider with vertical pan following the pointer; missing: gamepad L + d-pad page change, pan following the focus; screenshots `docs/img/vita-profile*.png`)** Vita profile prototype on PC at 960x544**: page list hidden by default; holding L shows the page list in place of the player column, d-pad changes page, releasing L confirms; enlarged game area with scrolling that follows the focus. Screenshots for the maintainer's opinion **[maintainer]**.
 
@@ -62,8 +62,8 @@ Principles and trade-offs in `docs/VISION.md`.
 - [~] **B2** Tooltips follow focus. The right stick scrolls and D-pad navigates dropdowns. **B3** Tutorial arrows and adventure zone shortcuts (depends on A2). **B4** Number entry with a gamepad (73 input fields; on Vita the system keyboard). **B5** Audit focus on every menu and verify a full session with the physical controller. **Done when:** every action in `docs/CONTROLLER-PROPOSAL.md` section 1 is possible with buttons only, tested by script on each menu.
 
 ## Phase 5: web (self-hosted Docker container)
-- [ ] **W1** Container: the user mounts their own game files, the container runs the conversion, builds the web target and serves it. Documented in `nguidle-web` first (P0.4), implemented here.
-- [ ] **W2** `web` profile (any browser window, mobile touch), save in browser storage + file export/import. **Done when:** runs in Chrome/Firefox on PC and phone, same logic conformance checks, same screen sheet as PC. Hosting for oneself only: a public site serving the converted game would distribute the game's code.
+- [~] **W1** The Compose service and entrypoint validate the read-only Steam Windows 1.260 mount, extract assets, compile the Rust worker, and serve the site. The manifest, copy, extraction, and Linux worker were tested separately. Run the full Compose lifecycle on a Docker host.
+- [~] **W2** The localhost preview supports the desktop UI, one server-side profile, numbered save import/export, and mouse, keyboard, gamepad, and touch input. Chromium verified gameplay and saves, with simulated gamepad input and a touch viewport. Check physical gamepad and phone sessions, Firefox, and a private Nginx deployment.
 
 ## Phase 6: Vita V2 (when the console is available)
 - [ ] **C1** Cross-compile the generated Rust (`armv7-sony-vita-newlibeabihf`, nightly + build-std), always under the memory cap. **C2** vitaGL GPU rendering from the quad list, texture atlas within the 112 MB VRAM. **C3** Touch = mouse, buttons = actions of phase 4, system keyboard for text. **C4** Fast start: binary scene instead of `scene.json` (V1: 20 s load, target < 5 s). **C5** Measurements: 30 img/s in every menu at 333/166 MHz, RAM, autosave, sleep/resume, 1 h session. **C6** "Preparer" tool producing the SD-card data folder (+ VPK). **C7** Official LiveArea assets **[maintainer]**.

@@ -84,7 +84,7 @@ pub(crate) struct SaveSlots {
     deleting: Option<DeleteSlot>,
     idle_labels: Vec<(Value, String)>,
     idle_fills: Vec<Value>,
-    sidebar_theme: Option<(Value, Value)>,
+    steam_tab: Option<SteamTab>,
     from_title: bool,
     selected: usize,
     pending: Option<Pending>,
@@ -104,9 +104,18 @@ struct Home {
     default: Value,
 }
 
+struct SteamTab {
+    button: (Value, Value),
+    page_two: Value,
+    menu: Value,
+    bp_grid: Value,
+}
+
 struct Screen {
     root: Value,
     panel: Value,
+    panel_art: Value,
+    sections: [Value; 2],
     title_sidebar: Value,
     locked_sidebar: Value,
     title: Value,
@@ -748,7 +757,7 @@ fn build(vm: &mut Vm) -> Screen {
         t.apos[0] = CONTENT_LEFT;
         t.size[0] = vm.eng.desktop_layout.width() - CONTENT_LEFT;
     });
-    image(vm, &panel, background.as_ref(), true);
+    let panel_art = image(vm, &panel, background.as_ref(), true);
     let title_sidebar = new_node(vm, "Load Game Sidebar", &tr(&root), [0.0, 0.0], 0.0, 600.0);
     with_tr(&tr(&title_sidebar), |t| t.size[0] = CONTENT_LEFT);
     image(vm, &title_sidebar, background.as_ref(), true);
@@ -939,6 +948,8 @@ fn build(vm: &mut Vm) -> Screen {
     Screen {
         root,
         panel,
+        panel_art,
+        sections: [left, right],
         title_sidebar,
         locked_sidebar,
         title,
@@ -1025,43 +1036,44 @@ pub(crate) fn prepare_title(vm: &mut Vm) {
             label(&comp, "Load Game".into());
         }
     }
-    let Some(panel) = named_go(vm, "Player Panel") else { return };
-    if !child(&panel, "Port Achievements").is_null() {
-        return;
+    if let Some(panel) = named_go(vm, "Player Panel") {
+        for name in ["Online Save", "Online Load"] {
+            let original = child(&panel, name);
+            with_go(&original, |g| g.port_hidden = true);
+            mark_dirty(&original);
+        }
     }
-    for name in ["Online Save", "Online Load"] {
-        let original = child(&panel, name);
-        with_go(&original, |g| g.port_hidden = true);
-        mark_dirty(&original);
-    }
-    let original = child(&panel, "Standalone Save");
-    let load = child(&panel, "Standalone Load");
-    let background = style(&original, |k| match k {
+    if vm.eng.save_slots.steam_tab.is_some() { return; }
+    let Some(menu) = named_go(vm, "Achievements Menu") else { return };
+    let page_two = child(&menu, "Page 2");
+    let bp_grid = child(&menu, "Slots");
+    let Some((x, y, width, height, pivot)) = with_tr(&tr(&page_two), |t| {
+        (t.apos[0], t.apos[1], t.size[0], t.size[1], t.pivot)
+    }) else { return };
+    if bp_grid.is_null() { return; }
+    let background = style(&page_two, |k| match k {
         CK::Image(i) => Some(i.as_ref().clone()),
         _ => None,
     });
-    let typeface = style(&child(&original, "Text"), |k| match k {
+    let typeface = style(&child(&page_two, "Text"), |k| match k {
         CK::Text(t) => Some(t.as_ref().clone()),
         _ => None,
     });
-    let button = new_node(vm, "Port Achievements", &tr(&panel), [0.0, 0.0], 498.0, 29.0);
-    let panel_rect = crate::ui::xf(vm, &tr(&panel));
-    let save_rect = crate::ui::xf(vm, &tr(&original));
-    let load_rect = crate::ui::xf(vm, &tr(&load));
-    let panel_left = panel_rect.origin[0] - panel_rect.pivot[0] * panel_rect.w;
-    let save_left = save_rect.origin[0] - save_rect.pivot[0] * save_rect.w;
-    let load_right = load_rect.origin[0] + (1.0 - load_rect.pivot[0]) * load_rect.w;
+    let button = new_node(vm, "Steam Achievements Tab", &tr(&menu), [0.5, 0.5], 0.0, height);
     with_tr(&tr(&button), |t| {
-        t.apos[0] = save_left - panel_left;
-        t.size[0] = load_right - save_left;
+        t.amin[1] = 0.5;
+        t.amax[1] = 0.5;
+        t.apos = [x + (1.0 - pivot[0]) * width + 3.0, y + (1.0 - pivot[1]) * height];
+        t.size[0] = 174.0;
     });
     let graphic = image(vm, &button, background.as_ref(), true);
     let mut selectable = default_sel(SelKind::Button);
     selectable.target_graphic = graphic;
     attach(vm, &button, "UnityEngine.UI.Button", CK::Sel(Box::new(selectable)));
-    let caption = new_node(vm, "Text", &tr(&button), [0.025, 0.975], 0.0, 29.0);
-    label(&text(vm, &caption, typeface.as_ref(), Some(14), 4), "Achievements".into());
-    vm.eng.save_slots.sidebar_theme = Some((button, original));
+    let title = new_node(vm, "Text", &tr(&button), [0.025, 0.975], 0.0, height);
+    let title = text(vm, &title, typeface.as_ref(), Some(13), 4);
+    label(&title, "Steam Achievements".into());
+    vm.eng.save_slots.steam_tab = Some(SteamTab { button: (button, title), page_two, menu, bp_grid });
 }
 
 pub(crate) fn refresh_achievements(vm: &mut Vm) {
@@ -1115,8 +1127,7 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
     let count = vm.eng.achievements.entries.len();
     let earned = vm.eng.achievements.entries.iter().filter(|e| e.earned).count();
     let pages = count.div_ceil(ACHIEVEMENTS_PER_PAGE).max(1);
-    label(&ui.title, "ACHIEVEMENTS".into());
-    label(&ui.detail, format!("{earned} of {count} unlocked"));
+    label(&ui.headings[0], format!("{earned} of {count} unlocked"));
     label(&ui.status, if vm.eng.achievements.write_failed {
         "Could not save achievements. The game will try again.".into()
     } else { format!("Page {} of {pages}", state.page + 1) });
@@ -1400,6 +1411,10 @@ pub(crate) fn is_open(vm: &Vm) -> bool {
     vm.eng.save_slots.mode.is_some()
 }
 
+pub(crate) fn covers_game_content(vm: &Vm) -> bool {
+    matches!(vm.eng.save_slots.mode, Some(Mode::Create | Mode::Save | Mode::Load))
+}
+
 pub(crate) fn frame_junctions(vm: &Vm) -> Option<[Value; 2]> {
     vm.eng.save_slots.ui.as_ref().map(|ui| ui.frame_junctions.clone())
 }
@@ -1601,6 +1616,30 @@ fn open_picker(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode) -> Re
 }
 
 impl Vm {
+    /// Install a browser upload into an explicitly chosen empty numbered slot.
+    pub fn import_browser_save(&mut self, name: &str, slot: usize) -> Result<(), String> {
+        if !(1..=SLOT_COUNT).contains(&slot) || self.eng.save_dir.is_empty() {
+            return Err("Choose an empty numbered slot.".into());
+        }
+        // The browser host stages the file in this profile with a generated basename.
+        if !name.ends_with(".txt") || !name.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c)) {
+            return Err("Invalid upload name.".into());
+        }
+        let dir = PathBuf::from(&self.eng.save_dir);
+        let (data, _) = read_save(&dir.join("import").join(name))?;
+        write_save_file(&slot_path(&dir, slot), data.as_bytes(), false)
+            .map_err(|error| if error.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("Slot {slot} is occupied. Choose an empty slot.")
+            } else { format!("Could not import the save: {error}") })?;
+        if matches!(self.eng.save_slots.mode, Some(Mode::Create | Mode::Save | Mode::Load)) {
+            let mut state = std::mem::take(&mut self.eng.save_slots);
+            state.entries = load_entries(&dir);
+            draw_state(self, &state);
+            self.eng.save_slots = state;
+        }
+        Ok(())
+    }
+
     pub fn start_desktop_save_picker(&mut self) -> Result<(), String> {
         if self.eng.save_slots.home.is_some() {
             return Ok(());
@@ -1662,8 +1701,14 @@ pub(crate) fn pause_on_title(vm: &mut Vm) -> bool {
 }
 
 pub(crate) fn reflow(vm: &mut Vm) {
-    if let Some((target, source)) = &vm.eng.save_slots.sidebar_theme {
-        copy_theme_sprite(target, source);
+    if let Some(tab) = &vm.eng.save_slots.steam_tab {
+        copy_theme_sprite(&tab.button.0, &tab.page_two);
+        if vm.eng.save_slots.mode == Some(Mode::Achievements) &&
+            crate::ui::xf(vm, &tr(&tab.menu)).origin[0].abs() > vm.eng.screen.0 as f32 {
+            let mut state = std::mem::take(&mut vm.eng.save_slots);
+            close(vm, &mut state);
+            vm.eng.save_slots = state;
+        }
     }
     let width = vm.eng.desktop_layout.width() - CONTENT_LEFT;
     if let Some(ui) = &vm.eng.save_slots.ui {
@@ -1682,6 +1727,12 @@ pub(crate) fn reflow(vm: &mut Vm) {
 }
 
 fn close(vm: &mut Vm, state: &mut SaveSlots) {
+    if state.mode == Some(Mode::Achievements) {
+        if let Some(tab) = &state.steam_tab {
+            vm.set_active(&tab.bp_grid, true);
+            caption(&tab.button, "Steam Achievements", false);
+        }
+    }
     state.mode = None;
     state.from_title = false;
     state.pending = None;
@@ -1696,6 +1747,7 @@ fn close(vm: &mut Vm, state: &mut SaveSlots) {
 }
 
 fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: bool) {
+    close(vm, state);
     if state.ui.is_none() {
         state.ui = Some(build(vm));
     }
@@ -1729,8 +1781,25 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
     let ui = state.ui.as_ref().unwrap();
     if mode == Mode::Create { vm.input_commit(&ui.name_input, ""); }
     let achievements = mode == Mode::Achievements;
-    label(&ui.headings[0], if achievements { "Steam Milestones" } else { "Save Slots" }.into());
+    if achievements {
+        if let Some(tab) = &state.steam_tab {
+            vm.set_active(&tab.bp_grid, false);
+            caption(&tab.button, "Steam Achievements", true);
+        }
+    } else {
+        label(&ui.headings[0], "Save Slots".into());
+    }
     label(&ui.headings[1], if achievements { "Details" } else { "Selected Save" }.into());
+    with_comp(&ui.panel_art, |c| c.enabled = !achievements);
+    vm.set_active(&go_of(&ui.title), !achievements);
+    vm.set_active(&go_of(&ui.detail), !achievements);
+    for section in &ui.sections {
+        with_tr(section, |t| t.apos[1] = if achievements { -133.0 } else { -110.0 });
+        mark_dirty(section);
+    }
+    let footer = tr(&go_of(&ui.status));
+    with_tr(&footer, |t| t.apos[1] = if achievements { -552.0 } else { -540.0 });
+    mark_dirty(&footer);
     refresh_theme(ui);
     vm.set_active(&ui.root, true);
 }
@@ -2088,7 +2157,7 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
         "Standalone Save" => Some((Mode::Save, false)),
         "Standalone Load" => Some((Mode::Load, false)),
         "Load File Button" => Some((Mode::Load, true)),
-        "Port Achievements" => Some((Mode::Achievements, false)),
+        "Steam Achievements Tab" => Some((Mode::Achievements, false)),
         _ => None,
     })
     .flatten();
@@ -2098,7 +2167,9 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
     let mut state = std::mem::take(&mut vm.eng.save_slots);
     let dir = PathBuf::from(&vm.eng.save_dir);
     let handled = if let Some((mode, from_title)) = mode {
-        open(vm, &mut state, &dir, mode, from_title);
+        if mode != Mode::Achievements || state.mode != Some(Mode::Achievements) {
+            open(vm, &mut state, &dir, mode, from_title);
+        }
         true
     } else if owns(go) {
         if let Some(action) = state.ui.as_ref().and_then(|ui| {
@@ -2110,7 +2181,10 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
         }
         true
     } else {
-        if x < CONTENT_LEFT && vm.has_handler(go, crate::input::Ev::Click) {
+        let leaves_steam = state.mode == Some(Mode::Achievements) && with_go(go, |g| {
+            matches!(g.name.as_str(), "Page 1" | "Page 2" | "Back to Info n Stuff")
+        }).unwrap_or(false);
+        if leaves_steam || x < CONTENT_LEFT && vm.has_handler(go, crate::input::Ev::Click) {
             close(vm, &mut state);
         }
         false

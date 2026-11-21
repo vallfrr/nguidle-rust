@@ -43,10 +43,21 @@ can have a character name. Occupied slots can be deleted from the new-game
 screen after two confirmations. **Save Game** opens with the current numbered
 slot selected. Returning to the home screen uses the save already on disk.
 
-The preparer caches the achievement icons from Steam Community in the local
-data directory. Refresh a prepared profile with
+Open **Info 'n Stuff → Achievements** to see the two original BP tabs and
+the **Steam Achievements** tab. The Steam tab has two pages of milestones
+with details and unlock status. The preparer caches their icons from Steam
+Community in the local data directory. Refresh a prepared profile with
 `python tools/fetch-achievement-icons.py out/pc`. The game reads the cache
 offline and shows achievement names when an icon is unavailable.
+
+## Web host
+
+The browser host starts the same Rust runtime and keeps a personal profile on
+the server. It uses a separate save folder and can exchange numbered saves
+with the desktop game. The web repository contains the local Windows launcher
+and Docker Compose configuration. The Docker service requires verified Steam
+Windows 1.260 data mounted read-only. See the
+[web host guide](https://github.com/vallfrr/nguidle-web) for setup and controls.
 
 ## License
 GPL-3.0 (see `LICENSE`). NGU Idle and its contents belong to their authors; this project is not affiliated with 4G.

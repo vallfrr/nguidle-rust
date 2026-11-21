@@ -32,12 +32,12 @@
 2. **Enlarged images**: simply enlarged (default filtering); revisit later.
 3. **Style**: keep **the original drawings as much as possible**. A new interface is allowed if it **copies the original exactly**.
 4. **Display**: offer **common resolutions** (+ fullscreen) in addition to free resizing. **No frame-rate setting for the player**: runs like the original. Measured: the original forces `QualitySettings.vSyncCount = 1` (`Character.cs`), i.e. synchronised to the monitor (60, 144, 200 Hz...) through Direct3D 11. We do the same: vsync, one frame per refresh.
-5. **Rendering stack** (2026-11-20): `miniquad` (OpenGL / WebGL, pure Rust) for PC and web; a vitaGL host in C for the Vita; all fed by the engine's quad list.
+5. **Rendering stack**: `miniquad` for the PC GPU window and a vitaGL host in C for the Vita. The first web host uses the engine's software renderer in the native Rust worker and displays the resulting frames in the browser.
 5b. **Platform order**: PC first, then web, then Vita (the Vita is not available now; web is testable without hardware and keeps the platform separation clean).
 6. **GPU**: of course, like the original.
 7. **Dev mode** in the game: see everything, unlock everything, test without depending on a save or clicks (`docs/DEV.md`); it is used first by the assistant.
 8. **Free publication, three repositories (GPL-3.0)**: `nguidle-rust` (engine + conversion of the original game to Rust + PC version), `nguidle-web` and `nguidle-vita` (they use only the engine: a Cargo dependency on a tagged version of `nguidle-rust`; their build calls the conversion on the player's own files). Nothing from the game is published (no code, assets, extracted texts, saves) and no personal information.
-9. **Web**: self-hosting only. A documented Docker container: the user mounts their own game files, it converts, builds and serves. **Vita**: same principle with a small "preparer" tool on PC that produces the SD-card data folder (+ the VPK).
+9. **Web**: personal self-hosting with a server-side save profile and file import/export. A documented Docker container verifies the user's 1.260 files, converts, builds and serves the game. The first preview binds to localhost by default, with LAN and personal reverse-proxy setup documented. **Vita**: same principle with a small preparer tool on PC that produces the SD-card data folder and VPK.
 10. **Images and assets**: screenshots of OUR port may go into the repositories (only what is really visible in our port); always the game's real assets and official assets (LiveArea provided by the maintainer); **never create an asset from scratch**.
 11. **Language**: everything in the repositories is English (code, comments, messages, docs); only the chat with the maintainer is French.
 

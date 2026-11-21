@@ -307,7 +307,7 @@ impl Renderer {
                 with_go(&go_of(tr), |g| g.active && !g.port_hidden).unwrap_or(false)
         }).cloned().collect::<Vec<_>>();
         let stats = std::env::var("CLR_EMITSTATS").is_ok();
-        let sidebar_edge = crate::save_slots::is_open(vm)
+        let sidebar_edge = crate::save_slots::covers_game_content(vm)
             .then(|| self.to_dev([crate::save_slots::CONTENT_LEFT, 0.0])[0].floor() as i32);
         for (_, tr) in roots {
             let x = view_xf(vm, &tr);
