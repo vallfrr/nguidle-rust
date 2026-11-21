@@ -132,8 +132,8 @@ console. Each log window covers about five seconds and reports elapsed time
 between returns from `vglSwapBuffers`. These rates describe the instrumented
 build's render loop. An external framebuffer-submission counter reported
 27.4 FPS during one five-second sample at the standard build's title screen,
-which differs from the in-process title screen rate. The display cadence
-has not been independently confirmed.
+which differed from the in-process title screen rate. The newer
+framebuffer measurements are reported below.
 Screen captures were taken after the timing samples. The benchmark build
 isolates save writes under `ux0:data/ngu/bench/save/`.
 
@@ -182,6 +182,88 @@ interval of 102 ms. It reported 2 MiB free user RAM after initialization,
 compared with 20 MiB for the interpreter. The full generated-Rust build at
 optimization level 1 exceeded the 12 GiB compiler memory limit. The standard
 VPK uses the interpreter.
+
+### Gamepad stalls and display cadence
+
+The early-save reproduction loads Autosave, dismisses the offline screen,
+opens Fight Boss and presses right twice. The previous build stayed at
+8.5–9 FPS after releasing the controller. Measurement attributed about
+31–35 ms per simulation tick to pointer hit testing while a control remained
+focused. The offline splash remains an active object after it is parked
+outside the screen. Treating it as visible after dismissal made the same
+stall recur in an intermediate build.
+
+The Vita uses a stable focused hover until its target, position or save
+screen changes. Clicks still perform live hit testing. Navigation reuses
+its candidate list while input geometry is valid. The input and renderer
+walks omit disabled menu canvases that the original scene has parked well
+outside the viewport. The title, tooltips and Basic Training reuse the
+desktop layout at 960 × 544, with the full-height training panel pinned to
+its viewport when there is no scroll range.
+
+The oldest Vita data archive omitted the Unity tag table. Without the
+`Menu` tag, the original scripts place the short menus on the large-menu
+anchor, 40 logical pixels too high. This hides their title behind the
+resource bar and leaves a band at the bottom. Rebuild `ngu.pak` with the
+current packer. The 960 × 544 host regression loads the advanced autosave,
+selects each of the seven short menus with touch, and checks both the
+selected menu and the visible bottom of its panel.
+
+Achievement scans reuse the exact six resource totals during each original
+scan. On the early profile the measured scan fell from about 19.8 ms to
+5.2 ms. The comparison test checks the same completion flags and BP totals.
+The host keeps 30 Hz simulation time across slow frames and records pending
+simulation time separately from rendering and scanout.
+On PC and in the browser WASM runtime, 900 steps advanced the same late-game
+save's rebirth clock by 30.000 seconds. The browser test opened the save
+through the title and acknowledged the lease before measuring.
+
+The hardware benchmark samples the currently scanned framebuffer at each
+vertical blank and records the vitaGL submission callback independently.
+A repeated address counts as a missed refresh. Sampling errors and missed
+samples are logged separately. The in-process render loop rate is another
+metric. Use the scanout counts to compare performance. Screenshot windows
+and the time needed for their synchronous readback are unsuitable for
+frame-rate comparisons.
+
+| Vita at 444/222 MHz | Observed scanout in a five-second window |
+| --- | --- |
+| Home, no save loaded | 300 changed, 0 repeated in three windows |
+| Early save, Fight Boss, baseline after the two D-pad presses | About 43 changed, 260 repeated |
+| Early save, Fight Boss, after the input fixes | 247–259 changed, 41–53 repeated in steady windows |
+| Advanced save, Inventory | 143 changed, 158 repeated, about 29 FPS |
+| Advanced save, Adventure | About 31 FPS during a sampled window |
+| Advanced save, Beards | About 23 FPS during a sampled window |
+| Advanced save, Wishes | About 26 FPS during a sampled window |
+| Advanced save, Cards | About 15 FPS in a window with a 590 ms frame |
+
+The longest measured D-pad dispatch in the early-save reproduction fell
+from about 141.5 ms to 7.4 ms. Those timings measure the host input section,
+before simulation, drawing and the display queue. They cannot establish
+two-refresh input-to-display latency. The advanced character still misses
+the 60 Hz target. Dense menus need both simulation and draw-list work.
+
+The Vita writes autosaves from a worker using a bounded queue, then records
+which slot the autosave belongs to. Explicit file reads and save-menu
+operations wait for the write to finish. For a 244,556-byte save, a typical
+worker write took roughly 106–140 ms. The simulation still prepares and
+serializes the save on the game thread.
+
+The advanced-save hardware run captured 25 screen visits, then cycled Basic
+Training, Fight Boss, Adventure, Inventory, Wishes, Cards and Cooking. The
+latest readable log reached 26 minutes 23 seconds of simulation. Over the
+last 829 seconds of that log, heap use stayed between roughly 97 and 98 MiB,
+kernel user memory reported 20 MiB free, and vitaGL reported about 71 MiB of
+video memory free. The run reached one wrap of the display counter. The
+updated sampler subtracts the counter modulo 65,536. The console stopped
+responding to network commands before the final sample could be retrieved.
+
+The packaged build and the corrected data archive pass the host-side
+960 × 544 layout test. Installation of that package and data archive, the
+final 30-minute run, fresh-save and resume checks on the final package, and
+slot 5 provisioning still require access to the device. The measured
+hardware run used an isolated profile. The real autosave and numbered slots
+were untouched by it.
 
 ## Historical baseline on 2026-11-20
 
