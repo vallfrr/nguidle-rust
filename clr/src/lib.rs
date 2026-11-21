@@ -4,6 +4,7 @@ pub mod bcl_core;
 pub mod bcl_sys;
 pub mod capi;
 pub mod code;
+mod cooking_score;
 pub mod dev;
 pub mod desktop_layout;
 mod dropdown;

@@ -430,7 +430,8 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
             Ok(body) => {
                 self.ok += 1;
                 self.translated.insert(mid);
-                format!("#[allow(unused_variables, unused_mut, unused_assignments, unreachable_code, unused_parens)]\n{} {{\n{}}}\n", sig, body)
+                let fast_path = self.vita_idle_wishes(mid).unwrap_or_default();
+                format!("#[allow(unused_variables, unused_mut, unused_assignments, unreachable_code, unused_parens)]\n{} {{\n{}{}}}\n", sig, fast_path, body)
             }
             Err(e) => {
                 self.fail += 1;
@@ -438,6 +439,30 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                 format!("pub {} {{ unimplemented!(\"{}\") }}\n", &sig[4..], e.replace('"', "'"))
             }
         }
+    }
+
+    fn vita_idle_wishes(&self, mid: u32) -> Option<String> {
+        if self.vm.prog.methods[mid as usize].guard != 3 { return None; }
+        let slot = |ty: &str, field: &str| {
+            let ty = *self.vm.type_ids.get(ty)?;
+            self.vm.types[ty as usize].fields.iter().position(|name| name == field)
+        };
+        let player = slot("WishesController", "character")?;
+        let wishes = slot("Character", "wishes")?;
+        let entries = slot("Wishes", "wishes")?;
+        let energy = slot("Wish", "energy")?;
+        let magic = slot("Wish", "magic")?;
+        let resource = slot("Wish", "res3")?;
+        Some(format!(r#"    #[cfg(target_os = "vita")]
+    if let Some(entries) = a0.as_ref().and_then(|c| c.get().f{player}.as_ref())
+        .and_then(|c| c.get().f{wishes}.as_ref()).and_then(|c| c.get().f{entries}.as_ref())
+    {{
+        if entries.borrow().iter().all(|entry| entry.as_ref().is_some_and(|wish| {{
+            let wish = wish.get();
+            wish.f{energy} == 0 || wish.f{magic} == 0 || wish.f{resource} == 0
+        }})) {{ return; }}
+    }}
+"#))
     }
 
     fn gen_body(&mut self, mid: u32, ps: &[RT], ret: &RT) -> Result<String, String> {

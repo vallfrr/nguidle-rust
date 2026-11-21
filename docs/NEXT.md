@@ -68,9 +68,9 @@ Principles and trade-offs in `docs/VISION.md`.
 ## Phase 6: Vita V2 (when the console is available)
 - [x] **C1** Cross-compile and package both the shared interpreter and the generated Rust (`armv7-sony-vita-newlibeabihf`, nightly + build-std), under the memory cap (2026-11-21).
 - [x] **C2** Render the shared draw list with vitaGL. Verify the home, slot picker and Basic Training on a console (2026-11-21).
-- [~] **C3** Touch, directional focus, confirmation, menu shortcuts, scrolling and the system keyboard are wired. Confirm a full inventory drag, save naming and navigation through dense screens on device.
-- [ ] **C4** Measure cold start and optimize scene loading toward < 5 s.
-- [ ] **C5** Measure dense and late-game menus, save writes, memory, sleep/resume and a long session on device. Profile the translated-Rust build before using it as the default. The first build reached the offline-progress screen at about 2 FPS and left 3 MiB of free user RAM after startup.
+- [~] **C3** Touch, directional focus, confirmation, menu shortcuts, scrolling and the system keyboard are wired. Verified touch dragging between inventory slots, right-stick scrolling and saving/loading numbered slots on device. Verify save naming with the system keyboard and navigation through the remaining dense screens.
+- [~] **C4** Measured about 15–16 s for initialization before first scene emission at the default clocks, down from 26.7 s in the initial baseline. Continue toward < 5 s and measure time until the title screen can accept input.
+- [~] **C5** Measured dense and late-game menus, save writes and startup memory on device. The translated-Rust build remains optional after reaching about 6 FPS in late-game Basic Training. Profile Cards and remaining frame stalls, and test sleep/resume, battery use and memory over a long session.
 - [x] **C6** Build the VPK separately from the prepared SD-card data pack (2026-11-21).
 - [ ] **C7** Official LiveArea assets **[maintainer]**.
 

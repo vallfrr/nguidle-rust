@@ -2,8 +2,8 @@
 use crate::ui::{child_xf, xf, Xf};
 use crate::unity::{go_of, with_comp, with_go, with_tr, CK};
 use crate::value::Value;
+use crate::vm::FxMap;
 use crate::Vm;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 const BASE: f32 = 960.0;
@@ -14,7 +14,7 @@ pub struct DesktopLayout {
     pub pc_resolutions: bool,
     width: f32,
     canvas: Value,
-    rects: HashMap<usize, Xf>,
+    rects: FxMap<usize, Xf>,
 }
 
 #[derive(Clone, Copy)]
@@ -139,12 +139,13 @@ impl DesktopLayout {
             self.rects.insert(key, target);
         }
         for child in children(tr) {
-            let Some(x) = child_rect(&source, &child) else { continue };
-            let Some((next, child_area)) = with_go(&go_of(&child), |g| {
-                if !g.active {
+            let Some((x, next, child_area)) = with_go(&go_of(&child), |g| {
+                if !g.active || g.port_hidden {
                     return None;
                 }
-                Some(position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width - BASE))
+                let x = child_rect(&source, &child)?;
+                let (next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width - BASE);
+                Some((x, next, child_area))
             }).flatten() else { continue };
             self.place(&child, x, next, child_area);
         }

@@ -1,5 +1,6 @@
 //! Virtual machine: type registry, calls, execution loop, exceptions.
 use crate::code::*;
+use crate::cooking_score::{Recipe, ScoreFields};
 use crate::program::*;
 use crate::value::*;
 use std::collections::{HashMap, HashSet};
@@ -22,9 +23,87 @@ impl Hasher for FxHasher {
     fn write_u64(&mut self, i: u64) {
         self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x517cc1b727220a95);
     }
+    fn write_usize(&mut self, i: usize) {
+        self.write_u64(i as u64);
+    }
 }
 pub type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 use std::rc::Rc;
+
+pub(crate) fn field_ref(vm: &Vm, name: &str, field: &str) -> Option<(u32, usize)> {
+    let ty = *vm.type_ids.get(name)?;
+    let slot = vm.types[ty as usize].fields.iter().position(|name| name == field)?;
+    Some((ty, slot))
+}
+
+pub(crate) fn read_field(value: &Value, (ty, slot): (u32, usize)) -> Option<Value> {
+    let Value::Obj(obj) = value else { return None };
+    if obj.ty != ty { return None; }
+    obj.f.try_borrow().ok()?.get(slot).cloned()
+}
+
+struct WishTickFields {
+    caller: u32,
+    character: (u32, usize),
+    wishes: (u32, usize),
+    entries: (u32, usize),
+    wish_type: u32,
+    resources: [usize; 3],
+}
+
+impl WishTickFields {
+    fn resolve(vm: &Vm) -> Option<Self> {
+        let field = |name, field| field_ref(vm, name, field);
+        let character = field("WishesController", "character")?;
+        let (wish_type, energy) = field("Wish", "energy")?;
+        Some(Self {
+            caller: vm.find_method(character.0, "updateAllWishes", 1)?,
+            character,
+            wishes: field("Character", "wishes")?,
+            entries: field("Wishes", "wishes")?,
+            wish_type,
+            resources: [energy, field("Wish", "magic")?.1, field("Wish", "res3")?.1],
+        })
+    }
+
+    fn entries(&self, controller: &Value) -> Option<Rc<Obj>> {
+        let character = read_field(controller, self.character)?;
+        let wishes = read_field(&character, self.wishes)?;
+        let Value::Obj(entries) = read_field(&wishes, self.entries)? else { return None };
+        Some(entries)
+    }
+
+    fn unallocated(&self, wish: &Value) -> bool {
+        let Value::Obj(wish) = wish else { return false };
+        if wish.ty != self.wish_type { return false; }
+        wish.f.try_borrow().is_ok_and(|fields| {
+            self.resources.iter().any(|&slot| matches!(fields.get(slot), Some(Value::I64(0))))
+        })
+    }
+
+    fn no_progress(&self, stack: &[Value], caller: Option<&u32>) -> bool {
+        if caller != Some(&self.caller) { return false; }
+        let [controller, Value::I32(index), ..] = stack else { return false };
+        let Some(entries) = self.entries(controller) else { return false };
+        let Ok(entries) = entries.x.try_borrow() else { return false };
+        let Ext::List(entries) = &*entries else { return false };
+        entries.get(*index as usize).is_some_and(|wish| self.unallocated(wish))
+    }
+
+    fn all_idle(&self, controller: &Value) -> Option<bool> {
+        let entries = self.entries(controller)?;
+        let entries = entries.x.try_borrow().ok()?;
+        let Ext::List(entries) = &*entries else { return None };
+        Some(entries.iter().all(|wish| self.unallocated(wish)))
+    }
+}
+
+struct TitanChecks {
+    scope: u32,
+    character: Rc<Obj>,
+    enabled: bool,
+    stats: [Option<f32>; 3],
+}
 
 pub struct Vm {
     pub prog: Rc<Program>,
@@ -48,6 +127,11 @@ pub struct Vm {
     /// Native mode: the game logic runs as the generated Rust (ngu-gen), not in the interpreter.
     pub native_inv: Option<fn(*mut Vm, u32, &[Value]) -> Option<R<Value>>>,
     pub native_mode: bool,
+    wish_tick_fields: Option<WishTickFields>,
+    titan_check_fields: Option<[(u32, usize); 3]>,
+    titan_checks: Option<TitanChecks>,
+    score_fields: Option<ScoreFields>,
+    optimal_score: Option<(Recipe, f32)>,
 }
 
 impl Vm {
@@ -88,11 +172,23 @@ impl Vm {
             last_meta: None,
             native_inv: None,
             native_mode: false,
+            wish_tick_fields: None,
+            titan_check_fields: None,
+            titan_checks: None,
+            score_fields: None,
+            optimal_score: None,
             prof: if std::env::var("CLR_PROF").is_ok() { Some(HashMap::new()) } else { None },
         };
         for i in 0..vm.types.len() {
             vm.init_statics(i as u32);
         }
+        vm.wish_tick_fields = WishTickFields::resolve(&vm);
+        vm.score_fields = ScoreFields::resolve(&vm);
+        vm.titan_check_fields = (|| Some([
+            field_ref(&vm, "AdventureController", "character")?,
+            field_ref(&vm, "Character", "settings")?,
+            field_ref(&vm, "PlayerSettings", "autoKillTitans")?,
+        ]))();
         vm
     }
 
@@ -485,14 +581,66 @@ impl Vm {
             }
         };
         let code: &Code = unsafe { &*code };
-        if mi.guard != 0 && !no_guard() && self.guard_skip(mi.guard, base) {
-            self.slots.truncate(base);
-            return Ok(Value::Null);
+        let guarded = mi.guard != 0 && !no_guard();
+        // The original Cooking search depends on the current recipe, not the
+        // amount the player has added. Retain the exact score until it changes.
+        let recipe = if guarded && mi.guard == 8 {
+            self.score_fields.as_ref().and_then(|fields| fields.recipe(self.slots.get(base)?))
+        } else {
+            None
+        };
+        let mut titan_stat = None;
+        if guarded {
+            let result = match mi.guard {
+                1 if self.guard_skip(mi.guard, base) => Some(Value::Null),
+                // A zero allocation cannot advance a wish. The update loop checks for a
+                // positive value. Other callers still receive the exact formula result.
+                2 if self.wish_tick_fields.as_ref().is_some_and(|fields| {
+                    fields.no_progress(&self.slots[base..], self.callstack.last())
+                }) => Some(Value::F32(0.0)),
+                3 if self.wish_tick_fields.as_ref().and_then(|fields| {
+                    fields.all_idle(self.slots.get(base)?)
+                }) == Some(true) => Some(Value::Null),
+                5 | 6 if self.is_titan_stat_eligibility(base) => {
+                    let stat = (mi.guard - 5) as usize;
+                    let checks = self.titan_checks.as_ref().unwrap();
+                    if checks.enabled {
+                        titan_stat = Some(stat);
+                        checks.stats[stat].map(Value::F32)
+                    } else {
+                        Some(Value::F32(0.0))
+                    }
+                }
+                7 if self.titan_checks.as_ref().is_some_and(|checks| {
+                    !checks.enabled && self.callstack.last() == Some(&checks.scope)
+                }) => Some(Value::I32(0)),
+                8 => recipe.as_ref().and_then(|recipe| {
+                    self.optimal_score.as_ref().filter(|(key, _)| key == recipe).map(|(_, score)| Value::F32(*score))
+                }),
+                // In manageFight, the health clamp can read the same maximum twice.
+                9 if self.is_titan_stat_eligibility(base) => {
+                    titan_stat = Some(2);
+                    self.titan_checks.as_ref().unwrap().stats[2].map(Value::F32)
+                }
+                _ => None,
+            };
+            if let Some(value) = result {
+                self.slots.truncate(base);
+                return Ok(value);
+            }
         }
         if self.depth > 600 {
             self.slots.truncate(base);
             return self.throw("System.StackOverflowException", "depth");
         }
+        // Each successful Titan auto-kill returns immediately. Until then, its
+        // eligibility checks read the same attack and defense for this character.
+        let previous_checks = if guarded && mi.guard == 4 {
+            let checks = self.begin_titan_checks(mid, base);
+            Some(std::mem::replace(&mut self.titan_checks, checks))
+        } else {
+            None
+        };
         self.depth += 1;
         self.callstack.push(mid);
         if crate::vm::trace_m() {
@@ -511,6 +659,17 @@ impl Vm {
         }
         let s0 = self.steps;
         let r = self.run(code, base);
+        if let (Some(recipe), Ok(Value::F32(score))) = (recipe, &r) {
+            self.optimal_score = Some((recipe, *score));
+        }
+        if let (Some(stat), Ok(Value::F32(value))) = (titan_stat, &r) {
+            if let Some(checks) = &mut self.titan_checks {
+                checks.stats[stat] = Some(*value);
+            }
+        }
+        if let Some(previous) = previous_checks {
+            self.titan_checks = previous;
+        }
         if let Some(p) = &mut self.prof {
             let e = p.entry(mid).or_insert((0, 0));
             e.0 += 1;
@@ -520,6 +679,26 @@ impl Vm {
         self.depth -= 1;
         self.slots.truncate(base);
         r
+    }
+
+    fn begin_titan_checks(&self, scope: u32, base: usize) -> Option<TitanChecks> {
+        let [controller_player, player_settings, setting] = self.titan_check_fields?;
+        let character = read_field(self.slots.get(base)?, controller_player)?;
+        let settings = read_field(&character, player_settings)?;
+        let Value::I32(enabled) = read_field(&settings, setting)? else { return None };
+        let Value::Obj(character) = character else { return None };
+        Some(TitanChecks { scope, character, enabled: enabled != 0, stats: [None; 3] })
+    }
+
+    fn is_titan_stat_eligibility(&self, base: usize) -> bool {
+        let Some(checks) = &self.titan_checks else { return false };
+        let Some(Value::Obj(character)) = self.slots.get(base) else { return false };
+        if !Rc::ptr_eq(character, &checks.character) { return false; }
+        match self.callstack.as_slice() {
+            [.., current] if *current == checks.scope => true,
+            [.., parent, current] => *parent == checks.scope && self.prog.methods[*current as usize].guard == 7,
+            _ => false,
+        }
     }
 
     /// Optimisation with no visible effect: UI refresh of a hidden menu.

@@ -281,7 +281,19 @@ impl Program {
                     sig,
                     code: std::cell::OnceCell::new(),
                     ctor_or_static: m.is_static() || m.name == ".ctor",
-                    guard: if m.name == "updateDishUI" && typedef_name(&self.res, ti) == "CookingController" { 1 } else { 0 },
+                    guard: match m.name.as_ref() {
+                        "updateDishUI" if typedef_name(&self.res, ti) == "CookingController" => 1,
+                        "progressPerTick" if typedef_name(&self.res, ti) == "WishesController" => 2,
+                        "updateAllWishes" if typedef_name(&self.res, ti) == "WishesController" => 3,
+                        "manageFight" if typedef_name(&self.res, ti) == "AdventureController" => 4,
+                        "totalAdvAttack" if typedef_name(&self.res, ti) == "Character" => 5,
+                        "totalAdvDefense" if typedef_name(&self.res, ti) == "Character" => 6,
+                        name if name.starts_with("autokillTitan") && name.ends_with("Achieved")
+                            && typedef_name(&self.res, ti) == "AdventureController" => 7,
+                        "getOptimalScore" if typedef_name(&self.res, ti) == "CookingController" => 8,
+                        "totalAdvHP" if typedef_name(&self.res, ti) == "Character" => 9,
+                        _ => 0,
+                    },
                 });
                 self.mid.insert(mi, id);
                 let name = m.name.to_string();

@@ -122,9 +122,62 @@
   3 MiB free user RAM after initialization, compared with about 21 MiB free
   for the interpreter. The interpreter is the default and was reinstalled
   for testing and play.
-- Inventory dragging, naming with the Vita keyboard, dense late-game screens,
-  suspend/resume, sustained memory use and playability at five inches remain
-  to be checked on device.
+- Naming with the Vita keyboard, suspend/resume and sustained memory use
+  still need further verification on device.
+
+### Vita performance benchmarks
+
+Benchmarks used copies of an early-game save and an advanced save on the
+console. Each log window covers about five seconds and reports elapsed time
+between presented frames.
+Screen captures were taken after the timing samples. The benchmark build
+isolates save writes under `ux0:data/ngu/bench/save/`.
+
+| Scenario | Initial measurement | After optimization |
+| --- | --- | --- |
+| Title screen | 59.94 FPS at 333/166 MHz | 59.94 FPS at 444/222 MHz, 17 ms p95 |
+| Early save, Basic Training | — | 46.13–51.93 FPS at 444/222 MHz, 35–61 ms p95 |
+| Advanced save, offline-progress screen | 0.27–0.28 FPS at 333/166 MHz | 13.86–14.61 FPS at 444/222 MHz, 85–86 ms p95 |
+| Advanced save, Basic Training | 8.9–9.1 FPS after skipping unallocated wish updates, at 333/166 MHz | 28.84–29.06 FPS at 444/222 MHz, 50–51 ms p95 |
+| Advanced save, Cooking at 444/222 MHz | 8.79–10.18 FPS, with repeated frame intervals around 850 ms | 34.98–38.78 FPS in the final build, 47–51 ms p95 |
+| Advanced save, Cards at 444/222 MHz | 18.19–19.58 FPS with client vertex arrays | 22.97–23.36 FPS in the final build, 58–60 ms p95 |
+| Initialization before first scene emission | 26.7 s at 333/166 MHz | 19.6–21.9 s at 333/166 MHz, about 15.5 s at 444/222 MHz |
+
+The slowest advanced-save path iterated over every wish at 50 Hz. With no
+working allocations, each pass spent about 200 ms on the Vita computing
+bonuses for wishes that could not progress. The interpreter now bypasses
+those calculations and still calls the original code for allocated wishes.
+Titan checks reuse attack and defense only while evaluating the eligibility
+conditions for the same character. Cooking caches the original optimal
+score against the full set of recipe inputs. Changing a recipe invalidates
+it. Tests compared the guarded and original paths with active and idle
+wishes, both Titan auto-kill settings, and a recipe change. The existing
+desktop state and save regression suite also passed.
+
+To rerun the late-game regression tests, set `NGU_TEST_DLL` to the verified
+`Assembly-CSharp.dll`, `NGU_TEST_ASSETS` to the prepared asset directory and
+`NGU_TEST_SAVE` to a save with Wishes, Titans and Cooking unlocked. Run
+`bash tools/capbuild.sh 12 cargo test --release -p clr --test wish_tick -- --ignored`.
+
+The Vita host advances simulation in 30 Hz steps with bounded catch-up and
+interpolates progress bars for presentation. A budget overrun can still
+reduce the visible frame rate and delay input. The controller and touch
+smoke tests included Adventure's dropdown, a manual save to an empty test
+slot, loading a numbered slot, scrolling patch notes with the right stick,
+moving an inventory item between slots with touch, and changing an ingredient
+in Cooking. Inventory, Wishes, Cards and Cooking were captured from the
+advanced profile.
+
+Streaming the vertices in one buffer per frame preserved the rendered Basic
+Training panel pixel for pixel. On that screen the CPU-side draw stage fell
+from about 4.9 ms to 3.3 ms at the same clocks.
+
+The low-memory translated-Rust build with the generated wish guard reached
+Basic Training at 6.12–6.13 FPS on the same advanced save, with a median frame
+interval of 102 ms. It reported 2 MiB free user RAM after initialization,
+compared with 20 MiB for the interpreter. The full generated-Rust build at
+optimization level 1 exceeded the 12 GiB compiler memory limit. The standard
+VPK uses the interpreter.
 
 ## Historical baseline on 2026-11-20
 

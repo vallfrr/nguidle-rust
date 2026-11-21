@@ -4,6 +4,8 @@ use crate::Vm;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
+const GAME_STEP: f32 = 1.0 / 30.0;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NguVertex {
@@ -36,6 +38,8 @@ struct State {
     touch_down: bool,
     pad_focus: bool,
     pad_click: Option<((f32, f32), bool)>,
+    accumulator: f32,
+    benchmark: bool,
     frames: u64,
 }
 
@@ -75,7 +79,9 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     crate::elog!("[ngu] VM prete en {:?}", t0.elapsed());
     vm.eng.screen = (960, 600);
     vm.eng.desktop_panels = true;
-    vm.eng.save_dir = format!("{}/save", dir);
+    let benchmark_dir = std::env::var("NGU_VITA_SAVE_DIR");
+    let benchmark = benchmark_dir.is_ok();
+    vm.eng.save_dir = benchmark_dir.unwrap_or_else(|_| format!("{dir}/save"));
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
     crate::unity_api::load_prefs(&mut vm);
     configure(&mut vm);
@@ -98,10 +104,11 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     let ox = 0.0;
     let oy = (dev_h as f32 - 600.0 * scale) * 0.5;
     vm.eng.desktop_layout.set_width(dev_w as f32 / scale);
-    let mut rend = Renderer::new(dev_w as usize, dev_h as usize);
+    let mut rend = Renderer::new(0, 0);
+    rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, frames: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, benchmark, frames: 0 });
     }
     0
 }
@@ -138,12 +145,30 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         };
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
-    let t = std::time::Instant::now();
-    let steps0 = s.vm.steps;
-    s.vm.frame(dt.min(1.0 / 3.0));
-    s.frames += 1;
-    if s.frames <= 12 || s.frames % 100 == 0 {
-        crate::elog!("[ngu] frame {} dt={:.3} logique {:?} instr={}", s.frames, dt, t.elapsed(), s.vm.steps - steps0);
+    let profile = s.benchmark.then(|| (std::time::Instant::now(), s.vm.steps));
+    if s.vm.at_desktop_start() {
+        s.accumulator = 0.0;
+        s.vm.frame(GAME_STEP);
+    } else {
+        // Bound recovery work so a slow frame does not monopolize input and presentation.
+        s.accumulator = (s.accumulator + dt.max(0.0)).min(0.25);
+        let mut steps = 0;
+        while s.accumulator >= GAME_STEP && steps < 2 {
+            s.accumulator -= GAME_STEP;
+            s.vm.frame(GAME_STEP);
+            steps += 1;
+        }
+        if steps == 0 && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
+            s.vm.pointer_update();
+            s.vm.eng.mouse_down_edge = false;
+            s.vm.eng.mouse_up_edge = false;
+        }
+    }
+    if let Some((start, steps)) = profile {
+        s.frames += 1;
+        if s.frames <= 12 || s.frames % 100 == 0 {
+            crate::elog!("[ngu] frame {} dt={:.3} logic={:?} instr={}", s.frames, dt, start.elapsed(), s.vm.steps - steps);
+        }
     }
 }
 
@@ -191,7 +216,8 @@ pub extern "C" fn ngu_emit() -> i32 {
         Some(s) => s,
         None => return 0,
     };
-    s.rend.emit(&mut s.vm, s.scale, s.ox, s.oy);
+    s.rend.set_subframe_time(s.accumulator.min(GAME_STEP));
+    s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
     s.verts.clear();
     s.batches.clear();
     let quads = std::mem::take(&mut s.rend.quads);

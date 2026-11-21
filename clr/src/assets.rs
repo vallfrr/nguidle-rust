@@ -1,6 +1,6 @@
 //! Access to the prepared data: folder (PC) or single `ngu.pak` archive (Vita), + log.
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::sync::Mutex;
 
 struct Pak {
@@ -16,7 +16,8 @@ static LOG: Mutex<Option<std::fs::File>> = Mutex::new(None);
 pub fn init(dir: &str) {
     *DIR.lock().unwrap() = dir.to_string();
     let p = format!("{}/ngu.pak", dir);
-    if let Ok(mut f) = std::fs::File::open(&p) {
+    if let Ok(file) = std::fs::File::open(&p) {
+        let mut f = BufReader::new(file);
         let mut hdr = [0u8; 12];
         if f.read_exact(&mut hdr).is_ok() && &hdr[..8] == b"NGUPAK1\0" {
             let n = u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]]) as usize;
@@ -36,7 +37,7 @@ pub fn init(dir: &str) {
                 let size = u64::from_le_bytes(rest[8..].try_into().unwrap());
                 idx.insert(String::from_utf8_lossy(&name).to_string(), (off, size));
             }
-            *PAK.lock().unwrap() = Some(Pak { f, idx });
+            *PAK.lock().unwrap() = Some(Pak { f: f.into_inner(), idx });
         }
     }
 }
@@ -56,7 +57,7 @@ pub fn read(rel: &str) -> Option<Vec<u8>> {
 }
 
 pub fn read_string(rel: &str) -> Option<String> {
-    read(rel).map(|b| String::from_utf8_lossy(&b).to_string())
+    read(rel).map(|b| String::from_utf8(b).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
 }
 
 pub fn set_log(path: &str) {

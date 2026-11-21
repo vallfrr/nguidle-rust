@@ -256,6 +256,7 @@ pub struct Engine {
     pub wants_text: bool,
     /// User MonoBehaviour components, in scene file order.
     pub user_comps: Vec<Value>,
+    start_list: Option<Vec<Value>>,
     pub ptr: crate::input::PointerState,
     pub update_list: Option<(Vec<Value>, Vec<Value>)>,
     pub hover_always: bool,
@@ -643,39 +644,34 @@ impl Vm {
         }
         let root: Root = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
         let objs = &root.objects;
-        let kind = |raw: &serde_json::value::RawValue| -> String {
-            let s = raw.get();
-            match s.strip_prefix("{\"t\":\"") {
-                Some(r) => r.split('"').next().unwrap_or("").to_string(),
-                None => String::new(),
-            }
-        };
+        fn kind(raw: &serde_json::value::RawValue) -> &str {
+            raw.get().strip_prefix("{\"t\":\"").and_then(|value| value.split_once('"')).map_or("", |(name, _)| name)
+        }
         let pj = |raw: &serde_json::value::RawValue| -> J { serde_json::from_str(raw.get()).unwrap_or(J::Null) };
 
         // 1. passive objects: textures, fonts, texts, GameObjects
         for (k, raw) in objs.iter() {
             let t = kind(raw);
-            let k = k.to_string();
-            match t.as_str() {
+            match t {
                 "Texture2D" => {
                     let v = pj(raw);
-                    let o = new_comp(self, "UnityEngine.Texture2D", Value::Null, CK::Texture(Box::new(TexD { name: v["name"].as_str().unwrap_or("").into(), key: k.clone(), w: v["w"].as_i64().unwrap_or(0) as i32, h: v["h"].as_i64().unwrap_or(0) as i32 })));
-                    self.eng.keys.insert(k, o);
+                    let o = new_comp(self, "UnityEngine.Texture2D", Value::Null, CK::Texture(Box::new(TexD { name: v["name"].as_str().unwrap_or("").into(), key: k.to_string(), w: v["w"].as_i64().unwrap_or(0) as i32, h: v["h"].as_i64().unwrap_or(0) as i32 })));
+                    self.eng.keys.insert(k.to_string(), o);
                 }
                 "Font" => {
                     let v = pj(raw);
                     let o = new_comp(self, "UnityEngine.Font", Value::Null, CK::Font { name: v["name"].as_str().unwrap_or("").into(), file: v["file"].as_str().unwrap_or("").into() });
-                    self.eng.keys.insert(k, o);
+                    self.eng.keys.insert(k.to_string(), o);
                 }
                 "TextAsset" => {
                     let v = pj(raw);
-                    let o = new_comp(self, "UnityEngine.TextAsset", Value::Null, CK::TextAsset { name: v["name"].as_str().unwrap_or("").into(), key: k.clone() });
-                    self.eng.keys.insert(k, o);
+                    let o = new_comp(self, "UnityEngine.TextAsset", Value::Null, CK::TextAsset { name: v["name"].as_str().unwrap_or("").into(), key: k.to_string() });
+                    self.eng.keys.insert(k.to_string(), o);
                 }
                 "AudioClip" => {
                     let v = pj(raw);
                     let o = new_comp(self, "UnityEngine.AudioClip", Value::Null, CK::AudioClip(v["name"].as_str().unwrap_or("").into()));
-                    self.eng.keys.insert(k, o);
+                    self.eng.keys.insert(k.to_string(), o);
                 }
                 "GameObject" => {
                     let v = pj(raw);
@@ -697,7 +693,7 @@ impl Vm {
                             in_layout: false,
                         }),
                     );
-                    self.eng.keys.insert(k, o.clone());
+                    self.eng.keys.insert(k.to_string(), o.clone());
                     self.eng.gos.push(o);
                 }
                 _ => {}
@@ -748,7 +744,7 @@ impl Vm {
         let mut comp_list: Vec<(String, Value)> = vec![];
         for (k, raw) in objs.iter() {
             let t = kind(raw);
-            if !matches!(t.as_str(), "Transform" | "RectTransform" | "CanvasRenderer" | "Canvas" | "Camera" | "MonoBehaviour") {
+            if !matches!(t, "Transform" | "RectTransform" | "CanvasRenderer" | "Canvas" | "Camera" | "MonoBehaviour") {
                 continue;
             }
             let head: Head = match serde_json::from_str(raw.get()) {
@@ -759,7 +755,7 @@ impl Vm {
                 Some(s) => self.eng.keys.get(s).cloned().unwrap_or(Value::Null),
                 None => Value::Null,
             };
-            let o = match t.as_str() {
+            let o = match t {
                 "Transform" | "RectTransform" => new_comp(
                     self,
                     if t == "RectTransform" { "UnityEngine.RectTransform" } else { "UnityEngine.Transform" },
@@ -781,6 +777,7 @@ impl Vm {
                                 let ov = self.construct(id);
                                 *ov.x.borrow_mut() = Ext::Native(Box::new(Comp { go: goref, enabled: true, awoken: false, started: false, k: CK::User }));
                                 self.eng.user_comps.push(Value::Obj(ov.clone()));
+                                self.eng.start_list = None;
                                 Value::Obj(ov)
                             }
                             None => new_comp(self, "UnityEngine.MonoBehaviour", goref, CK::Other(format!("?{}", cls))),
@@ -1086,6 +1083,17 @@ impl Vm {
     }
 
     // ---------------------------------------------------------------- life cycle
+    fn profile_vita_frame(&self) -> bool {
+        #[cfg(target_os = "vita")]
+        {
+            static PROFILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *PROFILE.get_or_init(|| std::env::var_os("NGU_VITA_PROFILE").is_some())
+                && (self.eng.frame < 5 || self.eng.frame % 30 == 0)
+        }
+        #[cfg(not(target_os = "vita"))]
+        false
+    }
+
     pub fn call_msg(&mut self, comp: &Value, name: &'static str) -> R<()> {
         let ty = match comp {
             Value::Obj(o) => o.ty,
@@ -1103,8 +1111,15 @@ impl Vm {
             }
         };
         if let Some(m) = m {
+            let profile = self.profile_vita_frame().then(|| (self.steps, std::time::Instant::now()));
             if let Err(e) = self.invoke(m, vec![comp.clone()]) {
                 self.report_exc(name, comp, &e);
+            }
+            if let Some((steps, start)) = profile {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= 4 {
+                    crate::elog!("[slow] frame={} {}::{name} {elapsed:?} instr={}", self.eng.frame, self.types[ty as usize].name, self.steps - steps);
+                }
             }
         }
         Ok(())
@@ -1164,15 +1179,22 @@ impl Vm {
     }
 
     pub fn start_pending(&mut self) {
-        let comps = self.eng.user_comps.clone();
-        for c in &comps {
-            let go = go_of(c);
-            let st = with_comp(c, |k| k.enabled && !k.started).unwrap_or(false);
-            if st && active_in_hierarchy(&go) {
+        let mut pending = self.eng.start_list.take().unwrap_or_else(|| {
+            self.eng.user_comps.iter().filter(|c| {
+                matches!(c, Value::Obj(o) if self.find_method(o.ty, "Start", 1).is_some())
+                    && with_comp(c, |k| !k.started).unwrap_or(false)
+            }).cloned().collect()
+        });
+        pending.retain(|c| {
+            let enabled_go = with_comp(c, |k| (k.enabled && !k.started).then(|| k.go.clone())).flatten();
+            if enabled_go.is_some_and(|go| active_in_hierarchy(&go)) {
                 with_comp(c, |k| k.started = true);
                 let _ = self.call_msg(c, "Start");
+                return false;
             }
-        }
+            true
+        });
+        self.eng.start_list = Some(pending);
     }
 
     pub fn set_active(&mut self, go: &Value, on: bool) {
@@ -1219,11 +1241,14 @@ impl Vm {
         self.eng.dt = dt;
         self.eng.time += dt as f64;
         self.eng.frame += 1;
+        let profile = self.profile_vita_frame();
+        let begin = profile.then(std::time::Instant::now);
         if self.eng.motion.enabled {
             self.eng.motion.clock = Some((self.eng.time, f64::from(dt)));
         }
         self.start_pending();
         self.pointer_update();
+        let input = begin.map(|begin| begin.elapsed());
         // Update: only the components whose class defines Update
         if self.eng.update_list.is_none() {
             let (mut ups, mut lates) = (vec![], vec![]);
@@ -1245,8 +1270,11 @@ impl Vm {
                 let _ = self.call_msg(c, "Update");
             }
         }
+        let update = begin.map(|begin| begin.elapsed());
         self.run_invokes();
+        let invoke = begin.map(|begin| begin.elapsed());
         self.run_coroutines();
+        let coroutines = begin.map(|begin| begin.elapsed());
         let lates = self.eng.update_list.as_ref().unwrap().1.clone();
         for c in &lates {
             if with_comp(c, |k| k.enabled).unwrap_or(false) && active_in_hierarchy(&go_of(c)) {
@@ -1254,6 +1282,13 @@ impl Vm {
             }
         }
         crate::achievements::tick(self);
+        if let (Some(begin), Some(input), Some(update), Some(invoke), Some(coroutines)) = (begin, input, update, invoke, coroutines) {
+            let elapsed = begin.elapsed();
+            if elapsed.as_millis() >= 25 {
+                crate::elog!("[slow] frame={} input={input:?} update={:?} invokes={:?} coroutines={:?} late={:?}",
+                    self.eng.frame, update - input, invoke - update, coroutines - invoke, elapsed - coroutines);
+            }
+        }
         self.eng.motion.clock = None;
         self.mouse_input_finished();
     }
@@ -1280,6 +1315,7 @@ impl Vm {
             }
         }
         let mut remove = vec![];
+        let profile = self.profile_vita_frame();
         for i in due {
             let (owner, method, repeat, scheduled) = {
                 let v = &mut self.eng.invokes[i];
@@ -1297,8 +1333,15 @@ impl Vm {
             }
             if let Value::Obj(o) = &owner {
                 if let Some(m) = self.find_method(o.ty, &method, 1) {
+                    let start = profile.then(|| (self.steps, std::time::Instant::now()));
                     if let Err(e) = self.invoke(m, vec![owner.clone()]) {
                         self.report_exc(&method, &owner, &e);
+                    }
+                    if let Some((steps, start)) = start {
+                        let elapsed = start.elapsed();
+                        if elapsed.as_millis() >= 4 {
+                            crate::elog!("[slow] frame={} {}::{method} {elapsed:?} instr={}", self.eng.frame, self.types[o.ty as usize].name, self.steps - steps);
+                        }
                     }
                 }
             }
