@@ -13,6 +13,9 @@
   stays above Save Game and is clamped to the visible screen. The sidebar's
   Achievements button and the page were checked in Normal, Dark, Gold and Dark
   Gold using a local fixture that had the original gold-theme entitlement.
+- The tooltip pass uses the visible viewport for the tutorial, hover and
+  timed messages. Standard scene elements retain their clipping rules so
+  menus moved offscreen stay hidden.
 - The standalone milestone page showed 61 entries from the local game. A clean
   profile had zero unlocked and the boosted test save unlocked 44. The count
   persisted across a new process and the final page was reachable. A separate

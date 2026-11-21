@@ -61,6 +61,7 @@ pub struct Renderer {
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
     tooltip: Option<Value>,
+    drawing_tooltip: bool,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
     pub regions: Vec<crate::profile::Region>,
 }
@@ -118,6 +119,7 @@ impl Renderer {
             hits: 0,
             tints: vec![],
             tooltip: None,
+            drawing_tooltip: false,
             regions: vec![],
         }
     }
@@ -305,7 +307,9 @@ impl Renderer {
             let clip = if self.regions.is_empty() { full } else {
                 Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 }
             };
+            self.drawing_tooltip = true;
             self.draw_node(vm, &tooltip, x, clip, 2);
+            self.drawing_tooltip = false;
         }
     }
 
@@ -574,9 +578,10 @@ impl Renderer {
     }
 
     fn graphic_clip(&self, vm: &Vm, tr: &Value, clip: Clip) -> Clip {
-        if self.regions.is_empty() {
+        if self.regions.is_empty() && !self.drawing_tooltip {
             // A parent can contain both parked and projected children. Bound its
             // own graphics without clipping the independently placed children.
+            // The tooltip overlay uses the existing frame clip for its entire subtree.
             clip.intersect(self.projected_clip(view_width(vm, tr)))
         } else {
             clip
