@@ -129,7 +129,11 @@
 
 Benchmarks used copies of an early-game save and an advanced save on the
 console. Each log window covers about five seconds and reports elapsed time
-between presented frames.
+between returns from `vglSwapBuffers`. These rates describe the instrumented
+build's render loop. An external framebuffer-submission counter reported
+27.4 FPS during one five-second sample at the standard build's title screen,
+which differs from the in-process title screen rate. The display cadence
+has not been independently confirmed.
 Screen captures were taken after the timing samples. The benchmark build
 isolates save writes under `ux0:data/ngu/bench/save/`.
 
