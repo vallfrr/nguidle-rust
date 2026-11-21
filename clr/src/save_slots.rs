@@ -56,6 +56,7 @@ enum Entry {
 #[derive(Default)]
 pub(crate) struct SaveSlots {
     mode: Option<Mode>,
+    sidebar_theme: Option<(Value, Value)>,
     from_title: bool,
     selected: usize,
     pending: Option<Pending>,
@@ -675,24 +676,31 @@ fn build(vm: &mut Vm) -> Screen {
 
 fn refresh_theme(ui: &Screen) {
     for (target, source) in &ui.themed {
-        let Some(sprite) = style(source, |k| match k {
-            CK::Image(image) => Some(image.sprite.clone()),
-            _ => None,
-        }) else {
-            continue;
-        };
-        for comp in with_go(target, |g| g.comps.clone()).unwrap_or_default() {
-            let changed = with_comp(&comp, |c| match &mut c.k {
-                CK::Image(image) if !same(&image.sprite, &sprite) => {
-                    image.sprite = sprite.clone();
-                    true
+        copy_theme_sprite(target, source);
+    }
+}
+
+fn copy_theme_sprite(target: &Value, source: &Value) {
+    let Some(sprite) = style(source, |k| match k {
+        CK::Image(image) => Some(image.sprite.clone()),
+        _ => None,
+    }) else { return };
+    let changed = with_go(target, |g| {
+        let mut changed = false;
+        for comp in &g.comps {
+            with_comp(comp, |c| {
+                if let CK::Image(image) = &mut c.k {
+                    if !same(&image.sprite, &sprite) {
+                        image.sprite = sprite.clone();
+                        changed = true;
+                    }
                 }
-                _ => false,
             });
-            if changed == Some(true) {
-                mark_dirty(&comp);
-            }
         }
+        changed
+    });
+    if changed == Some(true) {
+        mark_dirty(target);
     }
 }
 
@@ -745,6 +753,7 @@ pub(crate) fn prepare_title(vm: &mut Vm) {
     attach(vm, &button, "UnityEngine.UI.Button", CK::Sel(Box::new(selectable)));
     let caption = new_node(vm, "Text", &tr(&button), [0.025, 0.975], 0.0, 29.0);
     label(&text(vm, &caption, typeface.as_ref(), Some(14), 4), "Achievements".into());
+    vm.eng.save_slots.sidebar_theme = Some((button, original));
 }
 
 pub(crate) fn refresh_achievements(vm: &mut Vm) {
@@ -976,6 +985,9 @@ pub(crate) fn pause_on_title(vm: &mut Vm) -> bool {
 }
 
 pub(crate) fn reflow(vm: &mut Vm) {
+    if let Some((target, source)) = &vm.eng.save_slots.sidebar_theme {
+        copy_theme_sprite(target, source);
+    }
     let width = vm.eng.desktop_layout.width() - CONTENT_LEFT;
     if let Some(ui) = &vm.eng.save_slots.ui {
         if with_tr(&tr(&ui.panel), |t| {

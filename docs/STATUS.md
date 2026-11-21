@@ -10,7 +10,9 @@
   A scripted sweep collected focus on all 58 menu indices and performed 116
   moves. Physical controller testing of this version is still open.
 - The right-hand panels retain their Settings frame style. Inventory's tooltip
-  stays above Save Game and is clamped to the visible screen.
+  stays above Save Game and is clamped to the visible screen. The sidebar's
+  Achievements button and the page were checked in Normal, Dark, Gold and Dark
+  Gold using a local fixture that had the original gold-theme entitlement.
 - The standalone milestone page showed 61 entries from the local game. A clean
   profile had zero unlocked and the boosted test save unlocked 44. The count
   persisted across a new process and the final page was reachable. A separate
