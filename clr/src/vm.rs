@@ -133,6 +133,7 @@ pub struct Vm {
     score_fields: Option<ScoreFields>,
     optimal_score: Option<(Recipe, f32)>,
     achievement_stats: Option<(u32, [Option<Value>; 6])>,
+    effective_boss_fields: Option<[(u32, usize); 3]>,
 }
 
 impl Vm {
@@ -179,6 +180,7 @@ impl Vm {
             score_fields: None,
             optimal_score: None,
             achievement_stats: None,
+            effective_boss_fields: None,
             prof: if std::env::var("CLR_PROF").is_ok() { Some(HashMap::new()) } else { None },
         };
         for i in 0..vm.types.len() {
@@ -190,6 +192,11 @@ impl Vm {
             field_ref(&vm, "AdventureController", "character")?,
             field_ref(&vm, "Character", "settings")?,
             field_ref(&vm, "PlayerSettings", "autoKillTitans")?,
+        ]))();
+        vm.effective_boss_fields = (|| Some([
+            field_ref(&vm, "Character", "bossID")?,
+            field_ref(&vm, "Character", "settings")?,
+            field_ref(&vm, "PlayerSettings", "rebirthDifficulty")?,
         ]))();
         vm
     }
@@ -460,13 +467,13 @@ impl Vm {
         Ok(())
     }
 
-    pub fn invoke(&mut self, mid: u32, args: Vec<Value>) -> R<Value> {
+    pub fn invoke(&mut self, mid: u32, args: impl AsRef<[Value]> + IntoIterator<Item = Value>) -> R<Value> {
         if self.trace_calls() {
             let mi = &self.prog.methods[mid as usize];
             eprintln!("[call] {}::{}", self.types[mi.owner as usize].name, mi.name);
         }
         if let Some(f) = self.native_inv {
-            if let Some(r) = f(self as *mut Vm, mid, &args) {
+            if let Some(r) = f(self as *mut Vm, mid, args.as_ref()) {
                 return r;
             }
         }
@@ -574,6 +581,21 @@ impl Vm {
         // the program and the code live as long as the VM: no Rc clone
         let prog: &Program = unsafe { &*(&*self.prog as *const Program) };
         let mi = &prog.methods[mid as usize];
+        let guarded = mi.guard != 0 && !no_guard();
+        if guarded {
+            let native = match mi.guard {
+                18 => self.effective_boss_id(base),
+                // This Update only handles the A/D shortcuts on equipped items.
+                19 if self.slots.get(base).and_then(Value::as_obj).is_some()
+                    && !self.eng.keys_edge.contains(&97) && !self.eng.keys_edge.contains(&100) =>
+                    Some(Value::Null),
+                _ => None,
+            };
+            if let Some(value) = native {
+                self.slots.truncate(base);
+                return Ok(value);
+            }
+        }
         let code: *const Code = match mi.code.get() {
             Some(c) => &**c,
             None => {
@@ -583,7 +605,6 @@ impl Vm {
             }
         };
         let code: &Code = unsafe { &*code };
-        let guarded = mi.guard != 0 && !no_guard();
         // The original Cooking search depends on the current recipe, not the
         // amount the player has added. Retain the exact score until it changes.
         let recipe = if guarded && mi.guard == 8 {
@@ -703,6 +724,17 @@ impl Vm {
         self.depth -= 1;
         self.slots.truncate(base);
         r
+    }
+
+    fn effective_boss_id(&self, base: usize) -> Option<Value> {
+        let [boss, settings, difficulty] = self.effective_boss_fields?;
+        let character = self.slots.get(base)?;
+        let Value::I32(mut boss_id) = read_field(character, boss)? else { return None };
+        let settings = read_field(character, settings)?;
+        let Value::I32(difficulty) = read_field(&settings, difficulty)? else { return None };
+        // Normal is 0, Evil is 1, Sadistic is 2. IL uses wrapping addition.
+        boss_id = boss_id.wrapping_add(301 * (i32::from(difficulty >= 1) + i32::from(difficulty >= 2)));
+        Some(Value::I32(boss_id))
     }
 
     fn begin_titan_checks(&self, scope: u32, base: usize) -> Option<TitanChecks> {

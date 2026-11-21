@@ -237,12 +237,12 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
 
 /// Shared focus, dropdown and menu navigation. The host sends ASCII actions.
 #[no_mangle]
-pub extern "C" fn ngu_pad(action: u32) {
-    let Some(s) = st() else { return };
-    if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return; }
-    let Some(action) = char::from_u32(action) else { return };
+pub extern "C" fn ngu_pad(action: u32) -> i32 {
+    let Some(s) = st() else { return 0 };
+    if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
+    let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
-    if s.vm.dropdown_navigate(action) { return; }
+    if s.vm.dropdown_navigate(action) { return 0; }
     let click = match action {
         'a' => {
             let at = crate::focus::activation_point(&mut s.vm);
@@ -257,10 +257,15 @@ pub extern "C" fn ngu_pad(action: u32) {
         }
         'p' => crate::focus::menu_step(&mut s.vm, -1),
         'n' => crate::focus::menu_step(&mut s.vm, 1),
-        'u' | 'd' | 'l' | 'r' => { crate::focus::navigate(&mut s.vm, action); None }
+        'u' | 'd' | 'l' | 'r' => {
+            let before = s.vm.eng.focus.clone();
+            crate::focus::navigate(&mut s.vm, action);
+            return i32::from(!crate::unity::same(&before, &s.vm.eng.focus));
+        }
         _ => None,
     };
     if let Some(at) = click { s.pad_click = Some((at, true)); }
+    0
 }
 
 #[no_mangle]

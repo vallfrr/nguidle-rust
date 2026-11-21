@@ -205,3 +205,64 @@ fn achievement_scan_preserves_thresholds_and_bonus_points() {
     assert!(optimized.0[1] > 0);
     assert!(steps < reference_steps);
 }
+
+#[test]
+#[ignore = "requires assets and a save from the verified installation"]
+fn boss_thresholds_and_loadout_shortcuts_match_the_interpreter() {
+    let dll = std::env::var("NGU_TEST_DLL").unwrap();
+    let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+    let save = std::env::var("NGU_TEST_SAVE").unwrap();
+    let run = |guarded| {
+        let mut vm = late_game(&dll, &assets, &save);
+        let component = |name: &str| vm.eng.user_comps.iter().find_map(|value| {
+            value.as_obj().filter(|obj| vm.types[obj.ty as usize].name == name).cloned()
+        }).unwrap();
+        let character = component("Character");
+        let settings = member(&vm, &character, "settings");
+        let loadout = vm.eng.user_comps.iter().find_map(|value| {
+            value.as_obj().filter(|obj| {
+                vm.types[obj.ty as usize].name == "LoadoutController"
+                    && obj.f.borrow()[field(&vm, obj, "id")].as_i32() == -1
+            }).cloned()
+        }).expect("equipped helmet slot");
+        let boss = vm.find_method(character.ty, "effectiveBossID", 1).unwrap();
+        let shortcut = vm.find_method(loadout.ty, "Update", 1).unwrap();
+        if !guarded {
+            let methods = &mut Rc::get_mut(&mut vm.prog).unwrap().methods;
+            methods[boss as usize].guard = 0;
+            methods[shortcut as usize].guard = 0;
+        }
+        let difficulty_field = field(&vm, &settings, "rebirthDifficulty");
+        let boss_field = field(&vm, &character, "bossID");
+        let start = vm.steps;
+        let thresholds = [-1, 0, 1, 2, 3].map(|difficulty| {
+            settings.f.borrow_mut()[difficulty_field] = Value::I32(difficulty);
+            [-1, 301, i32::MAX].map(|value| {
+                character.f.borrow_mut()[boss_field] = Value::I32(value);
+                vm.invoke(boss, [Value::Obj(character.clone())])
+                    .unwrap_or_else(|error| panic!("Boss threshold raised {}", vm.describe(&error)))
+                    .as_i32()
+            })
+        });
+        let boss_steps = vm.steps - start;
+        loadout.f.borrow_mut()[field(&vm, &loadout, "hovered")] = Value::bool(true);
+        settings.f.borrow_mut()[field(&vm, &settings, "simpleInvShortcuts")] = Value::bool(true);
+        let start = vm.steps;
+        tick(&mut vm, shortcut, &loadout);
+        let idle_steps = vm.steps - start;
+        let shortcut_steps = [97, 100].map(|key| {
+            vm.eng.keys_edge.insert(key);
+            let start = vm.steps;
+            tick(&mut vm, shortcut, &loadout);
+            vm.eng.keys_edge.remove(&key);
+            vm.steps - start
+        });
+        (thresholds, boss_steps, idle_steps, shortcut_steps)
+    };
+    let (thresholds, boss_steps, idle, shortcuts) = run(true);
+    let (oracle_thresholds, oracle_steps, oracle_idle, oracle_shortcuts) = run(false);
+    assert_eq!(thresholds, oracle_thresholds);
+    assert!(boss_steps < oracle_steps && idle < oracle_idle);
+    assert_eq!(shortcuts, oracle_shortcuts);
+    assert!(shortcuts.iter().all(|&steps| steps > 0));
+}

@@ -300,6 +300,10 @@ impl Program {
                         "totalCapMagic" if m.signature.parameters.is_empty() && typedef_name(&self.res, ti) == "Character" => 15,
                         "totalEnergyBar" if m.signature.parameters.is_empty() && typedef_name(&self.res, ti) == "Character" => 16,
                         "totalMagicBar" if m.signature.parameters.is_empty() && typedef_name(&self.res, ti) == "Character" => 17,
+                        "effectiveBossID" if m.signature.parameters.is_empty()
+                            && typedef_name(&self.res, ti) == "Character" => 18,
+                        "Update" if m.signature.parameters.is_empty()
+                            && typedef_name(&self.res, ti) == "LoadoutController" => 19,
                         _ => 0,
                     },
                 });

@@ -1126,7 +1126,7 @@ impl Vm {
         };
         if let Some(m) = m {
             let profile = self.profile_vita_frame().then(|| (self.steps, std::time::Instant::now()));
-            if let Err(e) = self.invoke(m, vec![comp.clone()]) {
+            if let Err(e) = self.invoke(m, [comp.clone()]) {
                 self.report_exc(name, comp, &e);
             }
             if let Some((steps, start)) = profile {
@@ -1353,7 +1353,7 @@ impl Vm {
             }
             if let (Some(o), Some(m)) = (owner.as_obj(), method_id) {
                 let start = profile.then(|| (self.steps, std::time::Instant::now()));
-                if let Err(e) = self.invoke(m, vec![owner.clone()]) {
+                if let Err(e) = self.invoke(m, [owner.clone()]) {
                     self.report_exc(&method, &owner, &e);
                 }
                 if let Some((steps, start)) = start {
