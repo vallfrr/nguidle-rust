@@ -132,6 +132,7 @@ pub struct Vm {
     titan_checks: Option<TitanChecks>,
     score_fields: Option<ScoreFields>,
     optimal_score: Option<(Recipe, f32)>,
+    achievement_stats: Option<(u32, [Option<Value>; 6])>,
 }
 
 impl Vm {
@@ -177,6 +178,7 @@ impl Vm {
             titan_checks: None,
             score_fields: None,
             optimal_score: None,
+            achievement_stats: None,
             prof: if std::env::var("CLR_PROF").is_ok() { Some(HashMap::new()) } else { None },
         };
         for i in 0..vm.types.len() {
@@ -590,6 +592,7 @@ impl Vm {
             None
         };
         let mut titan_stat = None;
+        let mut achievement_stat = None;
         if guarded {
             let result = match mi.guard {
                 1 if self.guard_skip(mi.guard, base) => Some(Value::Null),
@@ -622,6 +625,17 @@ impl Vm {
                     titan_stat = Some(2);
                     self.titan_checks.as_ref().unwrap().stats[2].map(Value::F32)
                 }
+                12..=17 => {
+                    self.achievement_stats.as_ref().and_then(|(scope, stats)| {
+                        let [.., scan, condition] = self.callstack.as_slice() else { return None };
+                        if scan != scope || prog.methods[*condition as usize].guard != 11 {
+                            return None;
+                        }
+                        let stat = (mi.guard - 12) as usize;
+                        achievement_stat = Some(stat);
+                        stats[stat].clone()
+                    })
+                }
                 _ => None,
             };
             if let Some(value) = result {
@@ -641,6 +655,10 @@ impl Vm {
         } else {
             None
         };
+        // Each original achievement threshold uses the same resource totals during
+        // this scan. Keep the original formulas and the order of unlocks.
+        let previous_achievement_stats = (guarded && mi.guard == 10)
+            .then(|| self.achievement_stats.replace((mid, [const { None }; 6])));
         self.depth += 1;
         self.callstack.push(mid);
         if crate::vm::trace_m() {
@@ -669,6 +687,12 @@ impl Vm {
         }
         if let Some(previous) = previous_checks {
             self.titan_checks = previous;
+        }
+        if let (Some(stat), Ok(value)) = (achievement_stat, &r) {
+            self.achievement_stats.as_mut().unwrap().1[stat] = Some(value.clone());
+        }
+        if let Some(previous) = previous_achievement_stats {
+            self.achievement_stats = previous;
         }
         if let Some(p) = &mut self.prof {
             let e = p.entry(mid).or_insert((0, 0));
@@ -836,6 +860,40 @@ impl Vm {
         None
     }
 
+    /// Reads successful field loads directly from a local or argument, without
+    /// pushing the intermediate objects to the evaluation stack.
+    #[inline]
+    fn load_slot(&mut self, code: &Code, slot: usize, pc: &mut usize) {
+        fn read(value: &Value, field: u32) -> Option<Value> {
+            match value {
+                Value::Obj(object) => Some(object.f.borrow()[field as usize].clone()),
+                Value::Struct(value) => Some(value.f[field as usize].clone()),
+                _ => None,
+            }
+        }
+
+        let source = &self.slots[slot];
+        let Some(Op::Ldfld(field)) = code.ops.get(*pc) else {
+            self.slots.push(source.clone());
+            return;
+        };
+        let Some(mut value) = read(source, *field) else {
+            self.slots.push(source.clone());
+            return;
+        };
+        *pc += 1;
+        self.steps += 1;
+        while let Some(Op::Ldfld(field)) = code.ops.get(*pc) {
+            // Leave pointer loads and exceptions to the regular opcode, at the
+            // same instruction and with the same operand it would have seen.
+            let Some(next) = read(&value, *field) else { break };
+            value = next;
+            *pc += 1;
+            self.steps += 1;
+        }
+        self.slots.push(value);
+    }
+
     /// Executes one instruction. `Ok(Some(v))` = return from the method.
     fn step(&mut self, code: &Code, base: usize, sb: usize, pc: &mut usize, pending: &mut Vec<Pending>) -> R<Option<Value>> {
         macro_rules! pop {
@@ -857,16 +915,14 @@ impl Vm {
             match op {
                 Op::Nop => {}
                 Op::Ldarg(i) => {
-                    let v = self.slots[base + *i as usize].clone();
-                    push!(v);
+                    self.load_slot(code, base + *i as usize, pc);
                 }
                 Op::Starg(i) => {
                     let v = pop!();
                     self.slots[base + *i as usize] = v;
                 }
                 Op::Ldloc(i) => {
-                    let v = self.slots[base + code.nargs + *i as usize].clone();
-                    push!(v);
+                    self.load_slot(code, base + code.nargs + *i as usize, pc);
                 }
                 Op::Stloc(i) => {
                     let v = pop!();

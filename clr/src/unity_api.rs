@@ -146,10 +146,6 @@ fn set_text_comp(v: &Value, s: &str) {
     }
 }
 
-fn load_text(_vm: &Vm, key: &str) -> String {
-    crate::assets::read(&format!("text/{}.bin", key.replace(':', "_"))).map(|b| String::from_utf8_lossy(&b).to_string()).unwrap_or_default()
-}
-
 fn save_prefs(vm: &mut Vm) {
     let mut m = serde_json::Map::new();
     for (k, v) in &vm.eng.prefs {
@@ -441,6 +437,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let was = with_comp(&v, |c| std::mem::replace(&mut c.enabled, on)).unwrap_or(on);
             if was != on {
                 mark_dirty(&v);
+                invalidate_input();
                 let _ = vm.call_msg(&v, if on { "OnEnable" } else { "OnDisable" });
             }
             Ok(Value::Null)
@@ -488,6 +485,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
                 crate::motion::world_position_changed(vm, &t, cur, np);
                 crate::ui::set_world_pos(vm, &t, np);
                 mark_dirty(&t);
+                invalidate_input();
             }
             Ok(Value::Null)
         },
@@ -504,6 +502,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             if cur != np {
                 crate::ui::set_local_pos(vm, &t, np);
                 mark_dirty(&t);
+                invalidate_input();
             }
             Ok(Value::Null)
         },
@@ -513,6 +512,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let cur = crate::ui::world_pos(vm, &t);
             crate::ui::set_world_pos(vm, &t, [cur[0] + sf(&p, 0), cur[1] + sf(&p, 1), cur[2] + sf(&p, 2)]);
             mark_dirty(&t);
+            invalidate_input();
             Ok(Value::Null)
         },
         "UnityEngine.Transform::SetAsFirstSibling" | "UnityEngine.Transform::SetAsLastSibling" => |vm, a| {
@@ -520,13 +520,19 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let first = a.len() == 1 && false;
             let _ = first;
             let parent = with_tr(&t, |x| x.parent.clone()).unwrap_or(Value::Null);
-            with_tr(&parent, |p| {
+            let changed = with_tr(&parent, |p| {
                 if let Some(i) = p.children.iter().position(|c| same(c, &t)) {
+                    if i + 1 == p.children.len() { return false; }
                     let c = p.children.remove(i);
                     p.children.push(c);
+                    return true;
                 }
-            });
-            mark_dirty(&t);
+                false
+            }).unwrap_or(false);
+            if changed {
+                mark_dirty(&t);
+                invalidate_input();
+            }
             Ok(Value::Null)
         },
         "UnityEngine.Transform::GetChild" => |vm, a| {
@@ -620,8 +626,19 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         },
         "UnityEngine.TextAsset::get_text" => |vm, a| {
             let v = rv(vm, &a[0]);
-            let key = with_comp(&v, |c| if let CK::TextAsset { key, .. } = &c.k { key.clone() } else { String::new() }).unwrap_or_default();
-            Ok(Value::str(&load_text(vm, &key)))
+            Ok(with_comp(&v, |c| {
+                if let CK::TextAsset { key, text, .. } = &mut c.k {
+                    if let Some(text) = text {
+                        return Value::Str(text.clone());
+                    }
+                    if let Some(bytes) = crate::assets::read(&format!("text/{}.bin", key.replace(':', "_"))) {
+                        let loaded = Rc::<str>::from(String::from_utf8_lossy(&bytes).as_ref());
+                        *text = Some(loaded.clone());
+                        return Value::Str(loaded);
+                    }
+                }
+                Value::str("")
+            }).unwrap_or_else(|| Value::str("")))
         },
         // ------------------------------------------------------- UI
         "UnityEngine.UI.Text::get_text" => |vm, a| {
@@ -652,7 +669,13 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let v = rv(vm, &a[0]);
             let c = to_col(&rv(vm, &a[1]));
             let (ch, old_text) = with_comp(&v, |k| match &mut k.k {
-                CK::Image(i) | CK::RawImage(i) => (std::mem::replace(&mut i.color, c) != c, None),
+                CK::Image(i) | CK::RawImage(i) => {
+                    let old = std::mem::replace(&mut i.color, c);
+                    if i.raycast && (old[3] > 0.0) != (c[3] > 0.0) {
+                        invalidate_input();
+                    }
+                    (old != c, None)
+                }
                 CK::Text(t) => {
                     let old = std::mem::replace(&mut t.color, c);
                     (old != c, Some(old))
@@ -693,6 +716,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let v = rv(vm, &a[0]);
             if sel(&v, |s| std::mem::replace(&mut s.interactable, a[1].as_bool()) != a[1].as_bool()) == Some(true) {
                 mark_sel_dirty(&v);
+                invalidate_input();
             }
             Ok(Value::Null)
         },

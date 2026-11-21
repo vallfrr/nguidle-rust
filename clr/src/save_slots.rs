@@ -325,6 +325,101 @@ pub(crate) fn autosave_written(vm: &Vm, path: &Path, data: &[u8]) {
     }
 }
 
+#[cfg(target_os = "vita")]
+enum AutosaveWork {
+    Write(PathBuf, String, Option<usize>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+#[cfg(target_os = "vita")]
+pub(crate) struct VitaAutosave(std::sync::mpsc::SyncSender<AutosaveWork>);
+
+#[cfg(target_os = "vita")]
+impl VitaAutosave {
+    fn new(profile: bool) -> std::io::Result<Self> {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(2);
+        std::thread::Builder::new().name("ngu-autosave".into()).stack_size(128 * 1024).spawn(move || {
+            while let Ok(work) = receiver.recv() {
+                match work {
+                    AutosaveWork::Write(path, data, slot) => {
+                        let start = profile.then(std::time::Instant::now);
+                        match atomic_write(&path, data.as_bytes()) {
+                            Ok(()) => {
+                                if let (Some(dir), Some(slot)) = (path.parent(), slot) {
+                                    record_autosave_slot(dir, slot, data.as_bytes());
+                                }
+                                if let Some(start) = start {
+                                    crate::elog!("[autosave] {} bytes written in {:?}", data.len(), start.elapsed());
+                                }
+                            }
+                            Err(error) => {
+                                crate::elog!("Could not write the Vita autosave: {error}");
+                            }
+                        }
+                    }
+                    AutosaveWork::Flush(reply) => { let _ = reply.send(()); }
+                }
+            }
+        })?;
+        Ok(Self(sender))
+    }
+
+    fn flush(&self) {
+        let (reply, complete) = std::sync::mpsc::sync_channel(0);
+        if self.0.send(AutosaveWork::Flush(reply)).is_ok() {
+            let _ = complete.recv();
+        }
+    }
+}
+
+fn flush_pending_autosave(_vm: &Vm) {
+    #[cfg(target_os = "vita")]
+    if let Some(writer) = &_vm.eng.autosave_writer {
+        writer.flush();
+    }
+}
+
+pub(crate) fn before_managed_read(vm: &Vm, path: &Path) {
+    #[cfg(target_os = "vita")]
+    if is_autosave_path(vm, path) {
+        flush_pending_autosave(vm);
+    }
+    let _ = (vm, path);
+}
+
+#[cfg(target_os = "vita")]
+fn is_autosave_path(vm: &Vm, path: &Path) -> bool {
+    path.parent() == Some(Path::new(&vm.eng.save_dir)) &&
+        matches!(path.file_name().and_then(|name| name.to_str()), Some("NGUSaveSteam.txt" | "NGUSave.txt"))
+}
+
+pub(crate) fn write_managed_file(vm: &mut Vm, filename: String, data: String) {
+    #[cfg(target_os = "vita")]
+    let data = if vm.eng.save_slots.home.is_some() && !data.is_empty()
+        && is_autosave_path(vm, Path::new(&filename)) {
+        if vm.eng.autosave_writer.is_none() {
+            let profile = std::env::var_os("NGU_VITA_SAVE_DIR").is_some();
+            vm.eng.autosave_writer = VitaAutosave::new(profile).ok();
+        }
+        if let Some(writer) = &vm.eng.autosave_writer {
+            let job = AutosaveWork::Write(PathBuf::from(&filename), data, vm.eng.save_slots.active_slot);
+            match writer.0.send(job) {
+                Ok(()) => return,
+                Err(std::sync::mpsc::SendError(AutosaveWork::Write(_, data, _))) => data,
+                Err(_) => unreachable!(),
+            }
+        } else {
+            data
+        }
+    } else {
+        data
+    };
+    let path = Path::new(&filename);
+    if fs::write(path, data.as_bytes()).is_ok() {
+        autosave_written(vm, path, data.as_bytes());
+    }
+}
+
 fn autosave_slot(dir: &Path, path: &Path) -> Option<usize> {
     if fs::metadata(path).ok()?.len() > MAX_SAVE_BYTES { return None; }
     let data = fs::read(path).ok()?;
@@ -634,7 +729,9 @@ fn set_interactable(go: &Value, enabled: bool) {
     for comp in with_go(go, |g| g.comps.clone()).unwrap_or_default() {
         with_comp(&comp, |c| {
             if let CK::Sel(s) = &mut c.k {
-                s.interactable = enabled;
+                if std::mem::replace(&mut s.interactable, enabled) != enabled {
+                    invalidate_input();
+                }
             }
         });
     }
@@ -1642,6 +1739,7 @@ fn prepare_home(vm: &mut Vm) -> Result<Home, String> {
 }
 
 fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), String> {
+    flush_pending_autosave(vm);
     let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
     game_call(vm, &title, "startMainMenu", vec![])?;
     restore_idle_stats(vm, state);
@@ -1943,6 +2041,7 @@ fn close(vm: &mut Vm, state: &mut SaveSlots) {
 }
 
 fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: bool) {
+    flush_pending_autosave(vm);
     close(vm, state);
     if state.ui.is_none() {
         state.ui = Some(build(vm));
@@ -2006,6 +2105,7 @@ fn perform(
     dir: &Path,
     action: Pending,
 ) -> Result<String, String> {
+    flush_pending_autosave(vm);
     let requested_slot = match &action {
         Pending::Load(0) => Some(autosave_slot(dir, &slot_path(dir, 0)).unwrap_or(0)),
         Pending::Load(slot) | Pending::Create(slot) => Some(*slot),

@@ -1359,18 +1359,23 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             Ok(Value::I32(0))
         },
         // ---------------------------------------------------------- IO
-        "System.IO.File::Exists" => |_vm, a| Ok(Value::bool(std::path::Path::new(&st(&a[0])).is_file())),
-        "System.IO.File::ReadAllText" => |vm, a| match std::fs::read_to_string(st(&a[0])) {
-            Ok(s) => Ok(Value::str(&s)),
-            Err(_) => vm.throw("System.IO.FileNotFoundException", &st(&a[0])),
-        },
-        "System.IO.File::WriteAllText" => |vm, a| {
+        "System.IO.File::Exists" => |vm, a| {
             let filename = st(&a[0]);
             let path = std::path::Path::new(&filename);
-            let data = st(&a[1]);
-            if std::fs::write(path, data.as_bytes()).is_ok() {
-                crate::save_slots::autosave_written(vm, path, data.as_bytes());
+            crate::save_slots::before_managed_read(vm, path);
+            Ok(Value::bool(path.is_file()))
+        },
+        "System.IO.File::ReadAllText" => |vm, a| {
+            let filename = st(&a[0]);
+            let path = std::path::Path::new(&filename);
+            crate::save_slots::before_managed_read(vm, path);
+            match std::fs::read_to_string(path) {
+                Ok(s) => Ok(Value::str(&s)),
+                Err(_) => vm.throw("System.IO.FileNotFoundException", &filename),
             }
+        },
+        "System.IO.File::WriteAllText" => |vm, a| {
+            crate::save_slots::write_managed_file(vm, st(&a[0]), st(&a[1]));
             Ok(Value::Null)
         },
         "System.IO.File::WriteAllBytes" => |vm, a| {

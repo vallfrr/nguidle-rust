@@ -172,6 +172,31 @@ pub fn view_child_xf(vm: &Vm, parent: &Xf, tr: &Value) -> Option<Xf> {
     vm.eng.desktop_layout.rect(tr).or_else(|| with_tr(tr, |t| child_xf(parent, t)))
 }
 
+pub(crate) fn cache_menu_canvases(vm: &mut Vm) {
+    for menu in crate::dev::menu_roots(vm) {
+        let Value::Obj(object) = &menu else { continue };
+        let canvas = with_go(&menu, |go| {
+            go.comps.iter().find(|c| with_comp(c, |c| matches!(c.k, CK::Canvas(_))) == Some(true)).cloned()
+        }).flatten();
+        if let Some(canvas) = canvas {
+            vm.eng.parked_menu_canvases.insert(std::rc::Rc::as_ptr(object) as usize, canvas);
+        }
+    }
+}
+
+pub(crate) fn menu_is_parked(vm: &Vm, go: &Value, x: &Xf) -> bool {
+    // MenuSwapper disables a closed menu's canvas and translates its entire
+    // hierarchy far outside the viewport. Its controls cannot receive input.
+    let [left, bottom] = x.origin;
+    if left.abs() < vm.eng.desktop_layout.width() * 2.0
+        || bottom.abs() < vm.eng.screen.1 as f32 * 2.0 {
+        return false;
+    }
+    let Value::Obj(object) = go else { return false };
+    vm.eng.parked_menu_canvases.get(&(std::rc::Rc::as_ptr(object) as usize))
+        .is_some_and(|canvas| with_comp(canvas, |canvas| !canvas.enabled) == Some(true))
+}
+
 /// Only projected nodes can use the extra room to the right of the original canvas.
 pub(crate) fn view_width(vm: &Vm, tr: &Value) -> f32 {
     if vm.eng.desktop_layout.rect(tr).is_some() || crate::save_slots::owns(&go_of(tr)) {

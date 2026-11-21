@@ -7,6 +7,8 @@ use crate::Vm;
 #[derive(Default)]
 pub struct PointerState {
     pub hover: Value,
+    hover_focus: Value,
+    hover_on_save_page: bool,
     pub pressed: Value,
     pub drag: Value,
     pub down_pos: (f32, f32),
@@ -48,24 +50,74 @@ pub fn with_ped<R>(v: &Value, f: impl FnOnce(&Ped) -> R) -> Option<R> {
     None
 }
 
-/// (Virtual) point inside this node's local rect?
-fn hit_rect(x: &Xf, p: [f32; 2]) -> bool {
-    let (dx, dy) = (p[0] - x.origin[0], p[1] - x.origin[1]);
-    let (c, s) = ((-x.rot).cos(), (-x.rot).sin());
-    let lx = (c * dx - s * dy) / if x.scale[0] == 0.0 { 1.0 } else { x.scale[0] };
-    let ly = (s * dx + c * dy) / if x.scale[1] == 0.0 { 1.0 } else { x.scale[1] };
-    let (x0, y0) = (-x.pivot[0] * x.w, -x.pivot[1] * x.h);
-    lx >= x0 && lx <= x0 + x.w && ly >= y0 && ly <= y0 + x.h
+struct HitRect {
+    origin: [f32; 2],
+    scale: [f32; 2],
+    bounds: [f32; 4],
+    sin: f32,
+    cos: f32,
+}
+
+impl HitRect {
+    fn new(x: &Xf) -> Self {
+        let [sx, sy] = x.scale.map(|scale| if scale == 0.0 { 1.0 } else { scale });
+        let (x0, y0) = (-x.pivot[0] * x.w, -x.pivot[1] * x.h);
+        let (sin, cos) = if x.rot == 0.0 { (0.0, 1.0) } else { (-x.rot).sin_cos() };
+        Self {
+            origin: x.origin,
+            scale: [sx, sy],
+            bounds: [x0, y0, x0 + x.w, y0 + x.h],
+            sin,
+            cos,
+        }
+    }
+
+    fn contains(&self, p: [f32; 2]) -> bool {
+        let [x0, y0, x1, y1] = self.bounds;
+        let (dx, dy) = (p[0] - self.origin[0], p[1] - self.origin[1]);
+        let lx = (self.cos * dx - self.sin * dy) / self.scale[0];
+        let ly = (self.sin * dx + self.cos * dy) / self.scale[1];
+        lx >= x0 && lx <= x1 && ly >= y0 && ly <= y1
+    }
+
+    // The common axis-aligned case can narrow a batch by x before running the exact test.
+    fn x_span(&self) -> [f32; 2] {
+        if self.sin != 0.0 || self.cos != 1.0 {
+            return [f32::NEG_INFINITY, f32::INFINITY];
+        }
+        let a = self.origin[0] + self.bounds[0] * self.scale[0];
+        let b = self.origin[0] + self.bounds[2] * self.scale[0];
+        if !(a.is_finite() && b.is_finite()) {
+            return [f32::NEG_INFINITY, f32::INFINITY];
+        }
+        // Roundoff at the edge must never exclude a point the inverse transform would hit.
+        let margin = 8.0 * f32::EPSILON * a.abs().max(b.abs()).max(self.origin[0].abs()).max(1.0);
+        [a.min(b) - margin, a.max(b) + margin]
+    }
 }
 
 struct Probe {
     point: [f32; 2],
+    index: usize,
     hit: Value,
 }
 
 pub(crate) fn offline_screen_visible(vm: &Vm) -> bool {
     // The built-in OfflinePanel covers the game until "On To The Game!".
-    vm.eng.desktop_panels && vm.eng.keys.get("level0:1165").is_some_and(active_in_hierarchy)
+    if !vm.eng.desktop_panels {
+        return false;
+    }
+    let Some(panel) = vm.eng.keys.get("level0:1165").filter(|go| active_in_hierarchy(go)) else {
+        return false;
+    };
+    // Closing the splash parks its transform outside the canvas. It stays active.
+    let rect = xf(vm, &transform_of(panel));
+    let width = rect.w * rect.scale[0].abs();
+    let height = rect.h * rect.scale[1].abs();
+    let left = rect.origin[0] - rect.pivot[0] * width;
+    let bottom = rect.origin[1] - rect.pivot[1] * height;
+    left + width > 0.0 && left < vm.eng.screen.0 as f32
+        && bottom + height > 0.0 && bottom < vm.eng.screen.1 as f32
 }
 
 fn raycast_node(
@@ -73,10 +125,13 @@ fn raycast_node(
     tr: &Value,
     x: Xf,
     probes: &mut [Probe],
-    masks: &mut Vec<Xf>,
+    masks: &mut Vec<HitRect>,
     remaining: &mut usize,
 ) {
     let go = go_of(tr);
+    if crate::ui::menu_is_parked(vm, &go, &x) {
+        return;
+    }
     let Some((graphic, mask)) = with_go(&go, |g| {
         (g.active && !g.port_hidden && !(g.name == "Hover Tooltip" && offline_screen_visible(vm))).then(|| {
             let mut graphic = false;
@@ -100,12 +155,19 @@ fn raycast_node(
 
     // A later child draws over its siblings and its parent.
     if mask {
-        masks.push(x);
+        let rect = HitRect::new(&x);
+        if !probes.iter().any(|p| p.hit.is_null() && rect.contains(p.point)) {
+            return;
+        }
+        masks.push(rect);
     }
     let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
     for child in children.iter().rev() {
         if *remaining == 0 {
             break;
+        }
+        if !with_go(&go_of(child), |g| g.active && !g.port_hidden).unwrap_or(false) {
+            continue;
         }
         if let Some(cx) = view_child_xf(vm, &x, child) {
             raycast_node(vm, child, cx, probes, masks, remaining);
@@ -116,8 +178,17 @@ fn raycast_node(
     }
     if graphic && *remaining > 0 {
         let width = view_width(vm, tr);
-        for p in probes.iter_mut().filter(|p| p.hit.is_null() && p.point[0] < width) {
-            if hit_rect(&x, p.point) && masks.iter().all(|m| hit_rect(m, p.point)) {
+        let rect = HitRect::new(&x);
+        let candidates = if probes.len() > 8 {
+            let [lo, hi] = rect.x_span();
+            let start = probes.partition_point(|p| p.point[0] < lo);
+            let end = start + probes[start..].partition_point(|p| p.point[0] <= hi && p.point[0] < width);
+            &mut probes[start..end]
+        } else {
+            probes
+        };
+        for p in candidates.iter_mut().filter(|p| p.hit.is_null() && p.point[0] < width) {
+            if rect.contains(p.point) && masks.iter().all(|m| m.contains(p.point)) {
                 p.hit = go.clone();
                 *remaining -= 1;
             }
@@ -139,11 +210,14 @@ pub(crate) fn raycast_points(vm: &Vm, roots: &[(i32, Value)], points: &[[f32; 2]
     let width = vm.eng.desktop_layout.width().max(vm.eng.screen.0 as f32);
     let height = vm.eng.screen.1 as f32;
     let mut remaining = 0;
-    let mut probes: Vec<_> = points.iter().map(|&point| {
+    let mut probes: Vec<_> = points.iter().enumerate().map(|(index, &point)| {
         let valid = (0.0..width).contains(&point[0]) && (0.0..height).contains(&point[1]);
         remaining += usize::from(valid);
-        Probe { point: if valid { point } else { [f32::INFINITY; 2] }, hit: Value::Null }
+        Probe { point: if valid { point } else { [f32::INFINITY; 2] }, index, hit: Value::Null }
     }).collect();
+    if probes.len() > 8 {
+        probes.sort_unstable_by(|a, b| a.point[0].total_cmp(&b.point[0]));
+    }
     let mut masks = Vec::new();
     for (_, root) in roots.iter().rev() {
         if remaining == 0 {
@@ -151,7 +225,11 @@ pub(crate) fn raycast_points(vm: &Vm, roots: &[(i32, Value)], points: &[[f32; 2]
         }
         raycast_node(vm, root, view_xf(vm, root), &mut probes, &mut masks, &mut remaining);
     }
-    probes.into_iter().map(|p| p.hit).collect()
+    let mut hits = vec![Value::Null; points.len()];
+    for p in probes {
+        hits[p.index] = p.hit;
+    }
+    hits
 }
 
 pub fn raycast(vm: &Vm, p: [f32; 2]) -> Value {
@@ -439,7 +517,22 @@ impl Vm {
             return;
         }
         let p = [pos.0, pos.1];
-        let hit = if edge_d || edge_u || (!down && self.eng.hover_always) { raycast(self, p) } else { Value::Null };
+        // A sleeping gamepad keeps its virtual pointer on the selected control.
+        // Revalidate real clicks and recompute hover when focus or its position moves.
+        let on_save_page = crate::save_slots::is_open(self) || self.at_desktop_start();
+        let stable_pad = self.eng.pad_hover && !self.eng.focus.is_null()
+            && same(&self.eng.focus, &self.eng.ptr.hover_focus)
+            && pos == self.eng.ptr.last_pos
+            && on_save_page == self.eng.ptr.hover_on_save_page
+            && !offline_screen_visible(self)
+            && active_in_hierarchy(&self.eng.ptr.hover);
+        let hit = if edge_d || edge_u || (!down && self.eng.hover_always && !stable_pad) {
+            raycast(self, p)
+        } else if stable_pad {
+            self.eng.ptr.hover.clone()
+        } else {
+            Value::Null
+        };
         if edge_d {
             self.set_hover(hit.clone(), pos);
             self.eng.ptr.down_pos = pos;
@@ -508,6 +601,12 @@ impl Vm {
         } else if self.eng.hover_always && !down {
             self.set_hover(hit, pos);
         }
+        self.eng.ptr.hover_focus = if self.eng.pad_hover {
+            self.eng.focus.clone()
+        } else {
+            Value::Null
+        };
+        self.eng.ptr.hover_on_save_page = on_save_page;
         self.eng.ptr.last_pos = pos;
     }
 
@@ -605,6 +704,7 @@ impl Vm {
             t.apos[1] += my / ps[1];
         });
         mark_dirty(&content);
+        invalidate_input();
         // scroll bars
         let cx2 = xf(self, &content);
         if vertical && !vscroll.is_null() {
@@ -672,6 +772,7 @@ impl Vm {
                     let ps = cx.scale[1] / with_tr(&content, |t| t.scale[1]).unwrap_or(1.0).max(1e-6);
                     with_tr(&content, |t| t.apos[1] += (want_top - c_top) / ps);
                     mark_dirty(&content);
+                    invalidate_input();
                 }
             }
             if is_h && hz {
@@ -682,6 +783,7 @@ impl Vm {
                     let ps = cx.scale[0] / with_tr(&content, |t| t.scale[0]).unwrap_or(1.0).max(1e-6);
                     with_tr(&content, |t| t.apos[0] += (want_left - c_left) / ps);
                     mark_dirty(&content);
+                    invalidate_input();
                 }
             }
         }

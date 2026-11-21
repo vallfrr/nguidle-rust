@@ -61,6 +61,36 @@ fn select_achievement(mut texture: Tex, locked: bool) -> Tex {
     texture
 }
 
+fn read_texture(key: &str) -> Option<Tex> {
+    let (file, selection) = match key.split_once('#') {
+        Some((file, "selected")) if file.starts_with("steam-achievements/") => (file, Some(false)),
+        Some((file, "selected-locked")) if file.starts_with("steam-achievements/") => (file, Some(true)),
+        _ => (key, None),
+    };
+    let file = format!("tex/{}.png", file.replace(':', "_"));
+    let texture = load_png_bytes(&crate::assets::read(&file)?)?;
+    Some(match selection {
+        Some(locked) => select_achievement(texture, locked),
+        None => texture,
+    })
+}
+
+fn read_font(file: &str) -> Option<fontdue::Font> {
+    let data = crate::assets::read(&format!("fonts/{file}"))?;
+    fontdue::Font::from_bytes(data, fontdue::FontSettings::default()).ok()
+}
+
+#[cfg(target_os = "vita")]
+pub(crate) fn prepare_startup_fonts() -> Option<std::thread::JoinHandle<Vec<(String, fontdue::Font)>>> {
+    std::thread::Builder::new().name("ngu-fonts".into()).stack_size(512 * 1024).spawn(|| {
+        [2487, 2490, 2491, 2492].into_iter().filter_map(|asset| {
+            let name = format!("sharedassets0.assets_{asset}.ttf");
+            let font = read_font(&name)?;
+            Some((name, font))
+        }).collect()
+    }).ok()
+}
+
 #[derive(Clone)]
 pub struct Quad {
     /// corners in screen pixels: origin, +u, +u+v, +v
@@ -86,6 +116,8 @@ pub struct Renderer {
     /// durations (ms) of the last frame: quad building / software rasterization
     pub t_emit: f32,
     pub t_raster: f32,
+    #[cfg(target_os = "vita")]
+    pub(crate) layout_us: u32,
     pub w: usize,
     pub h: usize,
     pub fb: Vec<u8>, // RGBA (software backend)
@@ -145,6 +177,8 @@ impl Renderer {
     pub fn new(w: usize, h: usize) -> Renderer {
         Renderer {
             t_emit: 0.0,
+            #[cfg(target_os = "vita")]
+            layout_us: 0,
             t_raster: 0.0,
             w,
             h,
@@ -185,9 +219,7 @@ impl Renderer {
         if !t.px.is_empty() {
             return Some(t);
         }
-        let rel = format!("tex/{}.png", self.tex_keys[i].replace(':', "_"));
-        let n = crate::assets::read(&rel).and_then(|b| load_png_bytes(&b))?;
-        let n = Rc::new(n);
+        let n = Rc::new(read_texture(&self.tex_keys[i])?);
         self.textures[i] = n.clone();
         Some(n)
     }
@@ -216,16 +248,9 @@ impl Renderer {
             return t.map(|id| (id, self.textures[id as usize - 2].clone()));
         }
         let _ = dir;
-        let (source, selection) = match key.split_once('#') {
-            Some((source, "selected")) if source.starts_with("steam-achievements/") => (source, Some(false)),
-            Some((source, "selected-locked")) if source.starts_with("steam-achievements/") => (source, Some(true)),
-            _ => (key, None),
-        };
-        let rel = format!("tex/{}.png", source.replace(':', "_"));
-        match crate::assets::read(&rel).and_then(|b| load_png_bytes(&b)) {
+        match read_texture(key) {
             Some(t) => {
                 let id = self.textures.len() as u32 + 2;
-                let t = if let Some(locked) = selection { select_achievement(t, locked) } else { t };
                 let t = Rc::new(t);
                 self.textures.push(t.clone());
                 self.tex_keys.push(key.to_string());
@@ -244,9 +269,14 @@ impl Renderer {
             return f.clone();
         }
         let _ = dir;
-        let f = crate::assets::read(&format!("fonts/{}", file)).and_then(|b| fontdue::Font::from_bytes(b, fontdue::FontSettings::default()).ok()).map(Rc::new);
+        let f = read_font(file).map(Rc::new);
         self.fonts.insert(file.to_string(), f.clone());
         f
+    }
+
+    #[cfg(target_os = "vita")]
+    pub(crate) fn install_fonts(&mut self, fonts: Vec<(String, fontdue::Font)>) {
+        self.fonts.extend(fonts.into_iter().map(|(name, font)| (name, Some(Rc::new(font)))));
     }
 
     fn pick_font(&mut self, vm: &Vm, font: &Value, bold: bool) -> Option<(usize, Rc<fontdue::Font>)> {
@@ -277,7 +307,13 @@ impl Renderer {
 
     /// Builds the quad list of the current frame (self.quads).
     pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
+        #[cfg(target_os = "vita")]
+        let layout_start = std::time::Instant::now();
         self.prepare_layout(vm);
+        #[cfg(target_os = "vita")]
+        {
+            self.layout_us = layout_start.elapsed().as_micros() as u32;
+        }
         self.quads.clear();
         self.scale = scale;
         self.ox = ox;
@@ -487,6 +523,9 @@ impl Renderer {
     fn draw_node_inner(&mut self, vm: &mut Vm, tr: &Value, x: Xf, clip: Clip, depth: u8) {
         self.visits += 1;
         let go = go_of(tr);
+        if crate::ui::menu_is_parked(vm, &go, &x) {
+            return;
+        }
         // containers above bound regions: their subtree mixes transforms that change without the game noticing
         let cacheable = self.regions.is_empty() || depth >= 2;
         let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy, vm.eng.desktop_layout.width()];

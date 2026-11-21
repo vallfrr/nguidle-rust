@@ -6,6 +6,7 @@ use crate::ui::{view_child_xf, view_xf, xf, Xf};
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
+use std::sync::atomic::Ordering::Relaxed;
 
 #[derive(Clone)]
 pub struct Focusable {
@@ -14,6 +15,11 @@ pub struct Focusable {
     pub rect: [f32; 4],
     pub label: String,
     pub kind: &'static str,
+}
+
+pub(crate) struct ControlCache {
+    revision: (u32, u64, f32),
+    controls: Vec<Focusable>,
 }
 
 /// Bounding box (top-left screen space) of a node.
@@ -123,6 +129,9 @@ pub fn select_at(vm: &mut Vm, x: f32, y: f32) -> bool {
 
 fn collect_node(vm: &mut Vm, tr: &Value, x: Xf, vh: f32, out: &mut Vec<Focusable>) {
     let go = go_of(tr);
+    if crate::ui::menu_is_parked(vm, &go, &x) {
+        return;
+    }
     let active = with_go(&go, |g| g.active && !g.port_hidden).unwrap_or(false);
     if !active {
         return;
@@ -152,8 +161,7 @@ fn within(inner: &Value, outer: &Value) -> bool {
     false
 }
 
-/// Interactive elements visible on screen and reachable (not hidden by another element).
-pub fn collect(vm: &mut Vm) -> Vec<Focusable> {
+fn reachable(vm: &mut Vm) -> Vec<Focusable> {
     let sh = vm.eng.screen.1 as f32;
     let roots = canvas_roots(vm);
     let mut all = vec![];
@@ -166,13 +174,41 @@ pub fn collect(vm: &mut Vm) -> Vec<Focusable> {
         [cx, sh - cy]
     }).collect();
     let hits = raycast_points(vm, &roots, &points);
-    all.into_iter().zip(hits).filter_map(|(mut f, hit)| {
-        if hit.is_null() || !(within(&hit, &f.go) || within(&f.go, &hit)) {
-            return None;
-        }
-        f.label = text_under(&transform_of(&f.go), 3);
-        Some(f)
+    all.into_iter().zip(hits).filter_map(|(f, hit)| {
+        (!hit.is_null() && (within(&hit, &f.go) || within(&f.go, &hit))).then_some(f)
     }).collect()
+}
+
+fn choose_control(vm: &mut Vm, dir: char) -> Option<Focusable> {
+    let find = |controls: &[Focusable], focus: &Value| {
+        let next = match controls.iter().position(|f| same(&f.go, focus)) {
+            Some(i) => neighbour(controls, &controls[i].rect, dir).unwrap_or(i),
+            None => (0..controls.len()).min_by(|&a, &b| {
+                let (ca, cb) = (center(&controls[a].rect), center(&controls[b].rect));
+                (ca.1, ca.0).partial_cmp(&(cb.1, cb.0)).unwrap()
+            })?,
+        };
+        controls.get(next).cloned()
+    };
+    if !vm.eng.cache_focus_controls {
+        let controls = reachable(vm);
+        return find(&controls, &vm.eng.focus);
+    }
+    let revision = (INPUT_EPOCH.load(Relaxed), LAYOUT_EPOCH.load(Relaxed), vm.eng.desktop_layout.width());
+    if vm.eng.focus_cache.as_ref().is_none_or(|cache| cache.revision != revision) {
+        let controls = reachable(vm);
+        vm.eng.focus_cache = Some(ControlCache { revision, controls });
+    }
+    find(&vm.eng.focus_cache.as_ref()?.controls, &vm.eng.focus)
+}
+
+/// Interactive elements visible on screen and reachable (not hidden by another element).
+pub fn collect(vm: &mut Vm) -> Vec<Focusable> {
+    let mut controls = reachable(vm);
+    for control in &mut controls {
+        control.label = text_under(&transform_of(&control.go), 3);
+    }
+    controls
 }
 
 /// Active nodes whose rectangle contains the point (top-left space), in draw order: (path, components).
@@ -297,20 +333,11 @@ pub fn neighbour(list: &[Focusable], cur: &[f32; 4], dir: char) -> Option<usize>
 
 /// Moves the focus; without a valid focus, takes the first element in reading order.
 pub fn navigate(vm: &mut Vm, dir: char) -> Option<Focusable> {
-    let list = collect(vm);
-    if list.is_empty() {
+    let Some(mut f) = choose_control(vm, dir) else {
         clear(vm);
         return None;
-    }
-    let cur = list.iter().position(|f| same(&f.go, &vm.eng.focus));
-    let next = match cur {
-        Some(i) => neighbour(&list, &list[i].rect, dir).unwrap_or(i),
-        None => (0..list.len()).min_by(|&a, &b| {
-            let (ca, cb) = (center(&list[a].rect), center(&list[b].rect));
-            (ca.1, ca.0).partial_cmp(&(cb.1, cb.0)).unwrap()
-        })?,
     };
-    let f = list[next].clone();
+    f.label = text_under(&transform_of(&f.go), 3);
     set_focus(vm, f.go.clone(), Some(f.rect));
     Some(f)
 }
@@ -431,4 +458,69 @@ pub fn menu_step(vm: &mut Vm, delta: i32) -> Option<(f32, f32)> {
     set_focus(vm, f.go.clone(), Some(f.rect));
     let (cx, cy) = center(&f.rect);
     Some((cx, vm.eng.screen.1 as f32 - cy))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires prepared assets and a late-game save"]
+    fn parked_canvas_pruning_preserves_focus_and_hit_targets() {
+        let dll = std::env::var("NGU_TEST_DLL").unwrap();
+        let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+        let save = std::env::var("NGU_TEST_SAVE").unwrap();
+        let mut vm = Vm::new(&dll);
+        vm.eng.screen = (960, 600);
+        vm.eng.desktop_panels = true;
+        vm.load_scene(&assets).unwrap();
+        vm.awake_all();
+        crate::script::run_steps(&mut vm, &[
+            "w,40".into(), "click,Start New Game".into(), "click,PLAY".into(),
+            format!("l,{save}"), "w,45".into(), "call,HoverTooltip.offForever".into(),
+            "call,HoverTooltip.hideTutorialTooltip".into(),
+        ]);
+        vm.eng.desktop_layout.set_width(960.0 / (544.0 / 600.0));
+        let mut renderer = crate::render::Renderer::new(0, 0);
+        let menus = crate::dev::menu_roots(&vm);
+        let menu_field = crate::vm::field_ref(&vm, "MenuSwapper", "menuID").unwrap();
+        let swapper = vm.eng.user_comps.iter().find(|c| {
+            matches!(c, Value::Obj(object) if object.ty == menu_field.0)
+        }).unwrap().clone();
+        let mut checked = 0;
+        for (menu, node) in menus.iter().enumerate() {
+            if !with_go(node, |go| !go.port_hidden).unwrap_or(false) {
+                continue;
+            }
+            crate::script::run_steps(&mut vm, &[format!("menu,{menu}")]);
+            let active = crate::vm::read_field(&swapper, menu_field).unwrap();
+            assert_eq!(active.as_i32(), menu as i32);
+            renderer.prepare_layout(&mut vm);
+            vm.eng.parked_menu_canvases.clear();
+            vm.eng.cache_focus_controls = false;
+            let reference = collect(&mut vm);
+
+            crate::ui::cache_menu_canvases(&mut vm);
+            assert!(!vm.eng.parked_menu_canvases.is_empty());
+            let controls = collect(&mut vm);
+            assert_eq!(controls.len(), reference.len());
+            for (actual, expected) in controls.iter().zip(&reference) {
+                assert!(same(&actual.go, &expected.go));
+                assert_eq!(actual.rect, expected.rect);
+            }
+            checked += 1;
+            if controls.is_empty() {
+                continue;
+            }
+            let run = |vm: &mut Vm, cached| {
+                clear(vm);
+                vm.eng.cache_focus_controls = cached;
+                vm.eng.focus_cache = None;
+                ['d', 'r', 'r', 'l'].map(|direction| navigate(vm, direction).unwrap().rect)
+            };
+            assert_eq!(run(&mut vm, false), run(&mut vm, true));
+        }
+        assert!(checked >= 50, "only checked {checked} screens");
+        println!("Checked focus hit targets in {checked} menus");
+    }
 }

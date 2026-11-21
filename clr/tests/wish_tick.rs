@@ -162,3 +162,46 @@ fn cooking_uses_the_exact_score_after_recipe_changes() {
     Rc::get_mut(&mut vm.prog).unwrap().methods[method as usize].guard = 0;
     assert_eq!(changed, score(&mut vm).0);
 }
+
+#[test]
+#[ignore = "requires assets and a save from the verified installation"]
+fn achievement_scan_preserves_thresholds_and_bonus_points() {
+    let dll = std::env::var("NGU_TEST_DLL").unwrap();
+    let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+    let save = std::env::var("NGU_TEST_SAVE").unwrap();
+    let run = |guarded| {
+        let mut vm = late_game(&dll, &assets, &save);
+        let controller = vm.eng.user_comps.iter().find_map(|component| {
+            let Value::Obj(component) = component else { return None };
+            (vm.types[component.ty as usize].name == "AllAchievementsController")
+                .then(|| Rc::clone(component))
+        }).unwrap();
+        let character = member(&vm, &controller, "character");
+        let achievements = member(&vm, &character, "achievements");
+        let completed = member(&vm, &achievements, "achievementComplete");
+        {
+            let Ext::List(entries) = &mut *completed.x.borrow_mut() else { panic!("Expected achievement list") };
+            entries.fill(Value::bool(false));
+        }
+        let method = vm.find_method(controller.ty, "checkAchievements", 1).unwrap();
+        if !guarded {
+            Rc::get_mut(&mut vm.prog).unwrap().methods[method as usize].guard = 0;
+        }
+        let start = vm.steps;
+        vm.invoke(method, vec![Value::Obj(controller.clone())]).unwrap_or_else(|error| {
+            panic!("Achievement scan raised {}", vm.describe(&error))
+        });
+        let steps = vm.steps - start;
+        let Ext::List(entries) = &*completed.x.borrow() else { panic!("Expected achievement list") };
+        let flags = entries.iter().map(Value::as_bool).collect::<Vec<_>>();
+        let totals = ["totalBP", "totalAchievementCount"].map(|name| {
+            controller.f.borrow()[field(&vm, &controller, name)].as_i64()
+        });
+        ((totals, flags), steps)
+    };
+    let (optimized, steps) = run(true);
+    let (reference, reference_steps) = run(false);
+    assert_eq!(optimized, reference);
+    assert!(optimized.0[1] > 0);
+    assert!(steps < reference_steps);
+}

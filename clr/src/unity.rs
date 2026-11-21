@@ -140,7 +140,7 @@ pub enum CK {
     Sprite(Box<SpriteD>),
     Texture(Box<TexD>),
     Font { name: String, file: String },
-    TextAsset { name: String, key: String },
+    TextAsset { name: String, key: String, text: Option<Rc<str>> },
     AudioClip(String),
     Wait(f32),
     Coroutine,
@@ -228,6 +228,8 @@ pub struct Engine {
     pub prefs: HashMap<String, Value>,
     pub assets_dir: String,
     pub save_dir: String,
+    #[cfg(target_os = "vita")]
+    pub(crate) autosave_writer: Option<crate::save_slots::VitaAutosave>,
     pub mouse: (f32, f32),
     pub mouse_down: bool,
     pub mouse_down_edge: bool,
@@ -242,6 +244,9 @@ pub struct Engine {
     /// focused element (gamepad/keyboard navigation) and its rectangle (virtual px, top-left) for drawing
     pub focus: Value,
     pub focus_rect: Option<[f32; 4]>,
+    pub(crate) focus_cache: Option<crate::focus::ControlCache>,
+    pub(crate) cache_focus_controls: bool,
+    pub(crate) parked_menu_canvases: crate::vm::FxMap<usize, Value>,
     /// last `Screen.SetResolution(w, h, fullscreen)` request and the frame it was made at
     /// clip name per AudioSource object (by address) and the sounds to play (drained by the shell)
     pub audio_clips: HashMap<usize, String>,
@@ -260,6 +265,7 @@ pub struct Engine {
     pub ptr: crate::input::PointerState,
     pub update_list: Option<(Vec<Value>, Vec<Value>)>,
     pub hover_always: bool,
+    pub pad_hover: bool,
     pub scrollrects: Vec<Value>,
     pub layout_gos: Option<Vec<Value>>,
     pub layout_seen: u64,
@@ -314,6 +320,11 @@ pub fn same(a: &Value, b: &Value) -> bool {
 }
 
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+pub(crate) static INPUT_EPOCH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+pub(crate) fn invalidate_input() {
+    INPUT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Signals that a layout may have changed (if the node is under a layout).
 pub fn bump_layout(v: &Value) {
@@ -665,7 +676,9 @@ impl Vm {
                 }
                 "TextAsset" => {
                     let v = pj(raw);
-                    let o = new_comp(self, "UnityEngine.TextAsset", Value::Null, CK::TextAsset { name: v["name"].as_str().unwrap_or("").into(), key: k.to_string() });
+                    let o = new_comp(self, "UnityEngine.TextAsset", Value::Null, CK::TextAsset {
+                        name: v["name"].as_str().unwrap_or("").into(), key: k.to_string(), text: None,
+                    });
                     self.eng.keys.insert(k.to_string(), o);
                 }
                 "AudioClip" => {
@@ -1204,6 +1217,7 @@ impl Vm {
         if self_changed {
             mark_dirty(go);
             bump_layout(go);
+            invalidate_input();
         }
         if was == now {
             return;

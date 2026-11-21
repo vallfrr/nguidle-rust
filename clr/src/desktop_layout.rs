@@ -114,7 +114,7 @@ impl DesktopLayout {
     }
 
     fn place(&mut self, tr: &Value, source: Xf, target: Xf, area: Area) {
-        let Some(area) = with_go(&go_of(tr), |g| (g.active && !g.port_hidden).then(|| match g.name.as_str() {
+        let Some((area, training_viewport)) = with_go(&go_of(tr), |g| (g.active && !g.port_hidden).then(|| (match g.name.as_str() {
             "Attack Panel" | "Defense Panel" | "Augments Menu" | "Blood Magic Menu" |
             "Advanced Training Menu" | "NGU Menu + All NGU" | "NGU Menu" if width(target) > width(source) => {
                 Area::Table(Columns {
@@ -132,7 +132,7 @@ impl DesktopLayout {
                     .unwrap_or(false)
             }) => Area::Grid,
             _ => area,
-        })).flatten() else {
+        }, g.name == "Train Attack Menu + Scripts"))).flatten() else {
             return;
         };
         if let Some(key) = id(tr) {
@@ -144,7 +144,17 @@ impl DesktopLayout {
                     return None;
                 }
                 let x = child_rect(&source, &child)?;
-                let (next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width - BASE);
+                let (mut next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width - BASE);
+                next.origin[1] += target.origin[1] - source.origin[1];
+                if training_viewport && g.name == "Contents" {
+                    // Basic Training's full-height scroll content has no scroll range.
+                    // Keep it inside its mask even if the original scene supplied an offset.
+                    let view_h = target.h * target.scale[1].abs();
+                    let content_h = next.h * next.scale[1].abs();
+                    if view_h > 0.0 && (content_h - view_h).abs() < 0.5 {
+                        next.origin[1] = target.origin[1] + next.pivot[1] * content_h - target.pivot[1] * view_h;
+                    }
+                }
                 Some((x, next, child_area))
             }).flatten() else { continue };
             self.place(&child, x, next, child_area);

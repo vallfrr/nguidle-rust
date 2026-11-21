@@ -4,7 +4,7 @@ use crate::Vm;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
-const GAME_STEP: f32 = 1.0 / 30.0;
+const GAME_STEP: f64 = 1.0 / 30.0;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -38,12 +38,62 @@ struct State {
     touch_down: bool,
     pad_focus: bool,
     pad_click: Option<((f32, f32), bool)>,
-    accumulator: f32,
+    accumulator: f64,
+    was_at_title: bool,
     benchmark: bool,
     frames: u64,
 }
 
 static mut STATE: Option<State> = None;
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires prepared assets and a late-game save"]
+    fn vita_autosave_projects_small_menus_to_the_display() {
+        let assets = std::env::var("NGU_TEST_VITA_ASSETS").unwrap();
+        let profile = std::env::var("NGU_VITA_SAVE_DIR").unwrap();
+        let save = std::env::var("NGU_TEST_SAVE").unwrap();
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::copy(save, std::path::Path::new(&profile).join("NGUSaveSteam.txt")).unwrap();
+        assert_eq!(ngu_init(std::ffi::CString::new(assets).unwrap().as_ptr(), 960, 544), 0);
+        let click = |x, y| {
+            ngu_frame(1.0 / 60.0, x, y, 1);
+            ngu_frame(1.0 / 60.0, x, y, 0);
+        };
+        click(480.0, 368.0);
+        for _ in 0..90 {
+            ngu_frame(1.0 / 60.0, -1.0, -1.0, 0);
+        }
+        click(300.0, 508.0);
+        for (name, y, menu) in [
+            ("Basic Training", 18.0, 0),
+            ("Augmentation", 143.0, 5),
+            ("Advanced Training", 167.0, 17),
+            ("Time Machine", 190.0, 18),
+            ("Blood Magic", 215.0, 6),
+            ("Wandoos", 239.0, 14),
+            ("NGU", 264.0, 8),
+        ] {
+            click(210.0, y);
+            ngu_frame(1.0 / 60.0, -1.0, -1.0, 0);
+            ngu_emit();
+            let s = st().unwrap();
+            let field = crate::vm::field_ref(&s.vm, "MenuSwapper", "menuID").unwrap();
+            let active = s.vm.eng.user_comps.iter().find_map(|component| crate::vm::read_field(component, field)).unwrap();
+            assert_eq!(active.as_i32(), menu, "{name}: unexpected active menu");
+            s.rend.fb.resize(960 * 544 * 4, 0);
+            s.rend.raster();
+            let filled = (350..900).filter(|&x| {
+                let i = (535 * 960 + x) * 4;
+                s.rend.fb[i..i + 3] != [0, 0, 0]
+            }).count();
+            assert!(filled > 500, "{name}: the right panel must reach the bottom of the display ({filled} non-black pixels)");
+        }
+    }
+}
 
 #[allow(static_mut_refs)]
 fn st() -> Option<&'static mut State> {
@@ -79,6 +129,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     crate::elog!("[ngu] VM prete en {:?}", t0.elapsed());
     vm.eng.screen = (960, 600);
     vm.eng.desktop_panels = true;
+    vm.eng.cache_focus_controls = true;
     let benchmark_dir = std::env::var("NGU_VITA_SAVE_DIR");
     let benchmark = benchmark_dir.is_ok();
     vm.eng.save_dir = benchmark_dir.unwrap_or_else(|_| format!("{dir}/save"));
@@ -91,6 +142,8 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
         return 2;
     }
     crate::elog!("[ngu] scene loaded in {:?} ({} GameObjects)", t1.elapsed(), vm.eng.gos.len());
+    #[cfg(target_os = "vita")]
+    let fonts = crate::render::prepare_startup_fonts();
     let t2 = std::time::Instant::now();
     vm.awake_all();
     crate::elog!("[ngu] Awake en {:?}", t2.elapsed());
@@ -99,16 +152,21 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
         crate::elog!("[ngu] save picker: {error}");
         return 3;
     }
+    crate::ui::cache_menu_canvases(&mut vm);
     // Keep the native proportions and reflow the desktop UI to use the full Vita screen.
     let scale = (dev_w as f32 / 960.0).min(dev_h as f32 / 600.0);
     let ox = 0.0;
     let oy = (dev_h as f32 - 600.0 * scale) * 0.5;
     vm.eng.desktop_layout.set_width(dev_w as f32 / scale);
     let mut rend = Renderer::new(0, 0);
+    #[cfg(target_os = "vita")]
+    if let Some(fonts) = fonts.and_then(|worker| worker.join().ok()) {
+        rend.install_fonts(fonts);
+    }
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, benchmark, frames: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0 });
     }
     0
 }
@@ -145,17 +203,21 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         };
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
+    s.vm.eng.pad_hover = s.pad_focus && !touch;
     let profile = s.benchmark.then(|| (std::time::Instant::now(), s.vm.steps));
-    if s.vm.at_desktop_start() {
+    let at_title = s.vm.at_desktop_start();
+    if at_title {
         s.accumulator = 0.0;
-        s.vm.frame(GAME_STEP);
+        s.vm.frame(GAME_STEP as f32);
     } else {
         // Bound recovery work so a slow frame does not monopolize input and presentation.
-        s.accumulator = (s.accumulator + dt.max(0.0)).min(0.25);
+        if !s.was_at_title && dt.is_finite() {
+            s.accumulator += f64::from(dt.max(0.0));
+        }
         let mut steps = 0;
         while s.accumulator >= GAME_STEP && steps < 2 {
             s.accumulator -= GAME_STEP;
-            s.vm.frame(GAME_STEP);
+            s.vm.frame(GAME_STEP as f32);
             steps += 1;
         }
         if steps == 0 && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
@@ -164,6 +226,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
             s.vm.eng.mouse_up_edge = false;
         }
     }
+    s.was_at_title = at_title;
     if let Some((start, steps)) = profile {
         s.frames += 1;
         if s.frames <= 12 || s.frames % 100 == 0 {
@@ -216,7 +279,7 @@ pub extern "C" fn ngu_emit() -> i32 {
         Some(s) => s,
         None => return 0,
     };
-    s.rend.set_subframe_time(s.accumulator.min(GAME_STEP));
+    s.rend.set_subframe_time(s.accumulator.min(GAME_STEP) as f32);
     s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
     s.verts.clear();
     s.batches.clear();
@@ -245,6 +308,19 @@ pub extern "C" fn ngu_batches() -> *const NguBatch {
 #[no_mangle]
 pub extern "C" fn ngu_vertices() -> *const NguVertex {
     st().map(|s| s.verts.as_ptr()).unwrap_or(std::ptr::null())
+}
+
+#[cfg(target_os = "vita")]
+#[no_mangle]
+pub extern "C" fn ngu_layout_us() -> u32 {
+    st().map_or(0, |s| s.rend.layout_us)
+}
+
+#[no_mangle]
+pub extern "C" fn ngu_clock_us(debt_us: *mut u64) -> u64 {
+    let Some(s) = st() else { return 0 };
+    unsafe { *debt_us = (s.accumulator * 1_000_000.0) as u64; }
+    (s.vm.eng.time * 1_000_000.0) as u64
 }
 
 /// RGBA8 pixels of a texture (id >= 2). Returns NULL if unknown.
