@@ -201,7 +201,8 @@ pub struct Co {
 
 pub struct Inv {
     pub owner: Value,
-    pub method: String,
+    pub method: Rc<str>,
+    method_id: Option<u32>,
     pub next: f64,
     pub repeat: f64,
 }
@@ -1314,6 +1315,11 @@ impl Vm {
         self.eng.keys_edge.clear();
     }
 
+    pub(crate) fn schedule_invoke(&mut self, owner: Value, method: Rc<str>, delay: f64, repeat: f64) {
+        let method_id = owner.as_obj().and_then(|obj| self.find_method(obj.ty, &method, 1));
+        self.eng.invokes.push(Inv { owner, method, method_id, next: self.eng.time + delay, repeat });
+    }
+
     fn run_invokes(&mut self) {
         let now = self.eng.time;
         // a repeating invocation that is late runs once per missed period (Unity's delayed-call queue re-inserts it and keeps
@@ -1331,9 +1337,9 @@ impl Vm {
         let mut remove = vec![];
         let profile = self.profile_vita_frame();
         for i in due {
-            let (owner, method, repeat, scheduled) = {
+            let (owner, method, method_id, repeat, scheduled) = {
                 let v = &mut self.eng.invokes[i];
-                let r = (v.owner.clone(), v.method.clone(), v.repeat, v.next);
+                let r = (v.owner.clone(), v.method.clone(), v.method_id, v.repeat, v.next);
                 if v.repeat > 0.0 {
                     v.next += v.repeat;
                 } else {
@@ -1345,17 +1351,15 @@ impl Vm {
             if clock.is_some() && repeat > 0.0 {
                 self.eng.motion.clock = Some((scheduled, repeat));
             }
-            if let Value::Obj(o) = &owner {
-                if let Some(m) = self.find_method(o.ty, &method, 1) {
-                    let start = profile.then(|| (self.steps, std::time::Instant::now()));
-                    if let Err(e) = self.invoke(m, vec![owner.clone()]) {
-                        self.report_exc(&method, &owner, &e);
-                    }
-                    if let Some((steps, start)) = start {
-                        let elapsed = start.elapsed();
-                        if elapsed.as_millis() >= 4 {
-                            crate::elog!("[slow] frame={} {}::{method} {elapsed:?} instr={}", self.eng.frame, self.types[o.ty as usize].name, self.steps - steps);
-                        }
+            if let (Some(o), Some(m)) = (owner.as_obj(), method_id) {
+                let start = profile.then(|| (self.steps, std::time::Instant::now()));
+                if let Err(e) = self.invoke(m, vec![owner.clone()]) {
+                    self.report_exc(&method, &owner, &e);
+                }
+                if let Some((steps, start)) = start {
+                    let elapsed = start.elapsed();
+                    if elapsed.as_millis() >= 4 {
+                        crate::elog!("[slow] frame={} {}::{method} {elapsed:?} instr={}", self.eng.frame, self.types[o.ty as usize].name, self.steps - steps);
                     }
                 }
             }

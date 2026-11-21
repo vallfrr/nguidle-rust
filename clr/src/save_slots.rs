@@ -1942,7 +1942,7 @@ impl Vm {
         if let Some(character) = game_component(self, "Character") {
             // Local desktop startup owns the title and save discovery.
             self.eng.invokes.retain(|invoke| {
-                invoke.method != "initialStart" || !same(&invoke.owner, &character)
+                invoke.method.as_ref() != "initialStart" || !same(&invoke.owner, &character)
             });
         }
         let snapshot = current_snapshot(self)?;

@@ -1,5 +1,5 @@
 //! Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
-use crate::ui::{view_child_xf, view_width, view_xf, Xf};
+use crate::ui::{rotation_axes, view_child_xf, view_width, view_xf, Xf};
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
@@ -387,7 +387,7 @@ impl Renderer {
             let width = vm.eng.desktop_layout.width();
             if vm.eng.desktop_panels && self.regions.is_empty() &&
                 (0.0..width).contains(&mx) && (0.0..self.vh).contains(&my) &&
-                vm.eng.invokes.iter().any(|v| v.method == "updateTooltip")
+                vm.eng.invokes.iter().any(|v| v.method.as_ref() == "updateTooltip")
             {
                 let (w, h) = (x.w * x.scale[0].abs(), x.h * x.scale[1].abs());
                 let place = |pointer: f32, length: f32, limit: f32| {
@@ -702,7 +702,7 @@ impl Renderer {
     }
 
     fn corners(&self, x: &Xf, r: [f32; 4]) -> ([f32; 2], [f32; 2], [f32; 2]) {
-        let (c, s) = (x.rot.cos(), x.rot.sin());
+        let (c, s) = rotation_axes(x.rot);
         let p = |lx: f32, ly: f32| {
             let (sx, sy) = (lx * x.scale[0], ly * x.scale[1]);
             self.to_dev([x.origin[0] + c * sx - s * sy, x.origin[1] + s * sx + c * sy])
@@ -926,7 +926,7 @@ impl Renderer {
             return;
         }
         let dev_scale = self.scale * x.scale[1].abs();
-        let (c, s) = (x.rot.cos(), x.rot.sin());
+        let (c, s) = rotation_axes(x.rot);
         for g in lay.glyphs.iter() {
             let (f, fid) = if g.bold { (&lay.fb, lay.fb_id) } else { (&lay.fr, lay.fr_id) };
             let px = g.size * dev_scale;

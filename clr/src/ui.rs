@@ -3,6 +3,11 @@ use crate::unity::*;
 use crate::value::*;
 use crate::Vm;
 
+#[inline]
+pub(crate) fn rotation_axes(angle: f32) -> (f32, f32) {
+    if angle == 0.0 { (1.0, angle) } else { (angle.cos(), angle.sin()) }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Xf {
     /// pivot position in screen pixels
@@ -85,7 +90,7 @@ pub fn xf(vm: &Vm, tr: &Value) -> Xf {
     } else {
         (0.0, 0.0, [pos[0], pos[1]])
     };
-    let (c, s) = (p.rot.cos(), p.rot.sin());
+    let (c, s) = rotation_axes(p.rot);
     let lx = local[0] * p.scale[0];
     let ly = local[1] * p.scale[1];
     let origin = [p.origin[0] + c * lx - s * ly, p.origin[1] + s * lx + c * ly];
@@ -116,7 +121,7 @@ pub fn set_world_pos(vm: &mut Vm, tr: &Value, p: [f32; 3]) {
     }
     let pxf = xf(vm, &parent);
     let (dx, dy) = (p[0] - pxf.origin[0], p[1] - pxf.origin[1]);
-    let (c, s) = ((-pxf.rot).cos(), (-pxf.rot).sin());
+    let (c, s) = rotation_axes(-pxf.rot);
     let lx = (c * dx - s * dy) / if pxf.scale[0] == 0.0 { 1.0 } else { pxf.scale[0] };
     let ly = (s * dx + c * dy) / if pxf.scale[1] == 0.0 { 1.0 } else { pxf.scale[1] };
     let (amin, amax, pivot, is_rect) = with_tr(tr, |t| (t.amin, t.amax, t.pivot, t.is_rect)).unwrap();
@@ -156,7 +161,7 @@ pub fn child_xf(p: &Xf, t: &Tr) -> Xf {
     } else {
         (0.0, 0.0, [t.pos[0], t.pos[1]])
     };
-    let (c, s) = (p.rot.cos(), p.rot.sin());
+    let (c, s) = rotation_axes(p.rot);
     let lx = local[0] * p.scale[0];
     let ly = local[1] * p.scale[1];
     let origin = [p.origin[0] + c * lx - s * ly, p.origin[1] + s * lx + c * ly];

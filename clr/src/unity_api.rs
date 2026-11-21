@@ -446,22 +446,17 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let owner = rv(vm, &a[0]);
             Ok(vm.start_coroutine(&owner, a[1].clone()))
         },
-        "UnityEngine.MonoBehaviour::Invoke" => |vm, a| {
+        "UnityEngine.MonoBehaviour::Invoke" | "UnityEngine.MonoBehaviour::InvokeRepeating" => |vm, a| {
             let owner = rv(vm, &a[0]);
-            let t = vm.eng.time + a[2].as_f32() as f64;
-            vm.eng.invokes.push(Inv { owner, method: a[1].as_str().unwrap_or("").into(), next: t, repeat: 0.0 });
-            Ok(Value::Null)
-        },
-        "UnityEngine.MonoBehaviour::InvokeRepeating" => |vm, a| {
-            let owner = rv(vm, &a[0]);
-            let t = vm.eng.time + a[2].as_f32() as f64;
-            vm.eng.invokes.push(Inv { owner, method: a[1].as_str().unwrap_or("").into(), next: t, repeat: a[3].as_f32().max(0.0001) as f64 });
+            let method = match &a[1] { Value::Str(name) => name.clone(), _ => Rc::from("") };
+            let repeat = a.get(3).map_or(0.0, |v| v.as_f32().max(0.0001) as f64);
+            vm.schedule_invoke(owner, method, a[2].as_f32() as f64, repeat);
             Ok(Value::Null)
         },
         "UnityEngine.MonoBehaviour::CancelInvoke" => |vm, a| {
             let owner = rv(vm, &a[0]);
-            let name = a.get(1).and_then(|x| x.as_str().map(|s| s.to_string()));
-            vm.eng.invokes.retain(|i| !(same(&i.owner, &owner) && name.as_ref().map(|n| *n == i.method).unwrap_or(true)));
+            let name = a.get(1).and_then(Value::as_str);
+            vm.eng.invokes.retain(|i| !(same(&i.owner, &owner) && name.is_none_or(|name| name == i.method.as_ref())));
             Ok(Value::Null)
         },
         "UnityEngine.WaitForSeconds::.ctor" => |_vm, a| {
