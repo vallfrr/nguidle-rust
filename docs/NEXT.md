@@ -70,7 +70,7 @@ Principles and trade-offs in `docs/VISION.md`.
 - [x] **C2** Render the shared draw list with vitaGL. Verify the home, slot picker and Basic Training on a console (2026-11-21).
 - [~] **C3** Touch, directional focus, confirmation, menu shortcuts, scrolling and the system keyboard are wired. Verified touch dragging between inventory slots, right-stick scrolling and saving/loading numbered slots on device. Verify save naming with the system keyboard and navigation through the remaining dense screens.
 - [~] **C4** Measured about 15–16 s for initialization before first scene emission at the default clocks, down from 26.7 s in the initial baseline. Continue toward < 5 s and measure time until the title screen can accept input.
-- [~] **C5** Fixed the persistent D-pad hover stall. The Vita presents at 60 Hz at the title. Gameplay still misses refreshes on both early and advanced saves. Benchmark the remaining game-thread costs, including save preparation and late-game simulation, then verify input-to-display latency and sleep/resume on hardware. See [Status](STATUS.md#gamepad-stalls-and-display-cadence) for scanout and memory observations.
+- [~] **C5** Fixed the persistent D-pad hover stall and ran a 30-minute advanced save on hardware. The Vita presents at 60 Hz at the title. Gameplay still misses refreshes and the measured focus feedback exceeds two refreshes on the advanced save. Reduce synchronous save preparation and late-game simulation costs, then repeat the display and latency tests and verify sleep/resume on hardware. See [Status](STATUS.md#gamepad-stalls-and-display-cadence).
 - [x] **C6** Build the VPK separately from the prepared SD-card data pack (2026-11-21).
 - [ ] **C7** Official LiveArea assets **[maintainer]**.
 

@@ -249,21 +249,73 @@ operations wait for the write to finish. For a 244,556-byte save, a typical
 worker write took roughly 106–140 ms. The simulation still prepares and
 serializes the save on the game thread.
 
-The advanced-save hardware run captured 25 screen visits, then cycled Basic
-Training, Fight Boss, Adventure, Inventory, Wishes, Cards and Cooking. The
-latest readable log reached 26 minutes 23 seconds of simulation. Over the
-last 829 seconds of that log, heap use stayed between roughly 97 and 98 MiB,
-kernel user memory reported 20 MiB free, and vitaGL reported about 71 MiB of
-video memory free. The run reached one wrap of the display counter. The
-updated sampler subtracts the counter modulo 65,536. The console stopped
-responding to network commands before the final sample could be retrieved.
+The first advanced-save hardware run captured 25 screen visits, then cycled
+Basic Training, Fight Boss, Adventure, Inventory, Wishes, Cards and Cooking.
+The journal recovered after reconnecting reached 42 minutes 37 seconds of
+simulation. A stretch starting after its first menu sweep recorded 1,803.2
+seconds of wall time and 1,803.23 seconds of game time. Heap use stayed
+between 97 and 98 MiB over that stretch, with 20 MiB of free kernel user
+memory and about 71 MiB of vitaGL video memory free. The console continued
+to run after losing the network connection. Its display counter wrapped
+twice. The updated sampler subtracts the counter modulo 65,536.
 
-The packaged build and the corrected data archive pass the host-side
-960 × 544 layout test. Installation of that package and data archive, the
-final 30-minute run, fresh-save and resume checks on the final package, and
-slot 5 provisioning still require access to the device. The measured
-hardware run used an isolated profile. The real autosave and numbered slots
-were untouched by it.
+After reconnecting, the verified archive was installed and the old archive
+retained on the device. The early-save input sequence was repeated three
+times. In steady Fight Boss windows about 53–54 frames reached the display
+per second, with a maximum of about 7.5 ms spent dispatching the two D-pad
+presses. The new-save test created a numbered save, passed the opening
+screen and reached Fight Boss after two right presses, with about 53–54
+displayed FPS in the final steady windows.
+
+The short menus were then captured on the console with the updated archive.
+The seven 960 × 544 PC/Vita pairs all show the right pane reaching the
+screen bottom. The follow-up soak cycled seven gameplay screens on the same
+hardware and fully unlocked save. It recorded 1,828.3 seconds of wall time
+and 1,828.2 seconds of game time. In windows without a screenshot, 53,160
+refreshes had a changed framebuffer and 54,919 repeated the previous one.
+There were no display sampler errors or gaps. After initial page and
+texture loads, heap use was about 94 MiB, with 20 MiB of free kernel user
+memory at the end. In the gameplay windows, median CPU time per
+render-loop iteration was 20.8 ms for simulation, 2.7 ms for layout,
+5.4 ms for draw-list generation, and 2.7 ms for draw submission.
+
+A later benchmark also measured latency from the host's controller
+dispatch to the scanout of the buffer containing the changed focus.
+All 12 sampled changes on the advanced save exceeded two display periods.
+The worst measured change took 141.2 ms. This metric excludes the time
+between physical contact and the next host poll. On the same build the
+external submission counter reported 60.0 FPS at the idle title, where
+the scanout sampler observed 300 changed frames per five seconds.
+
+The later build compiled repeated boss-threshold checks to direct Rust
+field reads and skipped idle loadout keyboard polling. A focused
+interpreter comparison covered the difficulty thresholds, wrapping
+integer inputs and both shortcut keys. Four PC trials with 3,000 game
+ticks measured 2.46–2.55 s before those changes and 2.41–2.47 s after.
+On Vita, the later build displayed about 28 FPS in steady Cards windows.
+The 30-minute run used the preceding build. Neither meets the required
+gameplay cadence.
+
+The full PC save was copied into the Vita's physical slot 5. Its downloaded
+copy matched the PC original byte for byte. The Vita's personal autosave also
+matched its backup immediately after installing and checking slot 5. The
+numbered slot directory was empty before the copy. All timed gameplay used
+a separate benchmark profile.
+The standard preview VPK from the 30-minute run was installed afterward.
+Its Load Game screen showed the full save in slot 5 and slots 1–4 empty.
+After a later restart, three external submission counts at the idle title
+were 59.8–60.0 FPS. A second check found a more recent personal autosave
+containing roughly 55 seconds of live progress plus offline progress.
+Both copies were kept, with the newer one left in place. The console was
+left at the title.
+
+On that separate profile, touch moved a Power Boost between two inventory
+cells. A numbered save was written on the Vita and reloaded there. The PC
+also read it and confirmed the same boss and unlock flags for Wishes,
+Cards and Cooking. The right stick scrolled the offline patch notes. The
+Adventure dropdown opened with touch and selected Tutorial Zone with the
+D-pad and Cross. The resulting fight and drops appeared in the log.
+Suspend/resume on hardware remains unverified.
 
 ## Historical baseline on 2026-11-20
 
