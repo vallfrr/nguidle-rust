@@ -199,6 +199,7 @@ fn window(a: &[String], cpu: bool) {
     unity_api::load_prefs(&mut vm);
     vm.load_scene(&dir).expect("scene");
     vm.awake_all();
+    vm.start_desktop_save_picker().expect("save picker");
     if let Ok(st) = std::env::var("NGU_STEPS") {
         for _ in 0..40 {
             vm.frame(1.0 / 30.0);

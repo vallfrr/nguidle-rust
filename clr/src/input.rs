@@ -122,7 +122,11 @@ fn raycast_node(
 
 pub(crate) fn canvas_roots(vm: &Vm) -> Vec<(i32, Value)> {
     let mut roots = Vec::new();
+    let choosing_save = crate::save_slots::choosing_save(vm);
     for go in &vm.eng.gos {
+        if choosing_save && !crate::save_slots::owns(go) {
+            continue;
+        }
         let Some((sorting, tr)) = with_go(go, |g| {
             if !g.active || g.port_hidden || !with_tr(&g.transform, |t| t.parent.is_null()).unwrap_or(false) {
                 return None;

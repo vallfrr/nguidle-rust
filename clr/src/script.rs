@@ -208,6 +208,10 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 std::fs::write(p[2], m).ok();
                 continue;
             }
+            "save_picker" => {
+                vm.start_desktop_save_picker().expect("save picker");
+                continue;
+            }
             "sounds" => {
                 // sounds requested by the game since the last `sounds` step (AudioSource.Play)
                 println!("[sounds] {:?}", std::mem::take(&mut vm.eng.sound_queue));

@@ -8,6 +8,7 @@ use md5::{Digest, Md5};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SLOT_COUNT: usize = 5;
@@ -18,6 +19,7 @@ const MAX_SAVE_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
+    Choose,
     Save,
     Load,
     Achievements,
@@ -25,6 +27,7 @@ enum Mode {
 
 #[derive(Clone)]
 enum Pending {
+    Create(usize),
     Save(usize),
     Load(usize),
     Import(PathBuf, usize),
@@ -56,6 +59,10 @@ enum Entry {
 #[derive(Default)]
 pub(crate) struct SaveSlots {
     mode: Option<Mode>,
+    desktop_picker: bool,
+    new_game: Option<Rc<str>>,
+    idle_labels: Vec<(Value, String)>,
+    idle_fills: Vec<Value>,
     sidebar_theme: Option<(Value, Value)>,
     from_title: bool,
     selected: usize,
@@ -72,6 +79,7 @@ struct Screen {
     root: Value,
     panel: Value,
     title_sidebar: Value,
+    locked_sidebar: Value,
     title: Value,
     detail: Value,
     status: Value,
@@ -150,6 +158,10 @@ fn read_save(path: &Path) -> Result<(String, Metadata), String> {
 }
 
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_save_file(path, bytes, true)
+}
+
+fn write_save_file(path: &Path, bytes: &[u8], replace: bool) -> std::io::Result<()> {
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)?;
     let stamp = SystemTime::now()
@@ -163,8 +175,15 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .open(&temp)?;
     let written = file.write_all(bytes).and_then(|_| file.sync_all());
     drop(file);
-    let result = written.and_then(|_| fs::rename(&temp, path));
-    if result.is_err() {
+    let result = written.and_then(|_| {
+        if replace {
+            fs::rename(&temp, path)
+        } else {
+            // Publishing with a link fails atomically if another process filled the slot.
+            fs::hard_link(&temp, path)
+        }
+    });
+    if !replace || result.is_err() {
         let _ = fs::remove_file(&temp);
     }
     result
@@ -253,12 +272,56 @@ pub(crate) fn game_call(
 }
 
 fn write_current(vm: &mut Vm, path: &Path) -> Result<(), String> {
+    let data = current_snapshot(vm)?;
+    atomic_write(path, data.as_bytes())
+        .map_err(|e| format!("Could not write the save: {e}"))
+}
+
+fn current_snapshot(vm: &mut Vm) -> Result<Rc<str>, String> {
     let c = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;
     let Value::Str(data) = game_call(vm, &c, "getBase64Data", vec![])? else {
         return Err("The game produced no save data.".into());
     };
     meta(&data)?;
-    atomic_write(path, data.as_bytes()).map_err(|e| format!("Could not write the save: {e}"))
+    Ok(data)
+}
+
+fn snapshot_with_start_time(vm: &mut Vm, template: &str) -> Result<String, String> {
+    let epoch = vm.type_id("Epoch");
+    let current = vm.find_method(epoch, "Current", 0).ok_or("The game clock is unavailable.")?;
+    let now = vm.invoke(current, vec![]).map_err(|_| "Could not read the game clock.")?;
+    // The draft objects are used only for serialization and will not become native game objects.
+    let pending_native_objects = std::mem::take(&mut vm.eng.deser);
+    let result = (|| {
+        let Value::Obj(save) = crate::serial::deserialize(vm, &b64_dec(template))
+            .map_err(|_| "Could not read the new save template.")? else {
+            return Err("The new save template is invalid.");
+        };
+        let fields = &vm.types[save.ty as usize].fields;
+        let data = fields.iter().position(|name| name == "playerData").ok_or("Missing player data.")?;
+        let checksum = fields.iter().position(|name| name == "checksum").ok_or("Missing save checksum.")?;
+        let Value::Str(encoded) = save.f.borrow()[data].clone() else {
+            return Err("The new save has invalid player data.");
+        };
+        let player = crate::serial::deserialize(vm, &b64_dec(&encoded))
+            .map_err(|_| "Could not read the new player data.")?;
+        let Value::Obj(player_object) = &player else {
+            return Err("The new save has invalid player data.");
+        };
+        let last_time = vm.types[player_object.ty as usize].fields.iter()
+            .position(|name| name == "lastTime").ok_or("The save timestamp is unavailable.")?;
+        player_object.f.borrow_mut()[last_time] = now;
+        let bytes = crate::serial::serialize(vm, &player).map_err(|_| "Could not write the new player data.")?;
+        let mut fields = save.f.borrow_mut();
+        fields[data] = Value::str(&b64_enc(&bytes));
+        fields[checksum] = Value::str(&b64_enc(&Md5::digest(&bytes)));
+        drop(fields);
+        let bytes = crate::serial::serialize(vm, &Value::Obj(save))
+            .map_err(|_| "Could not write the new save.")?;
+        Ok(b64_enc(&bytes))
+    })();
+    vm.eng.deser = pending_native_objects;
+    result.map_err(String::from)
 }
 
 fn apply_save(vm: &mut Vm, dir: &Path, path: &Path, from_title: bool) -> Result<(), String> {
@@ -553,6 +616,14 @@ fn build(vm: &mut Vm) -> Screen {
         let art = new_node(vm, "Load Game Illustration", &tr(&title_sidebar), [0.15, 0.85], 178.0, 244.0);
         image(vm, &art, Some(&chicken), false);
     }
+    let locked_sidebar = new_node(vm, "Locked Sidebar", &tr(&root), [0.0, 0.0], 0.0, 600.0);
+    with_tr(&tr(&locked_sidebar), |t| t.size[0] = CONTENT_LEFT);
+    let shade = image(vm, &locked_sidebar, None, false);
+    with_comp(&shade, |comp| {
+        if let CK::Image(image) = &mut comp.k {
+            image.color = [0.17, 0.22, 0.28, 0.28];
+        }
+    });
     let parent = tr(&panel);
     let banner = new_node(vm, "Title", &parent, [0.19, 0.81], 14.0, 58.0);
     let title = text(vm, &banner, title_style.as_ref(), Some(40), 4);
@@ -656,6 +727,7 @@ fn build(vm: &mut Vm) -> Screen {
         root,
         panel,
         title_sidebar,
+        locked_sidebar,
         title,
         detail,
         status,
@@ -818,17 +890,22 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     let (Some(ui), Some(mode)) = (&state.ui, state.mode) else {
         return;
     };
+    let choosing = mode == Mode::Choose;
+    vm.set_active(&ui.locked_sidebar, choosing);
+    vm.set_active(&ui.back.0, !choosing);
     if mode == Mode::Achievements {
         vm.set_active(&ui.title_sidebar, false);
         draw_achievements(vm, state, ui);
         return;
     }
     let importing = state.import_files.is_some();
-    vm.set_active(&ui.title_sidebar, state.from_title);
+    vm.set_active(&ui.title_sidebar, state.from_title && !choosing);
     label(
         &ui.title,
         if importing {
             "IMPORT A SAVE"
+        } else if choosing {
+            "CHOOSE A SAVE"
         } else if mode == Mode::Save {
             "SAVE GAME"
         } else {
@@ -840,6 +917,8 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         &ui.detail,
         if importing {
             "Place .txt saves in save/import, then choose a file below."
+        } else if choosing {
+            "Select a saved game to continue, or an empty slot to start a new game."
         } else if mode == Mode::Save {
             "Choose a slot for a snapshot of your current game."
         } else if state.from_title {
@@ -911,12 +990,13 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
             format!("{slot_name}\n\n{player}\nPlayed: {played}\n\nLast saved\n{saved}")
         }
         Some(Entry::Invalid) => format!("{slot_name}\n\nUnreadable save"),
+        None if choosing => "No slot selected".into(),
         None => "Choose a save".into(),
         _ => format!("{slot_name}\n\nEmpty"),
     };
     label(&ui.selection, selection);
     vm.set_active(&ui.primary.0, !importing || state.pending.is_some());
-    vm.set_active(&ui.secondary.0, !importing);
+    vm.set_active(&ui.secondary.0, !importing && !choosing);
     vm.set_active(&ui.main_menu.0, !state.from_title && !importing && state.pending.is_none());
     caption(&ui.main_menu, "Main Menu", false);
     let pages = state
@@ -937,6 +1017,12 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         &ui.primary,
         if state.pending.is_some() {
             "Confirm"
+        } else if choosing {
+            match state.entries.get(state.selected) {
+                Some(Entry::Save(..)) => "Load Selected Game",
+                Some(Entry::Empty) if state.selected > 0 => "Create New Game",
+                _ => "Choose a Slot",
+            }
         } else if mode == Mode::Save {
             "Save Current Game"
         } else {
@@ -972,7 +1058,91 @@ pub(crate) fn is_open(vm: &Vm) -> bool {
     vm.eng.save_slots.mode.is_some()
 }
 
+pub(crate) fn choosing_save(vm: &Vm) -> bool {
+    vm.eng.save_slots.mode == Some(Mode::Choose)
+}
+
+fn show_idle_stats(vm: &mut Vm, state: &mut SaveSlots) {
+    let Some(panel) = named_go(vm, "Player Panel") else { return };
+    let stats = child(&panel, "Stats Panel");
+    let hp = child(&stats, "HP Bar");
+    let timer = child(&panel, "Rebirth Time Text");
+    for (node, value) in [
+        (child(&panel, "Energy Bar Text"), "<b>Energy:</b> 0 Idle\n0 Cap"),
+        (child(&panel, "Magic Bar Text"), "<b>Magic:</b> 0"),
+        (child(&panel, "Res 3 Bar Text"), "<b>Resource 3:</b> 0"),
+        (child(&hp, "Text"), "0 HP"),
+        (child(&child(&stats, "Attack"), "Value"), "0"),
+        (child(&child(&stats, "Defense"), "Value"), "0"),
+        (child(&child(&stats, "Gold"), "Value"), "0"),
+        (timer, "No game loaded"),
+    ] {
+        for comp in with_go(&node, |g| g.comps.clone()).unwrap_or_default() {
+            if let Some(text) = with_comp(&comp, |c| match &c.k {
+                CK::Text(text) => Some(text.text.clone()),
+                _ => None,
+            }).flatten() {
+                label(&comp, value.into());
+                state.idle_labels.push((comp, text));
+            }
+        }
+    }
+    for bar in [child(&panel, "Energy Bar"), child(&panel, "Magic Bar"), child(&panel, "Res 3 Bar"), hp] {
+        let fill = child(&child(&bar, "Fill Area"), "Fill");
+        if with_go(&fill, |g| g.active).unwrap_or(false) {
+            vm.set_active(&fill, false);
+            state.idle_fills.push(fill);
+        }
+    }
+}
+
+fn restore_idle_stats(vm: &mut Vm, state: &mut SaveSlots) {
+    for (comp, previous) in state.idle_labels.drain(..) {
+        label(&comp, previous);
+    }
+    for fill in state.idle_fills.drain(..) {
+        vm.set_active(&fill, true);
+    }
+}
+
+fn open_picker(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), String> {
+    let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
+    game_call(vm, &title, "hideMainMenu", vec![])?;
+    state.returned_title = Value::Null;
+    show_idle_stats(vm, state);
+    open(vm, state, dir, Mode::Choose, true);
+    Ok(())
+}
+
+impl Vm {
+    pub fn start_desktop_save_picker(&mut self) -> Result<(), String> {
+        if self.eng.save_slots.desktop_picker {
+            return Ok(());
+        }
+        // Initialize the original scene before taking a clean, player-independent snapshot.
+        self.start_pending();
+        if let Some(character) = game_component(self, "Character") {
+            // The desktop picker replaces the legacy title and its delayed save discovery.
+            self.eng.invokes.retain(|invoke| {
+                invoke.method != "initialStart" || !same(&invoke.owner, &character)
+            });
+        }
+        let snapshot = current_snapshot(self)?;
+        let dir = PathBuf::from(&self.eng.save_dir);
+        let mut state = std::mem::take(&mut self.eng.save_slots);
+        state.desktop_picker = true;
+        state.new_game = Some(snapshot);
+        let result = open_picker(self, &mut state, &dir);
+        draw_state(self, &state);
+        self.eng.save_slots = state;
+        result
+    }
+}
+
 pub(crate) fn pause_on_title(vm: &mut Vm) -> bool {
+    if choosing_save(vm) {
+        return true;
+    }
     let title = &vm.eng.save_slots.returned_title;
     if title.is_null() {
         return false;
@@ -1024,6 +1194,7 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
         state.entries = load_entries(dir);
     }
     state.selected = match mode {
+        Mode::Choose => NO_SLOT,
         Mode::Achievements => usize::MAX,
         Mode::Save => (1..ROW_COUNT)
             .find(|&i| matches!(state.entries[i], Entry::Empty))
@@ -1060,6 +1231,39 @@ fn perform(
     action: Pending,
 ) -> Result<String, String> {
     match action {
+        Pending::Create(index) => {
+            let template = state.new_game.as_deref().ok_or("The new game template is unavailable.")?;
+            let data = snapshot_with_start_time(vm, template)?;
+            let exporter = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;
+            let character = game_component(vm, "Character").ok_or("The player is unavailable.")?;
+            let menus = game_component(vm, "MenuSwapper").ok_or("The game menus are unavailable.")?;
+            let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
+            let decoded = game_call(vm, &exporter, "getSaveDataFromString", vec![Value::str(&data)])?;
+            if decoded.is_null() {
+                return Err("The game rejected the new save.".into());
+            }
+            write_save_file(&slot_path(dir, index), data.as_bytes(), false).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    "This slot already contains a save. Choose an empty slot.".to_string()
+                } else {
+                    format!("Could not create the save: {error}")
+                }
+            })?;
+            restore_idle_stats(vm, state);
+            let start = (|| {
+                game_call(vm, &exporter, "loadData", vec![decoded])?;
+                game_call(vm, &character, "refreshMenus", vec![])?;
+                game_call(vm, &menus, "swapMenu", vec![Value::I32(0)])?;
+                game_call(vm, &title, "startNewGame", vec![])?;
+                Ok::<_, String>(())
+            })();
+            if let Err(error) = start {
+                open_picker(vm, state, dir)?;
+                return Err(error);
+            }
+            close(vm, state);
+            Ok(String::new())
+        }
         Pending::Save(index) => {
             write_current(vm, &slot_path(dir, index))?;
             Ok(format!("Saved to Slot {index}."))
@@ -1072,24 +1276,35 @@ fn perform(
             Ok(format!("Imported into Slot {index}."))
         }
         Pending::Load(index) => {
-            apply_save(vm, dir, &slot_path(dir, index), state.from_title)?;
+            let choosing = state.mode == Some(Mode::Choose);
+            if choosing {
+                restore_idle_stats(vm, state);
+            }
+            if let Err(error) = apply_save(vm, dir, &slot_path(dir, index), state.from_title) {
+                if choosing {
+                    show_idle_stats(vm, state);
+                }
+                return Err(error);
+            }
             if state.from_title {
                 let controller = game_component(vm, "MainMenuController")
                     .ok_or("The main menu is unavailable.")?;
                 game_call(vm, &controller, "finishMainMenu", vec![])?;
                 state.returned_title = Value::Null;
             }
-            if let Err(error) = write_current(vm, &slot_path(dir, 0)) {
-                return Ok(format!(
-                    "Game loaded. Autosave could not be updated: {error}"
-                ));
-            }
+            let autosave = write_current(vm, &slot_path(dir, 0));
             close(vm, state);
+            if let Err(error) = autosave {
+                crate::elog!("Game loaded. Autosave could not be updated: {error}");
+            }
             Ok("Game loaded. The previous game is in save/before-load.txt.".into())
         }
         Pending::MainMenu => {
             state.returned_title = return_to_title(vm, dir)?;
             close(vm, state);
+            if state.desktop_picker {
+                open_picker(vm, state, dir)?;
+            }
             Ok(String::new())
         }
     }
@@ -1145,6 +1360,12 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
             if let Some(pending) = state.pending.take() {
                 state.status = perform(vm, state, dir, pending).unwrap_or_else(|e| e);
                 state.entries = load_entries(dir);
+            } else if mode == Mode::Choose && state.selected > 0
+                && matches!(state.entries.get(state.selected), Some(Entry::Empty))
+            {
+                state.status = perform(vm, state, dir, Pending::Create(state.selected))
+                    .unwrap_or_else(|e| e);
+                state.entries = load_entries(dir);
             } else if mode == Mode::Save {
                 if state.selected == 0 {
                     state.status = "The game manages Autosave. Choose a manual slot.".into();
@@ -1165,6 +1386,12 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
                     state.pending = Some(action);
                     state.status = "Load this save and replace the current game? The current game will be backed up.".into();
                 }
+            } else if mode == Mode::Choose {
+                state.status = match state.entries.get(state.selected) {
+                    Some(Entry::Invalid) => "This save cannot be read.",
+                    Some(Entry::Empty) => "There is no autosave yet. Choose an empty numbered slot.",
+                    _ => "Select a saved game or an empty numbered slot.",
+                }.into();
             } else {
                 state.status = "Choose a valid saved game.".into();
             }
@@ -1222,6 +1449,9 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
 pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
     if !vm.eng.desktop_panels || vm.eng.save_dir.is_empty() {
         return false;
+    }
+    if choosing_save(vm) && !owns(go) {
+        return true;
     }
     if !vm.eng.save_slots.returned_title.is_null()
         && with_go(go, |g| g.name == "Start New Game").unwrap_or(false)

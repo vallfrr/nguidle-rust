@@ -36,5 +36,10 @@ and can require more than 10 GB of RAM. Use `-ExtractOnly` to validate and
 extract data without building. The default data and build folders are
 `out/pc` and `build/pc`. Local saves live under `out/pc/save`.
 
+The Windows game opens the save picker. Select an existing save to continue,
+or an empty numbered slot and **Create New Game** to start. Autosave is
+separate from the numbered slots. The in-game **Save Game** page writes
+manual snapshots.
+
 ## License
 GPL-3.0 (see `LICENSE`). NGU Idle and its contents belong to their authors; this project is not affiliated with 4G.

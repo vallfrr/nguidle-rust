@@ -2,13 +2,22 @@
 
 ## Desktop verification on 2026-11-21
 
+- Windows starts at the save picker with no selection, zero stats and inactive
+  gameplay controls. Creating a game in an empty slot writes its initial
+  snapshot with the current game timestamp. A scripted native Windows run
+  loaded a boosted save, returned to the picker and created a fresh game.
+  Periodic autosave preserved the manual slots byte for byte. Creation refused
+  a slot that became occupied after selection. Scripted focus navigation also
+  created a save from a blank profile.
 - Scripted navigation in Inventory took about 380 ms per move before batching
   raycasts. After batching, 20 moves added about 0.1 seconds to the median run.
   The batch measures engine navigation from a boosted save.
 - Controller-equivalent inputs selected an Adventure dropdown option and
   scrolled Augmentation and the patch notes. Focus has an interior yellow tint.
   A scripted sweep collected focus on all 58 menu indices and performed 116
-  moves. Physical controller testing of this version is still open.
+  moves. The maintainer confirmed smooth navigation on a physical controller.
+  Focus behaviour still needs refinement across some menus. Remapping
+  remains a design proposal.
 - The right-hand panels retain their Settings frame style. Inventory's tooltip
   stays above Save Game and is clamped to the visible screen. The sidebar's
   Achievements button and the page were checked in Normal, Dark, Gold and Dark
