@@ -1,5 +1,9 @@
 # Screen profiles
 
+The named `vita` profile is an experimental region layout for PC captures.
+The actual [Vita preview](../docs/VITA.md) reflows the shared layout across
+the 960 × 544 screen, with L and R switching menus.
+
 The game always draws into its own 960x600 space. A profile cuts that space into **regions** and places each one on the real
 screen with its own scale; the pointer is mapped back through the same regions, so the game code is unchanged.
 Code: `clr/src/profile.rs` (`pc` and `vita` are built in; any other value is read as a file path).
@@ -17,7 +21,7 @@ region <name> <x> <y> <w> <h> <place> [flags] nodes=<node>,<node>...
   - `rest`: the remaining width; if that makes it taller than the screen, it pans vertically with the pointer;
   - `fit`: the whole screen, fitted and centred.
 - flags:
-  - `hold` / `!hold`: visible only while / except while the hold action is pressed (Vita L; F2 in the PC window);
+  - `hold` / `!hold`: visible only while / except while the profile hold action is pressed (F2 in the PC window);
   - `follow`: drawn with the region under the mouse (tooltips);
   - `when-drawn`: takes the pointer only while something of it is on screen (pop-ups).
 - `nodes`: UI objects drawn in this region: names of children of the root `Canvas`, or `Parent/Child` one level deeper.

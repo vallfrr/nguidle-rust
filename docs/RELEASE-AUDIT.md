@@ -1,4 +1,4 @@
-# Desktop release audit
+# Release audit
 
 The release order is Windows, self-hosted web, then PS Vita. A checked item
 requires evidence from the target runtime.
@@ -13,19 +13,18 @@ requires evidence from the target runtime.
 
 ## Repository boundaries
 
-- **nguidle-rust** owns extraction, IL conversion, runtime compatibility, the UI scene model, layout, draw commands, focus and scrolling. The Windows executable owns OS input and audio, high DPI, display settings, frame pacing and filesystem UI. The desktop save and milestone pages are enabled explicitly by the desktop entry point. The Vita C API keeps its separate entry point.
+- **nguidle-rust** owns extraction, IL conversion, runtime compatibility, the UI scene model, layout, draw commands, focus and scrolling. The Windows executable owns OS input and audio, high DPI, display settings, frame pacing and filesystem UI. The desktop save pages and layout are shared through the separate Vita C API.
 - **nguidle-web** owns the browser input and WebGL adapter, the save API and
   slot leases, the localhost launcher, and the Compose configuration.
   The `ngu-browser` reactor runs the shared CIL engine in the browser.
   The container reads Steam Windows 1.260 data from a read-only mount and
   verifies the SHA-256 manifest before extraction or compilation. Build
   output and saves use separate volumes. The default published port is local.
-- **nguidle-vita** owns the VitaSDK host, packaging, touch/buttons and console deployment. Both interpreter and generated-Rust VPKs build, and the interpreter reached Basic Training on a console. The five-inch interface and frame pacing in dense menus still need device validation. See [Status](STATUS.md) for the measured scope.
+- **nguidle-vita** owns the VitaSDK host, packaging, touch, buttons and console deployment. Both runtime variants booted on a console. The interpreter preview completed the 30-minute advanced-save run at 960 × 544. The 60 Hz gameplay target, two-refresh focus response, sleep/resume and remaining small-screen interactions are open. See the [Vita hardware audit](VITA.md).
 
-The layout/render pipeline is shared. Windows paths, desktop slot management
-and monitor refresh policy belong behind the desktop entry point. Current
-layout transformations and integration hooks live in `clr`; review their API
-when the web runtime has a concrete integration.
+The layout and draw list are shared. Platform entry points own display pacing,
+input and save storage integration. The shared `clr` crate contains the save
+interface, layout transformations and runtime hooks.
 
 ## Proposals for review
 

@@ -6,12 +6,12 @@ do the next one, and ask at the end.
 
 Goal and decisions: `docs/VISION.md`. Proof of conformance to the original game: `docs/AUDIT-ILGEN.md`, `docs/STATUS.md`.
 
-## Current state (2026-11-21)
+## Current state (2026-11-22)
 - The Windows build and first personal web preview are playable. See [Release audit](RELEASE-AUDIT.md) and [Status](STATUS.md) for coverage and release checks.
 - The game's C# is translated to Rust (99.4 % of methods) and produces exactly the same state as the reference interpreter (same visible state, saves, thousands of clicks).
 - The PC window runs at ~58 img/s at 1280x800 with a CPU rasterizer (13 ms/frame). The original runs at the monitor rate (200 Hz here), 8 % of one core, 341 MB.
 - Done today: dev mode (`docs/DEV.md`), first comparison with the real game (`docs/COMPARISON.md`), disabled-button tint, system-culture number formatting, Unity-like text metrics.
-- The current Vita host runs on a console with the shared responsive layout, original tooltips, save panels, touch and controller focus. Both engine builds cross-compile and package. See [Status](STATUS.md) for the device checks.
+- The Vita host runs the shared 960 × 544 layout with game tooltips, save panels, touch and controller focus. Both engine variants have booted on hardware. See the [Vita audit](VITA.md) for the published preview, hardware results and open checks.
 
 ## Rule for comparisons with the original
 Compare **behaviour and content** (what is shown, states, text that fits its box), not pixel-exact output. Do not spend time on
@@ -20,7 +20,6 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 ## Questions pending for the maintainer (ask when they announce their return)
 1. Official LiveArea assets for `nguidle-vita` (icon, background, startup image). Current images are **black placeholders**. Never create assets from scratch.
 2. **Screen profile on wide PC screens** (R3): the `pc` profile is today's letterbox (side bars on 16:9, e.g. 192 px at 1080p). Removing them means enlarging the game area beyond the height, so it would pan vertically with the mouse (like the Vita profile). Keep the bars, or zoom + pan? Screenshots: `docs/img/vita-profile*.png` show the zoom + pan on the Vita profile.
-3. **Vita profile** (R5): opinion on `docs/img/vita-profile.png` (normal) and `docs/img/vita-profile-hold.png` (L held).
 
 ---
 
@@ -56,7 +55,7 @@ Principles and trade-offs in `docs/VISION.md`.
 - [x] **In-game save management (PC)**. **Save Game** and **Load Game** open separate pages in the right-hand pane using the Settings assets. Five manual slots and the existing autosave show the character, play time and last save date. Manual files use the existing game format. Import reads `.txt` files placed in `save/import/`. Export writes a separate file to `save/export/`. Loading over an active game and overwriting a slot require confirmation. Returning to the main menu saves a snapshot first. From the main menu, **Load Game** opens the same slots with no initial selection.
 - [x] **Local platform milestones (PC)**. **Steam Achievements** is the third tab in **Info 'n Stuff → Achievements**, beside **1–108** and **109–216**. The 61 entries use the original conditions and earned IDs persist in `save/achievements.json`.
 - [ ] **Save screen illustration [maintainer]**. When the hand-drawn transparent PNG is available, place it in spare space on the save screens. The layout already works without an illustration.
-- [~] **R5 (2026-11-20: profile `vita` works in captures and the GPU window: page list hidden, F2 held (L on the Vita) shows it in place of the player column, game area 1.2x wider with vertical pan following the pointer; missing: gamepad L + d-pad page change, pan following the focus; screenshots `docs/img/vita-profile*.png`)** Vita profile prototype on PC at 960x544**: page list hidden by default; holding L shows the page list in place of the player column, d-pad changes page, releasing L confirms; enlarged game area with scrolling that follows the focus. Screenshots for the maintainer's opinion **[maintainer]**.
+- [x] **R5. Vita layout prototype on PC** (2026-11-20). The experimental region profile with a hidden page list and a vertically panned main area works in PC captures. The released Vita preview uses the shared full-display layout at 960 × 544. See [C2](#phase-6-vita-validation) for the console implementation.
 
 ## Phase 4: playing with buttons
 - [~] **B2** Tooltips follow focus. The right stick scrolls and D-pad navigates dropdowns. **B3** Tutorial arrows and adventure zone shortcuts (depends on A2). **B4** Number entry with a gamepad (73 input fields; on Vita the system keyboard). **B5** Audit focus on every menu and verify a full session with the physical controller. **Done when:** every action in `docs/CONTROLLER-PROPOSAL.md` section 1 is possible with buttons only, tested by script on each menu.
@@ -65,12 +64,12 @@ Principles and trade-offs in `docs/VISION.md`.
 - [~] **W1** The Compose service verifies the read-only Steam Windows 1.260 mount, extracts assets and builds the browser WASM runtime. Run the full Compose lifecycle on a Docker host.
 - [~] **W2** The browser runs the shared CIL engine via WebAssembly and draws the desktop scene locally. The game UI handles file import/export, the host stores a personal profile with slot leases, and gameplay continues through a network interruption. Follow the browser verification in STATUS.md. Complete physical phone and gamepad sessions and a private reverse proxy deployment.
 
-## Phase 6: Vita V2 (when the console is available)
+## Phase 6: Vita validation
 - [x] **C1** Cross-compile and package both the shared interpreter and the generated Rust (`armv7-sony-vita-newlibeabihf`, nightly + build-std), under the memory cap (2026-11-21).
-- [x] **C2** Render the shared draw list with vitaGL. Verify the home, slot picker and Basic Training on a console (2026-11-21).
-- [~] **C3** Touch, directional focus, confirmation, menu shortcuts, scrolling and the system keyboard are wired. Verified touch dragging between inventory slots, right-stick scrolling and saving/loading numbered slots on device. Verify save naming with the system keyboard and navigation through the remaining dense screens.
-- [~] **C4** Measured about 15–16 s for initialization before first scene emission at the default clocks, down from 26.7 s in the initial baseline. Continue toward < 5 s and measure time until the title screen can accept input.
-- [~] **C5** Fixed the persistent D-pad hover stall and ran a 30-minute advanced save on hardware. The Vita presents at 60 Hz at the title. Gameplay still misses refreshes and the measured focus feedback exceeds two refreshes on the advanced save. Reduce synchronous save preparation and late-game simulation costs, then repeat the display and latency tests and verify sleep/resume on hardware. See [Status](STATUS.md#gamepad-stalls-and-display-cadence).
+- [x] **C2** Render the shared draw list with vitaGL at 960 × 544. Verified the home, slot picker, Basic Training and six more panels under the resource strip on the console.
+- [~] **C3** Verified touch inventory dragging, D-pad dropdown selection, right-stick patch note scrolling, numbered saves, a fresh game and an Adventure fight on the console. The system keyboard is wired. Verify naming through it and cover the remaining submenus, controls and button-only routes.
+- [~] **C4** Initialization dropped from 26.7 s to about 15.5 s at the default clocks. Measure time to the first accepted title input and continue toward < 5 s.
+- [~] **C5** Fixed the persistent D-pad hover stall and completed the advanced-save endurance run. Gameplay still misses refreshes and advanced-save focus feedback exceeds two refreshes. Profile autosave snapshot and encoding work separately, then reduce late-game simulation and transition costs. Repeat the release acceptance run and verify sleep/resume on hardware. See [Vita measurements](VITA.md#measurements-and-remaining-stalls).
 - [x] **C6** Build the VPK separately from the prepared SD-card data pack (2026-11-21).
 - [ ] **C7** Official LiveArea assets **[maintainer]**.
 

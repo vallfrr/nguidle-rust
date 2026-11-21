@@ -105,6 +105,10 @@
 
 ## PS Vita port on 2026-11-21
 
+See the [Vita port history and hardware audit](VITA.md) for the chronological
+record, the released build's provenance, the test coverage and the acceptance
+work still open. The early measurements below describe specific test builds.
+
 - The interpreter VPK installed on a Vita and displayed the shared 960 × 544
   layout through vitaGL. Directional input and Cross opened Load Game. Touch
   loaded an autosave, displayed offline progress and entered Basic Training.
@@ -122,8 +126,8 @@
   3 MiB free user RAM after initialization, compared with about 21 MiB free
   for the interpreter. The interpreter is the default and was reinstalled
   for testing and play.
-- Naming with the Vita keyboard, suspend/resume and sustained memory use
-  still need further verification on device.
+- Naming with the Vita keyboard and suspend/resume still need hardware
+  verification. See the later endurance measurements for sustained memory use.
 
 ### Vita performance benchmarks
 
@@ -143,8 +147,8 @@ isolates save writes under `ux0:data/ngu/bench/save/`.
 | Early save, Basic Training | — | 46.13–51.93 FPS at 444/222 MHz, 35–61 ms p95 |
 | Advanced save, offline-progress screen | 0.27–0.28 FPS at 333/166 MHz | 13.86–14.61 FPS at 444/222 MHz, 85–86 ms p95 |
 | Advanced save, Basic Training | 8.9–9.1 FPS after skipping unallocated wish updates, at 333/166 MHz | 28.84–29.06 FPS at 444/222 MHz, 50–51 ms p95 |
-| Advanced save, Cooking at 444/222 MHz | 8.79–10.18 FPS, with repeated frame intervals around 850 ms | 34.98–38.78 FPS in the final build, 47–51 ms p95 |
-| Advanced save, Cards at 444/222 MHz | 18.19–19.58 FPS with client vertex arrays | 22.97–23.36 FPS in the final build, 58–60 ms p95 |
+| Advanced save, Cooking at 444/222 MHz | 8.79–10.18 FPS, with repeated frame intervals around 850 ms | 34.98–38.78 FPS in that tuning pass, 47–51 ms p95 |
+| Advanced save, Cards at 444/222 MHz | 18.19–19.58 FPS with client vertex arrays | 22.97–23.36 FPS in that tuning pass, 58–60 ms p95 |
 | Initialization before first scene emission | 26.7 s at 333/166 MHz | 19.6–21.9 s at 333/166 MHz, about 15.5 s at 444/222 MHz |
 
 The slowest advanced-save path iterated over every wish at 50 Hz. With no

@@ -1,6 +1,9 @@
 # Proposal: making NGU Idle playable with buttons / on a small screen
 
-**Status: partial implementation on Windows.** D-pad and left stick navigate focus, south confirms, east closes a dropdown or clears focus, bumpers change menus and right stick scrolls. Dropdowns accept directional input and confirm. Vita V1 treats touch as mouse input.
+Windows and the current Vita preview support directional focus, confirmation,
+dropdown navigation, menu shortcuts and right-stick scrolling. The Vita also
+supports touch and wires text entry to the system keyboard. See the
+[Vita hardware audit](VITA.md#what-was-tested) for the device checks.
 
 ## 1. What the game really asks for as input (measured in the code)
 
@@ -16,7 +19,9 @@
 | Keyboard shortcuts | 54 `GetKeyDown`, 48 `GetKey` (+ Shift/Ctrl by string name) | combat (Q W E R T Y / A S D F G H / Z X C V B + arrows), inventory pages (1-9), tutorial (arrows) |
 | Mouse position | 29 `Input.mousePosition` | tooltip placement |
 
-Display constraints: the game is designed at 960x600 (16:10); the Vita is 960x544 (16:9) -> scale 0.907 (side bars). At 220 ppi a 30 px button is ~3 mm: below the 7-9 mm recommended for touch. Many buttons ("+", "-", "Cap", "1/2") are smaller.
+The original game uses a 960 × 600 canvas. The current Vita preview reflows
+the shared layout at 960 × 544 (30:17). Small resource controls such as
+“+”, “−”, “Cap” and “1/2” remain an area for touch and readability testing.
 
 ## 2. Principles
 1. **Default = strict PC behaviour**; every adaptation is an option.
@@ -34,4 +39,7 @@ Display constraints: the game is designed at 960x600 (16:10); the Vita is 960x54
 - **H. Save compatibility** (priority 2): import/export of PC saves (.NET `BinaryFormatter` / base64 string).
 
 ## 4. Validation criteria
-Every action of section 1 achievable with buttons only **and** touch only; no regression of strict PC mode; 30 FPS held while interacting.
+Verify the remaining button-only and touch-only actions and preserve the
+shared game rules. The Vita target is one presented image per refresh
+during play and transitions, with first visual feedback within two refreshes.
+Game logic advances at 30 Hz. See the [acceptance checklist](VITA.md#remaining-acceptance-work).

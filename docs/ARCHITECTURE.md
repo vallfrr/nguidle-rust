@@ -43,5 +43,28 @@ Assembly-CSharp.dll (the player's copy)
 - `tools/regress.sh`: oracle vs native battery (see `docs/AUDIT-ILGEN.md`).
 - `tools/ilall.sh`: regenerates the whole game, `cargo check`, error summary.
 
+## Vita runtime
+
+The VitaSDK host owns the vitaGL context, VBlank synchronization, touch,
+controller polling and the system keyboard. It calls the shared engine
+through `clr/src/capi.rs`. The engine keeps the original 960 × 600 game
+coordinates and projects the right-side layout across the native 960 × 544
+display. The input path maps touch and focus through that same projection.
+The renderer emits clipped quad batches. The host streams vertices and
+uploads textures as they are needed.
+
+The game thread owns the VM and scene. It polls input per render iteration
+and advances the game with 30 Hz fixed steps and a bounded amount of
+catch-up work per iteration. The port retains accumulated simulation time
+across slow rendering. The Vita worker writes completed autosave data
+atomically. Preparing and encoding the save still runs on the game thread.
+The benchmark associates a focus change with its scanout buffer and records
+time spent in each host stage.
+
+The released Vita preview uses the shared CIL interpreter. The generated
+engine can be linked through a separate Vita entry point. Its device results
+and the reason for keeping it experimental are in the
+[Vita port history](VITA.md#build-experiments).
+
 ## Build (machine constraint)
 The generated crate is ~20 MB and rustc needs >10 GB. Always `tools/capbuild.sh 12 cargo ...` (cgroup memory cap, no swap) or `tools/capbuild.ps1` on Windows, with the target directory on a data drive (never the system drive). `ngu-gen` is built with `opt-level = 0` under profile `game` (see `Cargo.toml`).

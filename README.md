@@ -7,6 +7,7 @@ Free port of **NGU Idle** (by 4G, Unity 2019.4) to Rust: the game's C# code is *
 ## State (in development)
 - Differential testing compares the converted runtime with the original IL running in the reference interpreter. See [`docs/AUDIT-ILGEN.md`](docs/AUDIT-ILGEN.md) and [`docs/STATUS.md`](docs/STATUS.md) for the measured coverage.
 - The Windows version has a resizable GPU window, F11 fullscreen, local save slots and local milestone tracking. Focus navigation uses the D-pad or left stick. The right stick scrolls and the south button confirms.
+- The PS Vita preview shares the game scene at 960 × 544 and supports touch and controller navigation. See the [Vita port history and hardware audit](docs/VITA.md).
 - The [release audit](docs/RELEASE-AUDIT.md) tracks platform boundaries and validation. See [vision](docs/VISION.md) and [roadmap](docs/NEXT.md) for decisions and remaining work.
 
 ## Layout
