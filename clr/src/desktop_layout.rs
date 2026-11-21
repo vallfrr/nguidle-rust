@@ -233,6 +233,7 @@ fn position(tr: &Value, name: &str, comps: &[Value], area: Area, source: Xf, tar
             let target = match name {
                 "Title (1)" => stretch(0.0, grow),
                 "Kartridge Button" | "Kong Button" | "By me" => keep(grow),
+                "Desktop Home Options" => return (keep(grow / 2.0), Area::Fixed),
                 "Load File Button" | "Start New Game" | "Brian" | "Chicken" => keep(grow / 2.0),
                 "Autosave Pod Border" => stretch(0.0, grow * 0.30),
                 "Cloud Save Border" => stretch(grow * 0.70, grow * 0.30),

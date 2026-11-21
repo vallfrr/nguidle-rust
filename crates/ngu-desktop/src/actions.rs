@@ -44,7 +44,11 @@ pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
             clr::focus::navigate(vm, 'r');
         }
         Action::Activate => return clr::focus::activation_point(vm),
-        Action::Back => clr::focus::clear(vm),
+        Action::Back => {
+            if !vm.back_from_desktop_picker() {
+                clr::focus::clear(vm);
+            }
+        }
         Action::Scroll { x, y } => clr::focus::scroll(vm, -f32::from(x) * 32.0, f32::from(y) * 32.0),
         Action::Prev => return clr::focus::menu_step(vm, -1),
         Action::Next => return clr::focus::menu_step(vm, 1),

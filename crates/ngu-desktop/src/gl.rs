@@ -654,13 +654,14 @@ impl EventHandler for Stage {
             }
             return;
         }
-        if self.nav_mode {
+        let at_desktop_start = self.vm.at_desktop_start();
+        if self.nav_mode || at_desktop_start {
             let a = match k {
                 KeyCode::Up | KeyCode::W => Some(Action::Up),
                 KeyCode::Down | KeyCode::S => Some(Action::Down),
                 KeyCode::Left | KeyCode::A => Some(Action::Left),
                 KeyCode::Right | KeyCode::D => Some(Action::Right),
-                KeyCode::Enter | KeyCode::Space => Some(Action::Activate),
+                KeyCode::Enter | KeyCode::Space if !at_desktop_start || !repeat => Some(Action::Activate),
                 KeyCode::Escape => Some(Action::Back),
                 KeyCode::Tab | KeyCode::PageDown | KeyCode::E => Some(Action::Next),
                 KeyCode::PageUp => Some(Action::Prev),

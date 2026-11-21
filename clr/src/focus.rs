@@ -311,6 +311,10 @@ pub fn navigate(vm: &mut Vm, dir: char) -> Option<Focusable> {
 
 /// Point (y up, like `Engine::mouse`) where to click to activate the focused element.
 pub fn activation_point(vm: &mut Vm) -> Option<(f32, f32)> {
+    if current_rect(vm).is_none() {
+        let default = crate::save_slots::home_default(vm)?;
+        select_control(vm, &default);
+    }
     let at = pointer(vm)?;
     let go = vm.eng.focus.clone();
     if kind_of(vm, &go).is_none() {
@@ -323,6 +327,12 @@ pub fn activation_point(vm: &mut Vm) -> Option<(f32, f32)> {
 pub fn pointer(vm: &Vm) -> Option<(f32, f32)> {
     let (x, y) = center(&current_rect(vm)?);
     Some((x, vm.eng.screen.1 as f32 - y))
+}
+
+pub(crate) fn select_control(vm: &mut Vm, go: &Value) {
+    let position = view_xf(vm, &transform_of(go));
+    let rect = visible_rect(vm, bbox(&position, vm.eng.screen.1 as f32));
+    set_focus(vm, go.clone(), rect);
 }
 
 fn set_focus(vm: &mut Vm, go: Value, rect: Option<[f32; 4]>) {

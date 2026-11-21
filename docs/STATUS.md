@@ -2,10 +2,10 @@
 
 ## Desktop verification on 2026-11-21
 
-- Windows starts at the save picker with no selection, zero stats and inactive
-  gameplay controls. Creating a game in an empty slot writes its initial
-  snapshot with the current game timestamp. A scripted native Windows run
-  loaded a boosted save, returned to the picker and created a fresh game.
+- Windows starts at the three-button home screen. The default loads the autosave
+  directly when present. Load Game and Create New Game open separate slot
+  pickers, with zero stats and inactive gameplay controls. Creating a game in an
+  empty slot writes its initial snapshot with the current game timestamp.
   Periodic autosave preserved the manual slots byte for byte. Creation refused
   a slot that became occupied after selection. Scripted focus navigation also
   created a save from a blank profile.
@@ -33,7 +33,8 @@
   runtime. The 153 BP achievements still use the original game page.
 - Save, Load and Achievements draw the original sidebar bolts over their
   shared frame. The Achievements button spans the same horizontal bounds as
-  the Save Game and Load Game pair.
+  the Save Game and Load Game pair. Achievement icons fill their tile frames
+  and the detail pane uses the same themed frame around its larger icon.
 - The runtime follows the pointer at render frequency and uses the Energy
   timer's 20 ms schedule for display interpolation. Game rules continue to
   advance in fixed steps.

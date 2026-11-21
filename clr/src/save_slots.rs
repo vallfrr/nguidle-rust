@@ -23,7 +23,7 @@ const MAX_SAVE_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
-    Choose,
+    Create,
     Save,
     Load,
     Achievements,
@@ -64,7 +64,8 @@ enum Entry {
 #[derive(Default)]
 pub(crate) struct SaveSlots {
     mode: Option<Mode>,
-    desktop_picker: bool,
+    home: Option<Home>,
+    home_active: bool,
     new_game: Option<Rc<str>>,
     idle_labels: Vec<(Value, String)>,
     idle_fills: Vec<Value>,
@@ -78,6 +79,14 @@ pub(crate) struct SaveSlots {
     entries: Vec<Entry>,
     ui: Option<Screen>,
     returned_title: Value,
+}
+
+struct Home {
+    load: Value,
+    autosave: Value,
+    create: Value,
+    details: Value,
+    default: Value,
 }
 
 struct Screen {
@@ -108,6 +117,7 @@ struct AchievementGrid {
     root: Value,
     tiles: Vec<((Value, Value), Value)>,
     details: Value,
+    icon_frame: Value,
     icon: Value,
     name: Value,
     description: Value,
@@ -498,6 +508,27 @@ fn image(vm: &mut Vm, go: &Value, sample: Option<&ImageD>, raycast: bool) -> Val
     attach(vm, go, "UnityEngine.UI.Image", CK::Image(Box::new(image)))
 }
 
+fn set_interactable(go: &Value, enabled: bool) {
+    for comp in with_go(go, |g| g.comps.clone()).unwrap_or_default() {
+        with_comp(&comp, |c| {
+            if let CK::Sel(s) = &mut c.k {
+                s.interactable = enabled;
+            }
+        });
+    }
+    mark_sel_dirty(go);
+}
+
+fn icon_in_frame(vm: &mut Vm, frame: &Value, size: f32) -> Value {
+    let inset = 2.8;
+    let art = new_node(vm, "Achievement Icon", &tr(frame), [0.0, 1.0], inset, size - 2.0 * inset);
+    with_tr(&tr(&art), |t| {
+        t.apos[0] = inset;
+        t.size[0] = -2.0 * inset;
+    });
+    image(vm, &art, None, false)
+}
+
 fn text(vm: &mut Vm, go: &Value, sample: Option<&TextD>, size: Option<i32>, align: i32) -> Value {
     let mut t = sample.cloned().unwrap_or(TextD {
         text: String::new(),
@@ -750,17 +781,19 @@ fn build(vm: &mut Vm) -> Screen {
             t.apos[0] = -21.5;
             t.size[0] = 43.0;
         });
-        let art = new_node(vm, "Achievement Icon", &tr(&tile.0), [0.11, 0.89], 4.73, 33.54);
-        (tile, image(vm, &art, None, false))
+        let icon = icon_in_frame(vm, &tile.0, 43.0);
+        (tile, icon)
     }).collect();
     let details = new_node(vm, "Achievement Details", &right, [0.0, 1.0], 56.0, 340.0);
     let details_parent = tr(&details);
-    let art = new_node(vm, "Selected Achievement Icon", &details_parent, [0.5, 0.5], 17.0, 96.0);
-    with_tr(&tr(&art), |t| {
-        t.apos[0] = -48.0;
-        t.size[0] = 96.0;
+    let icon_frame = new_node(vm, "Selected Achievement Frame", &details_parent, [0.5, 0.5], 14.0, 102.0);
+    with_tr(&tr(&icon_frame), |t| {
+        t.apos[0] = -51.0;
+        t.size[0] = 102.0;
     });
-    let icon = image(vm, &art, None, false);
+    image(vm, &icon_frame, button_frame.as_ref(), false);
+    themed.push((icon_frame.clone(), settings_back));
+    let icon = icon_in_frame(vm, &icon_frame, 102.0);
     let title_node = new_node(vm, "Selected Achievement Name", &details_parent, [0.09, 0.91], 125.0, 57.0);
     let name = text(vm, &title_node, section_style.as_ref(), Some(20), 4);
     let description_node = new_node(vm, "Condition", &details_parent, [0.09, 0.91], 190.0, 98.0);
@@ -788,7 +821,8 @@ fn build(vm: &mut Vm) -> Screen {
         next,
         main_menu,
         achievements: AchievementGrid {
-            root: grid, tiles, details, icon, name, description, state, sprites: RefCell::default(),
+            root: grid, tiles, details, icon_frame, icon, name, description, state,
+            sprites: RefCell::default(),
         },
         frame_junctions,
         actions,
@@ -966,12 +1000,13 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
         .map(|e| (e.id, e.name.clone(), e.description.clone(), e.earned));
     if let Some((id, name, description, earned)) = selected {
         let icon = achievement_sprite(vm, grid, id);
+        vm.set_active(&grid.icon_frame, !icon.is_null());
         paint_achievement(&grid.icon, icon, earned);
         label(&grid.name, name);
         label(&grid.description, description);
         label(&grid.state, if earned { "Unlocked" } else { "Locked" }.into());
     } else {
-        paint_achievement(&grid.icon, Value::Null, false);
+        vm.set_active(&grid.icon_frame, false);
         label(&grid.name, "Choose an achievement".into());
         label(&grid.description, String::new());
         label(&grid.state, String::new());
@@ -1006,10 +1041,11 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     let (Some(ui), Some(mode)) = (&state.ui, state.mode) else {
         return;
     };
-    let choosing = mode == Mode::Choose;
+    let choosing = state.from_title && state.home.is_some();
+    let creating = mode == Mode::Create;
     let achievements = mode == Mode::Achievements;
     vm.set_active(&ui.locked_sidebar, choosing);
-    vm.set_active(&ui.back.0, !choosing);
+    vm.set_active(&ui.back.0, true);
     vm.set_active(&ui.achievements.root, achievements);
     vm.set_active(&ui.achievements.details, achievements);
     vm.set_active(&go_of(&ui.selection), !achievements);
@@ -1024,8 +1060,8 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         &ui.title,
         if importing {
             "IMPORT A SAVE"
-        } else if choosing {
-            "CHOOSE A SAVE"
+        } else if creating {
+            "CREATE NEW GAME"
         } else if mode == Mode::Save {
             "SAVE GAME"
         } else {
@@ -1037,8 +1073,8 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         &ui.detail,
         if importing {
             "Place .txt saves in save/import, then choose a file below."
-        } else if choosing {
-            "Select a saved game to continue, or an empty slot to start a new game."
+        } else if creating {
+            "Select an empty slot for your new game."
         } else if mode == Mode::Save {
             "Choose a slot for a snapshot of your current game."
         } else if state.from_title {
@@ -1050,7 +1086,10 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     );
     label(&ui.status, state.status.clone());
     for (i, row) in ui.rows.iter().enumerate() {
-        vm.set_active(&go_of(&ui.row_info[i]), true);
+        let visible = !choosing || i > 0;
+        let available = !choosing || slot_available(mode, state.entries.get(i));
+        set_interactable(&row.0, available);
+        vm.set_active(&go_of(&ui.row_info[i]), visible);
         if let Some(files) = &state.import_files {
             let file = files.get(state.page * ROW_COUNT + i);
             vm.set_active(&row.0, file.is_some());
@@ -1067,7 +1106,13 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
             );
             continue;
         }
-        vm.set_active(&row.0, true);
+        for node in [&row.0, &go_of(&ui.row_info[i])] {
+            with_tr(&tr(node), |t| {
+                t.apos[1] = -(65.0 + i as f32 * 49.0 - if choosing { 24.5 } else { 0.0 });
+            });
+            mark_dirty(node);
+        }
+        vm.set_active(&row.0, visible);
         let name = if i == 0 {
             "Autosave".into()
         } else {
@@ -1117,6 +1162,7 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     };
     label(&ui.selection, selection);
     vm.set_active(&ui.primary.0, !importing || state.pending.is_some());
+    set_interactable(&ui.primary.0, !choosing || slot_available(mode, state.entries.get(state.selected)));
     vm.set_active(&ui.secondary.0, !importing && !choosing);
     vm.set_active(&ui.main_menu.0, !state.from_title && !importing && state.pending.is_none());
     caption(&ui.main_menu, "Main Menu", false);
@@ -1138,12 +1184,8 @@ fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         &ui.primary,
         if state.pending.is_some() {
             "Confirm"
-        } else if choosing {
-            match state.entries.get(state.selected) {
-                Some(Entry::Save(..)) => "Load Selected Game",
-                Some(Entry::Empty) if state.selected > 0 => "Create New Game",
-                _ => "Choose a Slot",
-            }
+        } else if creating {
+            "Create New Game"
         } else if mode == Mode::Save {
             "Save Current Game"
         } else {
@@ -1184,7 +1226,14 @@ pub(crate) fn frame_junctions(vm: &Vm) -> Option<[Value; 2]> {
 }
 
 pub(crate) fn choosing_save(vm: &Vm) -> bool {
-    vm.eng.save_slots.mode == Some(Mode::Choose)
+    vm.eng.save_slots.from_title && vm.eng.save_slots.home.is_some()
+}
+
+fn slot_available(mode: Mode, entry: Option<&Entry>) -> bool {
+    match mode {
+        Mode::Create => matches!(entry, Some(Entry::Empty)),
+        _ => matches!(entry, Some(Entry::Save(..))),
+    }
 }
 
 fn show_idle_stats(vm: &mut Vm, state: &mut SaveSlots) {
@@ -1230,42 +1279,178 @@ fn restore_idle_stats(vm: &mut Vm, state: &mut SaveSlots) {
     }
 }
 
-fn open_picker(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), String> {
+fn place_home_node(node: &Value, parent: &Value, position: [f32; 2], size: [f32; 2]) {
+    let transform = tr(node);
+    let old_parent = with_tr(&transform, |t| t.parent.clone()).unwrap_or_default();
+    if !same(&old_parent, parent) {
+        with_tr(&old_parent, |t| t.children.retain(|child| !same(child, &transform)));
+        with_tr(parent, |t| t.children.push(transform.clone()));
+    }
+    with_tr(&transform, |t| {
+        t.parent = parent.clone();
+        t.amin = [0.5; 2];
+        t.amax = [0.5; 2];
+        t.pivot = [0.5; 2];
+        t.apos = position;
+        t.size = size;
+    });
+    mark_dirty(node);
+}
+
+fn prepare_home(vm: &mut Vm) -> Result<Home, String> {
+    let title = named_go(vm, "Main Menu Screen").ok_or("The home screen is unavailable.")?;
+    let pod = child(&title, "Autosave Pod Border");
+    let autosave = child(&pod, "Autosave Button");
+    let load = child(&title, "Load File Button");
+    let create = child(&title, "Start New Game");
+    let details_node = child(&pod, "Autosave Details");
+    let details = with_go(&details_node, |g| {
+        g.comps.iter().find(|c| with_comp(c, |c| matches!(c.k, CK::Text(_))) == Some(true)).cloned()
+    }).flatten().ok_or("The autosave details are unavailable.")?;
+    if [&autosave, &load, &create].iter().any(|go| go.is_null()) {
+        return Err("The home buttons are unavailable.".into());
+    }
+    for name in ["Cloud Save Border", "RightPic", "Text", "Discord Button (1)", "Kartridge Button", "Kong Button"] {
+        let node = child(&title, name);
+        with_go(&node, |g| g.port_hidden = true);
+        mark_dirty(&node);
+    }
+    let banner = child(&pod, "LeftBanner");
+    with_go(&banner, |g| g.port_hidden = true);
+    let options = new_node(vm, "Desktop Home Options", &tr(&title), [0.5, 0.5], 0.0, 600.0);
+    with_tr(&tr(&options), |t| {
+        t.pivot[0] = 0.5;
+        t.size[0] = 900.0;
+    });
+    let parent = tr(&options);
+    for (name, x, size) in [
+        ("Chicken", -255.0, [195.0, 117.0]),
+        ("LeftPic", 0.0, [206.0, 190.0]),
+        ("Brian", 255.0, [205.0, 190.0]),
+    ] {
+        place_home_node(&child(&title, name), &parent, [x, 166.0 - size[1] / 2.0], size);
+    }
+    place_home_node(&pod, &parent, [0.0, -207.0], [226.0, 82.0]);
+    place_home_node(&details_node, &tr(&pod), [0.0, 0.0], [206.0, 70.0]);
+    with_comp(&details, |c| {
+        if let CK::Text(text) = &mut c.k {
+            text.size = 17;
+            text.align = 4;
+        }
+    });
+    for (go, x, caption) in [
+        (&load, -255.0, "Load Game"),
+        (&autosave, 0.0, "Load Autosave"),
+        (&create, 255.0, "Create New Game"),
+    ] {
+        place_home_node(go, &parent, [x, -106.0], [226.0, 60.0]);
+        let caption_node = child(go, "Button Text");
+        place_home_node(&caption_node, &tr(go), [0.0, 0.0], [211.0, 52.0]);
+        for comp in with_go(&caption_node, |g| g.comps.clone()).unwrap_or_default() {
+            if with_comp(&comp, |c| {
+                if let CK::Text(text) = &mut c.k {
+                    text.size = 20;
+                    text.best_fit = false;
+                    true
+                } else {
+                    false
+                }
+            }) == Some(true) {
+                label(&comp, format!("<b>{caption}</b>"));
+            }
+        }
+    }
+    Ok(Home { load, autosave, create, details, default: Value::Null })
+}
+
+fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), String> {
+    let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
+    game_call(vm, &title, "startMainMenu", vec![])?;
+    restore_idle_stats(vm, state);
+    close(vm, state);
+    state.returned_title = Value::Null;
+    state.home_active = true;
+    let home = state.home.as_mut().ok_or("The home screen is unavailable.")?;
+    let entries = load_entries(dir);
+    let autosave_available = matches!(entries.first(), Some(Entry::Save(..)));
+    let numbered_available = entries[1..].iter().any(|entry| matches!(entry, Entry::Save(..)));
+    let description = match entries.first() {
+        Some(Entry::Save(info, _)) => {
+            let name = if info.player.is_empty() { "Unknown character" } else { &info.player };
+            let played = info.seconds.map(play_time).unwrap_or_else(|| "Unknown".into());
+            format!("<b>{name}</b>\nPlayed: {played}")
+        }
+        Some(Entry::Invalid) => "Autosave unreadable".into(),
+        _ => "No autosave yet".into(),
+    };
+    label(&home.details, description);
+    set_interactable(&home.autosave, autosave_available);
+    home.default = if autosave_available { home.autosave.clone() }
+        else if numbered_available { home.load.clone() }
+        else { home.create.clone() };
+    crate::focus::select_control(vm, &home.default);
+    Ok(())
+}
+
+fn open_picker(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode) -> Result<(), String> {
     let title = game_component(vm, "MainMenuController").ok_or("The main menu is unavailable.")?;
     game_call(vm, &title, "hideMainMenu", vec![])?;
-    state.returned_title = Value::Null;
+    state.home_active = false;
+    crate::focus::clear(vm);
     show_idle_stats(vm, state);
-    open(vm, state, dir, Mode::Choose, true);
+    open(vm, state, dir, mode, true);
     Ok(())
 }
 
 impl Vm {
     pub fn start_desktop_save_picker(&mut self) -> Result<(), String> {
-        if self.eng.save_slots.desktop_picker {
+        if self.eng.save_slots.home.is_some() {
             return Ok(());
         }
         // Initialize the original scene before taking a clean, player-independent snapshot.
         self.start_pending();
         if let Some(character) = game_component(self, "Character") {
-            // The desktop picker replaces the legacy title and its delayed save discovery.
+            // Local desktop startup owns the title and save discovery.
             self.eng.invokes.retain(|invoke| {
                 invoke.method != "initialStart" || !same(&invoke.owner, &character)
             });
         }
         let snapshot = current_snapshot(self)?;
+        let home = prepare_home(self)?;
         let dir = PathBuf::from(&self.eng.save_dir);
         let mut state = std::mem::take(&mut self.eng.save_slots);
-        state.desktop_picker = true;
+        state.home = Some(home);
         state.new_game = Some(snapshot);
-        let result = open_picker(self, &mut state, &dir);
-        draw_state(self, &state);
+        let result = show_home(self, &mut state, &dir);
         self.eng.save_slots = state;
         result
     }
+
+    pub fn at_desktop_start(&self) -> bool {
+        self.eng.save_slots.home_active || choosing_save(self)
+    }
+
+    pub fn back_from_desktop_picker(&mut self) -> bool {
+        if !choosing_save(self) {
+            return false;
+        }
+        let mut state = std::mem::take(&mut self.eng.save_slots);
+        let dir = PathBuf::from(&self.eng.save_dir);
+        if let Err(e) = show_home(self, &mut state, &dir) {
+            crate::elog!("Could not return to the home screen: {e}");
+        }
+        self.eng.save_slots = state;
+        true
+    }
+}
+
+pub(crate) fn home_default(vm: &Vm) -> Option<Value> {
+    let state = &vm.eng.save_slots;
+    state.home.as_ref().filter(|_| state.home_active).map(|home| home.default.clone())
 }
 
 pub(crate) fn pause_on_title(vm: &mut Vm) -> bool {
-    if choosing_save(vm) {
+    if vm.at_desktop_start() {
         return true;
     }
     let title = &vm.eng.save_slots.returned_title;
@@ -1319,7 +1504,7 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
         state.entries = load_entries(dir);
     }
     state.selected = match mode {
-        Mode::Choose => NO_SLOT,
+        Mode::Create => NO_SLOT,
         Mode::Achievements => 0,
         Mode::Save => (1..ROW_COUNT)
             .find(|&i| matches!(state.entries[i], Entry::Empty))
@@ -1335,6 +1520,10 @@ fn open(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, mode: Mode, from_title: 
     state.page = 0;
     state.import_files = None;
     state.status.clear();
+    if from_title && state.home.is_some() && !state.entries[1..].iter().any(|entry| slot_available(mode, Some(entry))) {
+        state.status = if mode == Mode::Create { "All numbered slots are occupied." }
+            else { "No saved games in the numbered slots." }.into();
+    }
     let ui = state.ui.as_ref().unwrap();
     let achievements = mode == Mode::Achievements;
     label(&ui.headings[0], if achievements { "Steam Milestones" } else { "Save Slots" }.into());
@@ -1377,7 +1566,7 @@ fn perform(
                 Ok::<_, String>(())
             })();
             if let Err(error) = start {
-                open_picker(vm, state, dir)?;
+                show_idle_stats(vm, state);
                 return Err(error);
             }
             close(vm, state);
@@ -1395,23 +1584,26 @@ fn perform(
             Ok(format!("Imported into Slot {index}."))
         }
         Pending::Load(index) => {
-            let choosing = state.mode == Some(Mode::Choose);
+            let choosing = state.from_title && state.home.is_some();
+            let from_title = state.from_title || state.home_active;
             if choosing {
                 restore_idle_stats(vm, state);
             }
-            if let Err(error) = apply_save(vm, dir, &slot_path(dir, index), state.from_title) {
+            if let Err(error) = apply_save(vm, dir, &slot_path(dir, index), from_title) {
                 if choosing {
                     show_idle_stats(vm, state);
                 }
                 return Err(error);
             }
-            if state.from_title {
+            if from_title {
                 let controller = game_component(vm, "MainMenuController")
                     .ok_or("The main menu is unavailable.")?;
                 game_call(vm, &controller, "finishMainMenu", vec![])?;
                 state.returned_title = Value::Null;
             }
-            let autosave = write_current(vm, &slot_path(dir, 0));
+            let autosave = if state.home_active { Ok(()) } else { write_current(vm, &slot_path(dir, 0)) };
+            state.home_active = false;
+            crate::focus::clear(vm);
             close(vm, state);
             if let Err(error) = autosave {
                 crate::elog!("Game loaded. Autosave could not be updated: {error}");
@@ -1421,8 +1613,8 @@ fn perform(
         Pending::MainMenu => {
             state.returned_title = return_to_title(vm, dir)?;
             close(vm, state);
-            if state.desktop_picker {
-                open_picker(vm, state, dir)?;
+            if state.home.is_some() {
+                show_home(vm, state, dir)?;
             }
             Ok(String::new())
         }
@@ -1450,7 +1642,11 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
     match action {
         Action::Achievement(_) => {},
         Action::Back => {
-            if state.pending.take().is_some() {
+            if state.from_title && state.home.is_some() {
+                if let Err(e) = show_home(vm, state, dir) {
+                    state.status = e;
+                }
+            } else if state.pending.take().is_some() {
                 state.status.clear();
             } else if state.import_files.take().is_some() {
                 state.status.clear();
@@ -1459,6 +1655,9 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
             }
         }
         Action::Row(index) => {
+            if state.from_title && state.home.is_some() && (index == 0 || !slot_available(mode, state.entries.get(index))) {
+                return;
+            }
             if let Some(files) = &state.import_files {
                 if let Some(path) = files.get(state.page * ROW_COUNT + index) {
                     state.pending = Some(Pending::Import(path.clone(), state.selected));
@@ -1484,12 +1683,12 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
             if let Some(pending) = state.pending.take() {
                 state.status = perform(vm, state, dir, pending).unwrap_or_else(|e| e);
                 state.entries = load_entries(dir);
-            } else if mode == Mode::Choose && state.selected > 0
-                && matches!(state.entries.get(state.selected), Some(Entry::Empty))
-            {
-                state.status = perform(vm, state, dir, Pending::Create(state.selected))
-                    .unwrap_or_else(|e| e);
-                state.entries = load_entries(dir);
+            } else if mode == Mode::Create {
+                if state.selected > 0 && slot_available(mode, state.entries.get(state.selected)) {
+                    state.status = perform(vm, state, dir, Pending::Create(state.selected))
+                        .unwrap_or_else(|e| e);
+                    state.entries = load_entries(dir);
+                }
             } else if mode == Mode::Save {
                 if state.selected == 0 {
                     state.status = "The game manages Autosave. Choose a manual slot.".into();
@@ -1510,12 +1709,6 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
                     state.pending = Some(action);
                     state.status = "Load this save and replace the current game? The current game will be backed up.".into();
                 }
-            } else if mode == Mode::Choose {
-                state.status = match state.entries.get(state.selected) {
-                    Some(Entry::Invalid) => "This save cannot be read.",
-                    Some(Entry::Empty) => "There is no autosave yet. Choose an empty numbered slot.",
-                    _ => "Select a saved game or an empty numbered slot.",
-                }.into();
             } else {
                 state.status = "Choose a valid saved game.".into();
             }
@@ -1575,6 +1768,29 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
         return false;
     }
     if choosing_save(vm) && !owns(go) {
+        return true;
+    }
+    if vm.eng.save_slots.home_active {
+        let mut state = std::mem::take(&mut vm.eng.save_slots);
+        let dir = PathBuf::from(&vm.eng.save_dir);
+        let home = state.home.as_ref().expect("desktop home layout");
+        let result = if same(&home.autosave, go) {
+            perform(vm, &mut state, &dir, Pending::Load(0)).map(|_| ())
+        } else if same(&home.create, go) {
+            open_picker(vm, &mut state, &dir, Mode::Create)
+        } else if same(&home.load, go) {
+            open_picker(vm, &mut state, &dir, Mode::Load)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = result {
+            let _ = show_home(vm, &mut state, &dir);
+            if let Some(home) = &state.home {
+                label(&home.details, e);
+            }
+        }
+        draw_state(vm, &state);
+        vm.eng.save_slots = state;
         return true;
     }
     if !vm.eng.save_slots.returned_title.is_null()

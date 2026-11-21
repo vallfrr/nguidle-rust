@@ -192,8 +192,13 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
         } else {
             tc.chars.lock().unwrap().clear();
             #[allow(unused_mut)]
-            let mut acts = if nav_mode { key_actions(&window) } else { vec![] };
-            if !nav_mode {
+            let at_desktop_start = vm.at_desktop_start();
+            let mut acts = if nav_mode || at_desktop_start { key_actions(&window) } else { vec![] };
+            if at_desktop_start && !window.is_key_pressed(Key::Enter, KeyRepeat::No)
+                && !window.is_key_pressed(Key::Space, KeyRepeat::No) {
+                acts.retain(|action| *action != Action::Activate);
+            }
+            if !nav_mode && !at_desktop_start {
                 // original behaviour: the game reads the keys itself (GetKey / GetKeyDown)
                 vm.eng.keys_down = window.get_keys().into_iter().filter_map(unity_key).collect();
                 vm.eng.keys_edge.extend(window.get_keys_pressed(KeyRepeat::No).into_iter().filter_map(unity_key));
