@@ -132,5 +132,7 @@ the element vector first (identical output, `tools/regress.sh` ALL OK).
   26.8 % of frames over 16.7 ms. Worst gaps: boot (2.9 s), the first click on "Create New Game" (1.0 s), then a few 0.4-0.9 s menu switches.
   Spikes recur about every 27 ticks (~0.9 s), so the remaining cost is spread over many steps, not only the autosave. The monkey
   visits every screen with random input, which is a harder mix than the `session` scenario above.
+- Same 2-hour `monkey` soak on the two-thread build: 431,842 frames, no crash or stuck screen, 59.9 fps presented, 4 frames later than 25 ms (longest gap 40 ms).
+  Simulation work is unchanged (p99 60.8 ms, worst menu switch 641 ms), so input response can still lag while the picture stays smooth.
 - Console cycle pitfalls found: the agent skips an upload whose content it already sent (the scenario gets a unique comment line each time);
   `fs trash` is asynchronous (the scenario file is never trashed); a scripted run never opens the system keyboard (it blocked the console once).
