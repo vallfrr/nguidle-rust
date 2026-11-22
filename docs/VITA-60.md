@@ -44,8 +44,51 @@ A late-game measurement needs the late-game save: `FIXTURE=/path/NGUSaveSteam.tx
 3. `tools/regress.sh` must stay `ALL OK`. Save digests are only comparable between runs with the same clock and save folder
    (the game stamps real time into a save), so compare them PC-to-PC with `NGU_FIXED_NOW` and Vita-to-Vita.
 
+## What the measurements said (console, 444/222 MHz, fresh game, `session` scenario, 31,450 ticks)
+| | before (baseline) | after the changes below |
+| --- | --- | --- |
+| presented rate | 52.6 fps | 56.5 fps |
+| frames later than 25 ms | 9.8 % | 4.1 % |
+| frames whose CPU work exceeds 16.7 ms | 39.5 % | 16.7 % |
+| work per frame p50 / p99 | 15.3 / 54.6 ms | 10.2 / 37.6 ms |
+
+Findings that drove the work (all from the trace, not guessed):
+- One simulation step costs ~11 ms on the Vita for ~15 k interpreted instructions (~1.4 M instructions per second: the interpreter is
+  ~50x slower there than on a PC). The layout, draw list and submission add ~7 ms to every frame. At 30 Hz steps on 60 Hz frames this is
+  ~60 % of the CPU on average, but a frame that did both could take 18-25 ms.
+- Every menu switch ran ~400 k interpreted instructions (`updateBonuses` x 11, 1,144 `specBonus`, 9,152 `equipSpecBonus` calls): 100-250 ms hitch.
+- Every 15 steps (0.5 s) the whole scene was laid out again (24 ms on the Vita) because an item icon swapped between two sprites
+  of the same size.
+
+Changes (each one checked: `tools/regress.sh` ALL OK, and the save digests of the whole `session` equal with and without them):
+1. **Native `equipSpecBonus` / `specBonus`** (`clr/src/vm.rs`, guards 20 and 21): same f32 arithmetic and order as the IL, falls back to the
+   interpreter on anything unexpected. A menu switch now costs 93 k instructions instead of 400 k.
+2. **Time-sliced steps** (`Vm::frame_start` / `frame_run`, `clr/src/capi.rs`): a step runs over one or two display frames, cut between two
+   `Update` components, with the same callback order. The budget is planned from the measured cost of a step and of a redraw
+   (`NGU_FRAME_MS`, default 12 ms; `NGU_SLICE_MS`, default 12 on the Vita, 0 = off elsewhere). Discrete input (press, release, pad action, stick)
+   completes the step first, and the layout only runs between steps, so the game state does not depend on where a step was cut
+   (verified at a 0.05 ms budget, which cuts every step into hundreds of slices).
+3. **No redraw on unchanged frames**: when no step completed and nothing was touched, the host draws the previous list again.
+4. **`active_in_hierarchy` cached per epoch** (bumped by `SetActive`, destruction, re-parenting): it was 11 % of a step.
+5. **No relayout for a sprite swap of the same size** (`Image.set_sprite`): the layout reads only a sprite's size.
+
+Tried and dropped: translating only the hottest classes to Rust (`ngu-ilgen` with a class list). Generated code and the interpreter keep
+objects in different representations (Rust structs vs VM objects), so a partial build cannot call back into untranslated methods without
+copying every object; not worth the risk. The generator now includes the nested lambda classes of a selected class, which is correct
+but unused.
+
+## Still open
+- 60 Hz is not constant yet: 4 % of frames are late, mostly (a) the first visit of a screen (glyph rasterization, texture upload: 200-400 ms),
+  (b) heavy steps (late-game saves cost more than the fresh game measured here), (c) the autosave every ~30 s.
+- Next candidates, in order: pre-warm glyphs and textures of the neighbour screens while idle; move the autosave encoding/MD5/write off the
+  game thread; cache `desktop_layout::rebuild` (30 % of a redraw); a render thread that presents the last list at exactly 60 Hz;
+  a clock governor (lowest clocks that keep p99 under 12 ms).
+- Late-game numbers need the real late-game save: `FIXTURE=<save> tools/vita-cycle.sh tour late-tour`.
+
 ## Status
-- Verified on PC: scenario parsing (unit test), the `tour` replay (9,100 ticks, 58 menus, no failed click), the trace analyzer and the instruction
-  profile. First PC profile (fresh game, tour): `InventoryController::equipSpecBonus` (550 k calls), `PlayerTime::recalculateTime`,
-  `InventoryController::specBonus`, `OffenseTraining::updateOffenseTraining` lead the interpreted cost.
-- Not verified on the console yet: the host trace code, `vita-cycle.sh`, `vita-batch.sh` (written; they need the Vita agent).
+- Verified on PC: scenario parsing (unit test), the replays, the analyzer, the instruction profile, `tools/guard-check.sh` (guards on/off) and the
+  slicing identity check (`NGU_SLICE_MS` 0 / 0.05 / 3), `tools/regress.sh`.
+- Verified on the console: the whole loop (`vita-cycle.sh`) with the `tour`, `session` scenarios; numbers above. A 2-hour `monkey` soak was started
+  (`out/vita-60/soak-monkey/`), see NEXT.md for its result if recorded.
+- Console cycle pitfalls found: the agent skips an upload whose content it already sent (the scenario gets a unique comment line each time);
+  `fs trash` is asynchronous (the scenario file is never trashed); a scripted run never opens the system keyboard (it blocked the console once).

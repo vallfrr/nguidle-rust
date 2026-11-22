@@ -790,16 +790,28 @@ impl Vm {
     /// weapon2 x weapon2Factor, accessories). The factor is only evaluated when weapon2 contributes (a zero term stays zero).
     fn native_spec_bonus(&mut self, base: usize) -> Option<Value> {
         let f = *self.equip_spec_fields.as_ref()?;
+        let [boss, settings, difficulty] = self.effective_boss_fields?;
         let (this, ty) = (self.slots.get(base)?.clone(), self.slots.get(base + 1)?.clone());
         let Value::I32(ty) = ty else { return None };
         let character = read_field(&this, f.character)?;
         let inv = read_field(&character, f.inventory)?;
-        let part = |i: usize| read_field(&inv, f.parts[i]);
-        let mut num = self.equip_spec_value(&f, &character, ty, &part(0)?)?;
-        for i in 1..5 {
-            num += self.equip_spec_value(&f, &character, ty, &part(i)?)?;
+        // The challenge, the disabled flag and the boss number are the same for every item of one call: read them once.
+        let no_equipment = read_field(&read_field(&character, f.challenges)?, f.no_equipment)?;
+        let Value::I32(in_challenge) = read_field(&no_equipment, f.in_challenge)? else { return None };
+        let Value::I32(disabled) = read_field(&inv, f.disabled)? else { return None };
+        if in_challenge != 0 || disabled != 0 {
+            // every item contributes 0 (weapon2Factor() is a pure formula: 0 x factor stays 0)
+            return Some(Value::F32(0.0));
         }
-        let w2 = self.equip_spec_value(&f, &character, ty, &part(5)?)?;
+        let Value::I32(boss_id) = read_field(&character, boss)? else { return None };
+        let Value::I32(difficulty) = read_field(&read_field(&character, settings)?, difficulty)? else { return None };
+        let boss_id = boss_id.wrapping_add(301 * (i32::from(difficulty >= 1) + i32::from(difficulty >= 2)));
+        let part = |i: usize| read_field(&inv, f.parts[i]);
+        let mut num = Self::item_spec(&f, boss_id, ty, &part(0)?)?;
+        for i in 1..5 {
+            num += Self::item_spec(&f, boss_id, ty, &part(i)?)?;
+        }
+        let w2 = Self::item_spec(&f, boss_id, ty, &part(5)?)?;
         let mut term = 0f32;
         if w2 != 0.0 {
             let m = f.weapon2_factor;
@@ -810,9 +822,29 @@ impl Vm {
         let Value::Obj(accs) = part(6)? else { return None };
         let Ext::List(accs) = &*accs.x.try_borrow().ok()? else { return None };
         for acc in accs.iter() {
-            num += self.equip_spec_value(&f, &character, ty, acc)?;
+            num += Self::item_spec(&f, boss_id, ty, acc)?;
         }
         Some(Value::F32(num))
+    }
+
+    /// One item's share, once the challenge/disabled flags are known to be off (see `equip_spec_value`).
+    fn item_spec(f: &EquipSpecFields, boss_id: i32, ty: i32, equip: &Value) -> Option<f32> {
+        let Value::I32(first) = read_field(equip, f.spec_type[0])? else { return None };
+        if first == 0 {
+            return Some(0.0);
+        }
+        let Value::I32(required) = read_field(equip, f.boss_required)? else { return None };
+        let ratio = boss_id as f32 / required as f32;
+        let ratio = if ratio < 1.0 { ratio } else { 1.0 }; // Mathf.Min(a, 1f): NaN gives 1
+        let mut num = 0f32;
+        for i in 0..3 {
+            let Value::I32(t) = read_field(equip, f.spec_type[i])? else { return None };
+            if t == ty {
+                let Value::F32(cur) = read_field(equip, f.spec_cur[i])? else { return None };
+                num += (cur * ratio).floor();
+            }
+        }
+        Some(num)
     }
 
     fn equip_spec_value(&self, f: &EquipSpecFields, character: &Value, ty: i32, equip: &Value) -> Option<f32> {
