@@ -188,7 +188,7 @@ pub fn run_pc(args: &[String]) -> Result<(), String> {
     }
     println!("[autoplay] {frame} frames, {} ticks", info[0]);
     if std::env::var_os("CLR_PROF").is_some() {
-        print!("{}", profile_report(25));
+        print!("{}", profile_report(std::env::var("NGU_PROF_TOP").ok().and_then(|v| v.parse().ok()).unwrap_or(25)));
     }
     Ok(())
 }

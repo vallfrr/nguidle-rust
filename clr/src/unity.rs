@@ -207,6 +207,14 @@ pub struct Inv {
     pub repeat: f64,
 }
 
+/// Update components still to run in the step in progress.
+pub struct TickSlice {
+    ups: Vec<Value>,
+    idx: usize,
+    /// the visual-motion clock of the step, parked while the frames in between are drawn
+    clock: Option<(f64, f64)>,
+}
+
 #[derive(Default)]
 pub struct Engine {
     pub(crate) dropdown: crate::dropdown::Dropdown,
@@ -265,6 +273,8 @@ pub struct Engine {
     start_list: Option<Vec<Value>>,
     pub ptr: crate::input::PointerState,
     pub update_list: Option<(Vec<Value>, Vec<Value>)>,
+    /// a simulation step in progress, run in time slices over several display frames (`Vm::frame_start` / `frame_run`)
+    pub slice: Option<TickSlice>,
     pub hover_always: bool,
     pub pad_hover: bool,
     pub scrollrects: Vec<Value>,
@@ -1248,22 +1258,27 @@ impl Vm {
 
     /// One frame: Update of all components, coroutines, Invoke.
     pub fn frame(&mut self, dt: f32) {
+        if self.frame_start(dt) {
+            self.frame_run(None);
+        }
+    }
+
+    /// Starts a simulation step: time, Start, pointer events and the list of Update components. Returns false when nothing
+    /// follows (the title pause handled the frame). `frame_run` then executes the step, possibly over several calls.
+    pub fn frame_start(&mut self, dt: f32) -> bool {
         if crate::save_slots::pause_on_title(self) {
             self.pointer_update();
             self.mouse_input_finished();
-            return;
+            return false;
         }
         self.eng.dt = dt;
         self.eng.time += dt as f64;
         self.eng.frame += 1;
-        let profile = self.profile_vita_frame();
-        let begin = profile.then(std::time::Instant::now);
         if self.eng.motion.enabled {
             self.eng.motion.clock = Some((self.eng.time, f64::from(dt)));
         }
         self.start_pending();
         self.pointer_update();
-        let input = begin.map(|begin| begin.elapsed());
         // Update: only the components whose class defines Update
         if self.eng.update_list.is_none() {
             let (mut ups, mut lates) = (vec![], vec![]);
@@ -1280,16 +1295,31 @@ impl Vm {
             self.eng.update_list = Some((ups, lates));
         }
         let ups = self.eng.update_list.as_ref().unwrap().0.clone();
-        for c in &ups {
-            if with_comp(c, |k| k.enabled).unwrap_or(false) && active_in_hierarchy(&go_of(c)) {
-                let _ = self.call_msg(c, "Update");
+        let clock = self.eng.motion.clock.take();
+        self.eng.slice = Some(TickSlice { ups, idx: 0, clock });
+        true
+    }
+
+    /// Runs the step started by `frame_start`. With a deadline the Update loop stops between two components once it has passed
+    /// (at least one component always runs) and returns false: call again on a later display frame to continue. The order of
+    /// every callback is the same as in one go, so the game state after the step does not depend on the slicing.
+    pub fn frame_run(&mut self, deadline: Option<std::time::Instant>) -> bool {
+        let Some(mut slice) = self.eng.slice.take() else { return true };
+        self.eng.motion.clock = slice.clock.take();
+        while slice.idx < slice.ups.len() {
+            let c = slice.ups[slice.idx].clone();
+            slice.idx += 1;
+            if with_comp(&c, |k| k.enabled).unwrap_or(false) && active_in_hierarchy(&go_of(&c)) {
+                let _ = self.call_msg(&c, "Update");
+            }
+            if slice.idx < slice.ups.len() && deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                slice.clock = self.eng.motion.clock.take();
+                self.eng.slice = Some(slice);
+                return false;
             }
         }
-        let update = begin.map(|begin| begin.elapsed());
         self.run_invokes();
-        let invoke = begin.map(|begin| begin.elapsed());
         self.run_coroutines();
-        let coroutines = begin.map(|begin| begin.elapsed());
         let lates = self.eng.update_list.as_ref().unwrap().1.clone();
         for c in &lates {
             if with_comp(c, |k| k.enabled).unwrap_or(false) && active_in_hierarchy(&go_of(c)) {
@@ -1297,15 +1327,9 @@ impl Vm {
             }
         }
         crate::achievements::tick(self);
-        if let (Some(begin), Some(input), Some(update), Some(invoke), Some(coroutines)) = (begin, input, update, invoke, coroutines) {
-            let elapsed = begin.elapsed();
-            if elapsed.as_millis() >= 25 {
-                crate::elog!("[slow] frame={} input={input:?} update={:?} invokes={:?} coroutines={:?} late={:?}",
-                    self.eng.frame, update - input, invoke - update, coroutines - invoke, elapsed - coroutines);
-            }
-        }
         self.eng.motion.clock = None;
         self.mouse_input_finished();
+        true
     }
 
     fn mouse_input_finished(&mut self) {

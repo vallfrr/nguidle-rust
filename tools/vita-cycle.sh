@@ -26,13 +26,21 @@ if [ "$(cat out/vita-60/.last-deployed 2>/dev/null)" != "$SUM" ]; then
   echo "$SUM" > out/vita-60/.last-deployed
 fi
 B=ux0:data/ngu/bench
-for f in trace.bin done.txt host.txt scenario.txt; do A fs trash $B/$f > /dev/null 2>&1; done
+for f in trace.bin done.txt host.txt; do A fs trash $B/$f > /dev/null 2>&1; done
 A fs trash ux0:data/ngu/log.txt > /dev/null 2>&1
 [ -z "${KEEP_SAVES:-}" ] && A fs trash $B/save > /dev/null 2>&1  # scenarios start from a clean profile (a stale slot asks to overwrite)
 [ -n "${FIXTURE:-}" ] && A fs upload "$FIXTURE" $B/save/NGUSaveSteam.txt --overwrite > /dev/null 2>&1
-A fs upload "$SC" $B/scenario.txt --overwrite > "$OUT/upload.log" 2>&1 || { echo "scenario upload failed"; exit 6; }
+# the agent skips an upload whose content it already sent once (even if the file was removed since): make every upload unique
+{ cat "$SC"; echo "# run $(date +%s)"; } > "$OUT/scenario.txt"
+A fs upload "$OUT/scenario.txt" $B/scenario.txt --overwrite > "$OUT/upload.log" 2>&1 || { echo "scenario upload failed"; exit 6; }
 TICKS=$(grep -E '^[0-9]+ ' "$SC" | tail -1 | cut -d' ' -f1); LIMIT=$(( TICKS / 30 * 3 / 2 + 180 ))
 A app launch NGUI00001 > "$OUT/launch.log" 2>&1
+# the host reports whether it found the scenario within about a minute of start-up: fail fast instead of waiting the whole run
+for i in 1 2 3 4 5 6; do
+  sleep 20; rm -f "$OUT/host-early.txt"; A fs download $B/host.txt "$OUT/host-early.txt" > /dev/null 2>&1
+  grep -aq "Scenario:" "$OUT/host-early.txt" 2>/dev/null && break
+done
+grep -aq "Scenario: 0" "$OUT/host-early.txt" 2>/dev/null || { echo "scenario not loaded by the app (see $OUT/host-early.txt)"; A app close NGUI00001 > /dev/null 2>&1; exit 8; }
 T0=$(date +%s); DONE=
 while [ $(( $(date +%s) - T0 )) -lt $LIMIT ]; do
   sleep 30

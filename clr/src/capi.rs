@@ -47,6 +47,10 @@ struct State {
     ticks: u64,
     last_steps: u32,
     last_instr: u64,
+    /// time budget (ms) of simulation per display frame; 0 = a step always runs in one piece
+    slice_ms: f32,
+    /// moving average (ms) of the layout + draw-list time of recent frames, to leave room for them
+    render_ms: f32,
 }
 
 static mut STATE: Option<State> = None;
@@ -171,7 +175,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0 });
     }
     0
 }
@@ -224,10 +228,35 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
             s.accumulator += f64::from(dt.max(0.0));
         }
         let mut steps = 0;
-        while s.accumulator >= GAME_STEP && steps < 2 {
-            s.accumulator -= GAME_STEP;
-            s.vm.frame(GAME_STEP as f32);
-            steps += 1;
+        if s.slice_ms > 0.0 {
+            // Time-sliced steps: a step may span several display frames, so a heavy step never delays a presentation.
+            // The budget leaves room for the layout, the draw list and the submission of the same frame.
+            let budget = (16.0 - 2.5 - s.render_ms).max(3.0).min(s.slice_ms);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f32(budget / 1000.0);
+            loop {
+                if s.vm.eng.slice.is_none() {
+                    if !(s.accumulator >= GAME_STEP && steps < 2) {
+                        break;
+                    }
+                    s.accumulator -= GAME_STEP;
+                    if !s.vm.frame_start(GAME_STEP as f32) {
+                        steps += 1;
+                        continue;
+                    }
+                }
+                if s.vm.frame_run(Some(deadline)) {
+                    steps += 1;
+                }
+                if std::time::Instant::now() >= deadline {
+                    break;
+                }
+            }
+        } else {
+            while s.accumulator >= GAME_STEP && steps < 2 {
+                s.accumulator -= GAME_STEP;
+                s.vm.frame(GAME_STEP as f32);
+                steps += 1;
+            }
         }
         s.last_steps = steps;
         if steps == 0 && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
@@ -306,6 +335,7 @@ pub extern "C" fn ngu_emit() -> i32 {
     };
     s.rend.set_subframe_time(s.accumulator.min(GAME_STEP) as f32);
     s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
+    s.render_ms = s.render_ms * 0.9 + s.rend.t_emit * 0.1;
     s.verts.clear();
     s.batches.clear();
     let quads = std::mem::take(&mut s.rend.quads);
@@ -402,6 +432,11 @@ pub extern "C" fn ngu_text_request(buf: *mut c_char, cap: i32, max: *mut i32, nu
         Some(s) => s,
         None => return 0,
     };
+    if s.autoplay.is_some() {
+        // a scripted session never opens the system keyboard (it would block the run): the entry is cancelled
+        s.vm.eng.text_req = None;
+        return 0;
+    }
     if let Some(r) = s.vm.eng.text_req.as_mut() {
         if r.pending {
             r.pending = false;
@@ -555,4 +590,9 @@ pub fn profile_report(top: usize) -> String {
 ", s.vm.types[mi.owner as usize].name, mi.name);
     }
     out
+}
+
+/// Slice budget: `NGU_SLICE_MS` (0 = off), default 12 ms on the Vita and off elsewhere (a PC replay stays one step per call).
+fn slice_default() -> f32 {
+    std::env::var("NGU_SLICE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(if cfg!(target_os = "vita") { 12.0 } else { 0.0 })
 }
