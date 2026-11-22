@@ -85,6 +85,16 @@ but unused.
   a clock governor (lowest clocks that keep p99 under 12 ms).
 - Late-game numbers need the real late-game save: `FIXTURE=<save> tools/vita-cycle.sh tour late-tour`.
 
+## What a VPK cache can and cannot do (soak analysis)
+The sh3/sh4 ports ship a compiled GPU-program cache because they compile shaders at run time. This port uses vitaGL's fixed pipeline with no shaders
+of its own, so that cache has no equivalent here. In the 2-hour soak trace the frames over 25 ms are not upload frames (median upload 2 us):
+72 % of them spend more than 60 % of their time in game logic, and about 70 % of the frames over 100 ms follow a menu switch
+(~95 k interpreted instructions, ~65 ms on the console; the top contributors are `updateBonuses` x 11 and `updateEquipmentBonus`, ~35 k instructions together).
+Glyph and texture pre-warming therefore addresses only the first-visit part. Memoizing the inventory bonus loops would save at most ~25 ms per switch
+and needs the interpreter to prove the inventory unchanged; not done. Autosave file writing, MD5 and the slot record are already on a worker thread
+on the Vita; what remains on the game thread is the snapshot itself. `byte[]` to `Vec<u8>` conversions in `ToBase64String` / stream natives no longer clone
+the element vector first (identical output, `tools/regress.sh` ALL OK).
+
 ## Status
 - Verified on PC: scenario parsing (unit test), the replays, the analyzer, the instruction profile, `tools/guard-check.sh` (guards on/off) and the
   slicing identity check (`NGU_SLICE_MS` 0 / 0.05 / 3), `tools/regress.sh`.

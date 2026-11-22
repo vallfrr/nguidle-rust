@@ -33,7 +33,7 @@ fn st(v: &Value) -> String {
 }
 
 fn bytes_of(vm: &mut Vm, v: &Value) -> R<Vec<u8>> {
-    Ok(iter_values(vm, v)?.iter().map(|x| x.as_i32() as u8).collect())
+    crate::bcl_core::bytes_of_value(vm, v)
 }
 
 fn byte_array(vm: &mut Vm, b: &[u8]) -> Value {

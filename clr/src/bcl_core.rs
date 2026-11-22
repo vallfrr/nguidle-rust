@@ -54,6 +54,16 @@ pub fn kvp(vm: &mut Vm, k: Value, v: Value) -> Value {
     Value::Struct(Box::new(Struct { ty: id, f: vec![k, v] }))
 }
 
+/// Bytes of a byte[] (or list) without cloning the element vector first; same result as mapping `iter_values`.
+pub fn bytes_of_value(vm: &mut Vm, v: &Value) -> R<Vec<u8>> {
+    if let Value::Obj(o) = v {
+        if let Ext::Arr(a) | Ext::List(a) = &*o.x.borrow() {
+            return Ok(a.iter().map(|x| x.as_i32() as u8).collect());
+        }
+    }
+    Ok(iter_values(vm, v)?.iter().map(|x| x.as_i32() as u8).collect())
+}
+
 /// Content of a collection (array, list, dictionary, user enumerator).
 pub fn iter_values(vm: &mut Vm, v: &Value) -> R<Vec<Value>> {
     let v = vm.deref(v.clone());
@@ -902,7 +912,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             v => Ok(Value::F64(v.as_f64())),
         },
         "System.Convert::ToBase64String" => |vm, a| {
-            let b: Vec<u8> = iter_values(vm, &a[0])?.iter().map(|v| v.as_i32() as u8).collect();
+            let b = bytes_of_value(vm, &a[0])?;
             Ok(Value::str(&b64_enc(&b)))
         },
         "System.Convert::FromBase64String" => |vm, a| {
