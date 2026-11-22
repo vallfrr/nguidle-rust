@@ -11,9 +11,10 @@ R=$(cd "$(dirname "$0")/.." && pwd); cd "$R"
 SC=${1:?scenario name (nguidle-vita/scenarios/<name>.txt) or file}; LABEL=${2:-$(basename "$SC" .txt)-$(date +%m%d-%H%M)}
 [ -f "$SC" ] || SC=nguidle-vita/scenarios/$SC.txt
 [ -f "$SC" ] || { echo "no such scenario: $SC"; exit 2; }
+SC=$(realpath "$SC")  # the agent wrapper may run from another directory: absolute paths only
 : "${VITA_AGENT:?set VITA_AGENT to the Vita agent wrapper script}"
 A() { bash "$VITA_AGENT" "$@"; }
-OUT=out/vita-60/$LABEL; mkdir -p "$OUT"
+OUT=$R/out/vita-60/$LABEL; mkdir -p "$OUT"
 export NGU_VITA_BUILD_DIR=${NGU_VITA_BUILD_DIR:-$R/out/vita-bench-build} NGUIDLE_RUST=$R
 A app running > "$OUT/agent.json" 2>&1 || { echo "console unreachable (agent: $(head -c 150 "$OUT/agent.json" | tr '\n' ' '))"; exit 3; }
 if [ -z "${NO_BUILD:-}" ]; then
@@ -27,6 +28,7 @@ fi
 B=ux0:data/ngu/bench
 for f in trace.bin done.txt host.txt scenario.txt; do A fs trash $B/$f > /dev/null 2>&1; done
 A fs trash ux0:data/ngu/log.txt > /dev/null 2>&1
+[ -z "${KEEP_SAVES:-}" ] && A fs trash $B/save > /dev/null 2>&1  # scenarios start from a clean profile (a stale slot asks to overwrite)
 [ -n "${FIXTURE:-}" ] && A fs upload "$FIXTURE" $B/save/NGUSaveSteam.txt --overwrite > /dev/null 2>&1
 A fs upload "$SC" $B/scenario.txt --overwrite > "$OUT/upload.log" 2>&1 || { echo "scenario upload failed"; exit 6; }
 TICKS=$(grep -E '^[0-9]+ ' "$SC" | tail -1 | cut -d' ' -f1); LIMIT=$(( TICKS / 30 * 3 / 2 + 180 ))

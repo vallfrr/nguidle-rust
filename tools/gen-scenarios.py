@@ -47,7 +47,7 @@ L, t = HEAD + BOOT, 400
 for m in range(58):
     L += [f"{t} mark menu{m}", f"{t} menu {m}", f"{t + S} pad d"]
     t += 5 * S
-L.append(f"{t} end")
+L += [f"{t} check tour", f"{t + 1} end"]
 write("tour", L)
 
 # Monkey: seeded random walk for 2 hours; replay one seed on PC to understand a spike.

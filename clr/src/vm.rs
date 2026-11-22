@@ -98,6 +98,42 @@ impl WishTickFields {
     }
 }
 
+/// Field slots for the native `InventoryController.equipSpecBonus` / `specBonus` (guards 20, 21).
+#[derive(Clone, Copy)]
+struct EquipSpecFields {
+    character: (u32, usize),
+    challenges: (u32, usize),
+    no_equipment: (u32, usize),
+    in_challenge: (u32, usize),
+    inventory: (u32, usize),
+    disabled: (u32, usize),
+    spec_type: [(u32, usize); 3],
+    spec_cur: [(u32, usize); 3],
+    boss_required: (u32, usize),
+    /// Inventory: weapon, head, chest, legs, boots, weapon2, accs
+    parts: [(u32, usize); 7],
+    weapon2_factor: u32,
+}
+
+impl EquipSpecFields {
+    fn resolve(vm: &Vm) -> Option<Self> {
+        let f = |t, n| field_ref(vm, t, n);
+        Some(Self {
+            character: f("InventoryController", "character")?,
+            challenges: f("Character", "challenges")?,
+            no_equipment: f("Challenges", "noEquipmentChallenge")?,
+            in_challenge: f("Challenge", "inChallenge")?,
+            inventory: f("Character", "inventory")?,
+            disabled: f("Inventory", "disabled")?,
+            spec_type: [f("Equipment", "spec1Type")?, f("Equipment", "spec2Type")?, f("Equipment", "spec3Type")?],
+            spec_cur: [f("Equipment", "spec1Cur")?, f("Equipment", "spec2Cur")?, f("Equipment", "spec3Cur")?],
+            boss_required: f("Equipment", "bossRequired")?,
+            parts: ["weapon", "head", "chest", "legs", "boots", "weapon2", "accs"].map(|n| f("Inventory", n)).into_iter().collect::<Option<Vec<_>>>()?.try_into().ok()?,
+            weapon2_factor: vm.find_method(f("InventoryController", "character")?.0, "weapon2Factor", 1)?,
+        })
+    }
+}
+
 struct TitanChecks {
     scope: u32,
     character: Rc<Obj>,
@@ -136,6 +172,7 @@ pub struct Vm {
     optimal_score: Option<(Recipe, f32)>,
     achievement_stats: Option<(u32, [Option<Value>; 6])>,
     effective_boss_fields: Option<[(u32, usize); 3]>,
+    equip_spec_fields: Option<EquipSpecFields>,
 }
 
 impl Vm {
@@ -183,6 +220,7 @@ impl Vm {
             optimal_score: None,
             achievement_stats: None,
             effective_boss_fields: None,
+            equip_spec_fields: None,
             prof: if std::env::var("CLR_PROF").is_ok() { Some(HashMap::new()) } else { None },
             prof_child: 0,
         };
@@ -201,6 +239,7 @@ impl Vm {
             field_ref(&vm, "Character", "settings")?,
             field_ref(&vm, "PlayerSettings", "rebirthDifficulty")?,
         ]))();
+        vm.equip_spec_fields = EquipSpecFields::resolve(&vm);
         vm
     }
 
@@ -588,6 +627,8 @@ impl Vm {
         if guarded {
             let native = match mi.guard {
                 18 => self.effective_boss_id(base),
+                20 => self.native_equip_spec_bonus(base),
+                21 => self.native_spec_bonus(base),
                 // This Update only handles the A/D shortcuts on equipped items.
                 19 if self.slots.get(base).and_then(Value::as_obj).is_some()
                     && !self.eng.keys_edge.contains(&97) && !self.eng.keys_edge.contains(&100) =>
@@ -733,6 +774,77 @@ impl Vm {
         self.depth -= 1;
         self.slots.truncate(base);
         r
+    }
+
+    /// `InventoryController.equipSpecBonus(type, equip)` without interpreting it (same f32 arithmetic and order as the IL).
+    /// Returns None (the interpreter runs the method) for anything unexpected, including null arguments.
+    fn native_equip_spec_bonus(&self, base: usize) -> Option<Value> {
+        let f = self.equip_spec_fields.as_ref()?;
+        let (this, ty, equip) = (self.slots.get(base)?, self.slots.get(base + 1)?, self.slots.get(base + 2)?);
+        let Value::I32(ty) = ty else { return None };
+        let character = read_field(this, f.character)?;
+        self.equip_spec_value(f, &character, *ty, equip).map(Value::F32)
+    }
+
+    /// `InventoryController.specBonus(type)`: sum over the equipped items in the IL's order (weapon, head, chest, legs, boots,
+    /// weapon2 x weapon2Factor, accessories). The factor is only evaluated when weapon2 contributes (a zero term stays zero).
+    fn native_spec_bonus(&mut self, base: usize) -> Option<Value> {
+        let f = *self.equip_spec_fields.as_ref()?;
+        let (this, ty) = (self.slots.get(base)?.clone(), self.slots.get(base + 1)?.clone());
+        let Value::I32(ty) = ty else { return None };
+        let character = read_field(&this, f.character)?;
+        let inv = read_field(&character, f.inventory)?;
+        let part = |i: usize| read_field(&inv, f.parts[i]);
+        let mut num = self.equip_spec_value(&f, &character, ty, &part(0)?)?;
+        for i in 1..5 {
+            num += self.equip_spec_value(&f, &character, ty, &part(i)?)?;
+        }
+        let w2 = self.equip_spec_value(&f, &character, ty, &part(5)?)?;
+        let mut term = 0f32;
+        if w2 != 0.0 {
+            let m = f.weapon2_factor;
+            let Value::F32(factor) = self.invoke(m, vec![this]).ok()? else { return None };
+            term = w2 * factor;
+        }
+        num += term;
+        let Value::Obj(accs) = part(6)? else { return None };
+        let Ext::List(accs) = &*accs.x.try_borrow().ok()? else { return None };
+        for acc in accs.iter() {
+            num += self.equip_spec_value(&f, &character, ty, acc)?;
+        }
+        Some(Value::F32(num))
+    }
+
+    fn equip_spec_value(&self, f: &EquipSpecFields, character: &Value, ty: i32, equip: &Value) -> Option<f32> {
+        let [boss, settings, difficulty] = self.effective_boss_fields?;
+        let no_equipment = read_field(&read_field(character, f.challenges)?, f.no_equipment)?;
+        let Value::I32(in_challenge) = read_field(&no_equipment, f.in_challenge)? else { return None };
+        if in_challenge != 0 {
+            return Some(0.0);
+        }
+        let Value::I32(disabled) = read_field(&read_field(character, f.inventory)?, f.disabled)? else { return None };
+        if disabled != 0 {
+            return Some(0.0);
+        }
+        let Value::I32(first) = read_field(equip, f.spec_type[0])? else { return None };
+        if first == 0 {
+            return Some(0.0);
+        }
+        let Value::I32(required) = read_field(equip, f.boss_required)? else { return None };
+        let Value::I32(mut boss_id) = read_field(character, boss)? else { return None };
+        let Value::I32(difficulty) = read_field(&read_field(character, settings)?, difficulty)? else { return None };
+        boss_id = boss_id.wrapping_add(301 * (i32::from(difficulty >= 1) + i32::from(difficulty >= 2)));
+        let ratio = boss_id as f32 / required as f32;
+        let ratio = if ratio < 1.0 { ratio } else { 1.0 }; // Mathf.Min(a, 1f): NaN gives 1
+        let mut num = 0f32;
+        for i in 0..3 {
+            let Value::I32(t) = read_field(equip, f.spec_type[i])? else { return None };
+            if t == ty {
+                let Value::F32(cur) = read_field(equip, f.spec_cur[i])? else { return None };
+                num += (cur * ratio).floor();
+            }
+        }
+        Some(num)
     }
 
     fn effective_boss_id(&self, base: usize) -> Option<Value> {

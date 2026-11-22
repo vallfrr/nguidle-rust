@@ -462,7 +462,22 @@ fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
                 touch = Some((tx, ty, 1));
             }
             Some(Act::Scroll(dx, dy)) => scroll_action(s, dx, dy),
-            Some(Act::Menu(n)) => crate::autoplay::swap_menu(&mut s.vm, n),
+            Some(Act::Menu(n)) => {
+                let t = std::time::Instant::now();
+                let i0 = s.vm.steps;
+                let before = s.vm.prof.clone();
+                crate::autoplay::swap_menu(&mut s.vm, n);
+                if let (Some(b), Some(a)) = (before, s.vm.prof.as_ref()) {
+                    // CLR_PROF: what this swap executed (top exclusive instructions), to find what makes menu switches slow
+                    let mut d: Vec<_> = a.iter().map(|(m, v)| (v.2 - b.get(m).map_or(0, |x| x.2), v.0 - b.get(m).map_or(0, |x| x.0), *m)).filter(|x| x.0 > 0).collect();
+                    d.sort_by(|x, y| y.0.cmp(&x.0));
+                    for (e, c, m) in d.into_iter().take(4) {
+                        let mi = &s.vm.prog.methods[m as usize];
+                        crate::elog!("[autoplay]   swap hot: {e} instr, {c} calls  {}::{}", s.vm.types[mi.owner as usize].name, mi.name);
+                    }
+                }
+                crate::elog!("[autoplay] menu {n} swap {:?} instr {}", t.elapsed(), s.vm.steps - i0);
+            }
             Some(Act::Click(text)) => {
                 if let Some((cx, cy, _)) = crate::dev::find_click(&mut s.vm, &text) {
                     s.pad_focus = true;

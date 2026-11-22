@@ -304,6 +304,10 @@ impl Program {
                             && typedef_name(&self.res, ti) == "Character" => 18,
                         "Update" if m.signature.parameters.is_empty()
                             && typedef_name(&self.res, ti) == "LoadoutController" => 19,
+                        "equipSpecBonus" if m.signature.parameters.len() == 2
+                            && typedef_name(&self.res, ti) == "InventoryController" => 20,
+                        "specBonus" if m.signature.parameters.len() == 1
+                            && typedef_name(&self.res, ti) == "InventoryController" => 21,
                         _ => 0,
                     },
                 });
