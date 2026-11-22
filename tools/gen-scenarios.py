@@ -58,6 +58,15 @@ for m in MENUS:
 L += [f"{t} click Save Game", f"{t + 2 * S} shot", f"{t + 3 * S} pad b", f"{t + 4 * S} end"]
 write("look", L)
 
+# Late: the same tour starting from an advanced save (FIXTURE=<save> tools/vita-cycle.sh late late-tour): Load Autosave, then every menu.
+LATE_BOOT = ["0 mark boot", "0 click Load Autosave", "120 click On To The Game!"]
+L, t = HEAD + LATE_BOOT, 400
+for m in range(58):
+    L += [f"{t} mark menu{m}", f"{t} menu {m}", f"{t + S} pad d"]
+    t += 5 * S
+L += [f"{t} check late", f"{t + 1} end"]
+write("late", L)
+
 # Monkey: seeded random walk for 2 hours; replay one seed on PC to understand a spike.
 SEED = 7
 rnd = random.Random(SEED)

@@ -18,7 +18,7 @@ Nothing here needs a person (or a model) in the loop: one command per measuremen
 
 ## Scenario format (`clr/src/autoplay.rs`)
 One event per line: `<tick> pad <chars>` (`u d l r` focus, `a` confirm, `b` back, `p n` previous/next menu, one per frame),
-`touch <x> <y>`, `scroll <dx> <dy>`, `menu <n>`, `click <label text>`, `mark <name>`, `check <name>`, `ui` (debug: screen as text in the log), `end`.
+`touch <x> <y>`, `scroll <dx> <dy>`, `menu <n>`, `click <label text>`, `mark <name>`, `check <name>`, `shot` (console: bench/shotN.tga, converted by `tools/tga2png.py`), `ui` (debug: screen as text in the log), `end`.
 `click` finds the visible control by its label, like the dev mode. A click with no matching control is logged (`[autoplay] click: no control`), not fatal.
 
 ## Trace record (16 little-endian u32)
@@ -77,13 +77,42 @@ objects in different representations (Rust structs vs VM objects), so a partial 
 copying every object; not worth the risk. The generator now includes the nested lambda classes of a selected class, which is correct
 but unused.
 
+## Two cores: logic and presentation (Vita host, `nguidle-vita/main.c`)
+The remaining misses were all the same shape: one thread did input, simulation, layout, draw list, texture upload and presentation, so any slow
+stage delayed the refresh. The host now runs two threads:
+- **L** (the big-stack `ngu` thread, user core 1): input, `ngu_frame`, `ngu_emit`; copies the finished list into a slot and publishes it
+  through a lock-free triple buffer (`ngu_emit_seq()` tells it when the engine built a new list). Paced at ~60 iterations per second.
+- **R** (`ngu-render`, user core 0, 512 KiB stack): owns the GL context. Each iteration takes the newest slot, uploads queued textures, draws, and
+  presents with vsync, whatever L is doing. A long simulation step no longer delays a refresh; it only delays the next new list.
+- Textures and the glyph atlas are copied by L (the engine's RAM copy is freed at once) and uploaded by R; a sprite still in flight is skipped for a frame or two.
+- The keyboard dialog lives on R; requests and results go through a small mailbox. Log lines go to a worker thread.
+- Time slicing is off by default on the Vita now (`NGU_SLICE_MS=0`): the simulation has a core of its own.
+Findings that only the per-frame trace could show (each fixed after one measurement):
+1. A synchronous log append every 5 s took ~80 ms (now asynchronous).
+2. `glTexSubImage2D` on a texture in use costs ~65 ms per call whatever the size (strips made it worse); every atlas update now goes into a fresh
+   texture object that replaces the old one (18 ms for 4 MB).
+3. `mallinfo` costs ~5 ms (benchmark statistics only).
+Priority note: `sceKernelCreateThread` rejects priority 0x10000080 (ILLEGAL_PRIORITY); user core 2 is refused, cores 0 and 1 work.
+
+| console, 444/222 MHz | single thread (before) | two threads |
+| --- | --- | --- |
+| `session` (fresh game, 31,450 ticks): presented rate | 56.5 fps | **59.9 fps** |
+| frames later than 25 ms | 4.1 % | **1 of 63,064** |
+| longest gap after boot | 190+ ms | 30 ms |
+| `tour` (58 menus) | 59.2 fps / 152 late | 59.9 fps / 2 late |
+| `late` (advanced save, Load Autosave, 58 menus) | n/a | 59.9 fps / 3 late, longest 39 ms |
+Screens were checked by eye with the `look` scenario (screenshots of 18 menus: sprites, text and the Save page draw correctly).
+What is not fixed: the simulation side still has hitches (a menu switch costs ~65 ms of interpreted work, 150-370 ms for the first visit of some
+screens such as Cooking, ~600 k instructions in `getOptimalScore`). The picture keeps refreshing at 60 Hz during them, but a button press
+can be answered 4-20 frames late. The `work` columns of the report now describe the slowest stage (L or R) of each presented frame.
+
 ## Still open
-- 60 Hz is not constant yet: 4 % of frames are late, mostly (a) the first visit of a screen (glyph rasterization, texture upload: 200-400 ms),
-  (b) heavy steps (late-game saves cost more than the fresh game measured here), (c) the autosave every ~30 s.
-- Next candidates, in order: pre-warm glyphs and textures of the neighbour screens while idle; move the autosave encoding/MD5/write off the
-  game thread; cache `desktop_layout::rebuild` (30 % of a redraw); a render thread that presents the last list at exactly 60 Hz;
-  a clock governor (lowest clocks that keep p99 under 12 ms).
-- Late-game numbers need the real late-game save: `FIXTURE=<save> tools/vita-cycle.sh tour late-tour`.
+- Responsiveness of the simulation: menu switches (~65 ms), first visits (up to ~370 ms), the autosave snapshot (~34 M native instructions on L). The picture
+  stays at 60 Hz meanwhile. Candidates: fewer redundant `updateBonuses` calls per switch, caching `CookingController` scores, a native or cached
+  autosave snapshot. Measure with the `tour` / `late` scenarios and `tools/ngu-profile.sh` (hardware independent).
+- A 2-hour `monkey` run and a 30-minute `session` run on the two-thread build; `late` only covered the tour so far.
+- Pre-warming glyphs of neighbour screens (first-visit rasterization runs on L now, so it no longer delays a refresh).
+- A clock governor (lowest clocks that keep 60 Hz) is now realistic: R needs ~4 ms per frame.
 
 ## What a VPK cache can and cannot do (soak analysis)
 The sh3/sh4 ports ship a compiled GPU-program cache because they compile shaders at run time. This port uses vitaGL's fixed pipeline with no shaders
