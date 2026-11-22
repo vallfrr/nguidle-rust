@@ -88,7 +88,10 @@ but unused.
 ## Status
 - Verified on PC: scenario parsing (unit test), the replays, the analyzer, the instruction profile, `tools/guard-check.sh` (guards on/off) and the
   slicing identity check (`NGU_SLICE_MS` 0 / 0.05 / 3), `tools/regress.sh`.
-- Verified on the console: the whole loop (`vita-cycle.sh`) with the `tour`, `session` scenarios; numbers above. A 2-hour `monkey` soak was started
-  (`out/vita-60/soak-monkey/`), see NEXT.md for its result if recorded.
+- Verified on the console: the whole loop (`vita-cycle.sh`) with the `tour`, `session` scenarios; numbers above. The 2-hour `monkey` soak (random walk, 389,500 frames,
+  216,016 ticks) completed without a crash or a stuck screen: 54.1 fps presented, 6.1 % of frames later than 25 ms, work p50 11.4 / p99 58.6 ms,
+  26.8 % of frames over 16.7 ms. Worst gaps: boot (2.9 s), the first click on "Create New Game" (1.0 s), then a few 0.4-0.9 s menu switches.
+  Spikes recur about every 27 ticks (~0.9 s), so the remaining cost is spread over many steps, not only the autosave. The monkey
+  visits every screen with random input, which is a harder mix than the `session` scenario above.
 - Console cycle pitfalls found: the agent skips an upload whose content it already sent (the scenario gets a unique comment line each time);
   `fs trash` is asynchronous (the scenario file is never trashed); a scripted run never opens the system keyboard (it blocked the console once).
