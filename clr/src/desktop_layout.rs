@@ -22,6 +22,9 @@ pub struct DesktopLayout {
     /// kept across rebuilds by key (`PAGE`, `COLUMN`, `LIST` or a scroll view's transform)
     pub regions: Vec<ScrollRegion>,
     pub pans: FxMap<usize, f32>,
+    /// console mode: nodes whose children are clipped to a rectangle (x0, y0, x1, y1; game rows, y down): a scrolling page's
+    /// frame stays put and only its inside slides
+    pub clips: FxMap<usize, [f32; 4]>,
     /// scrollbars to draw (track x0, y0, x1, y1 with y down; handle start and length as fractions of the track)
     pub bars: Vec<([f32; 4], f32, f32)>,
     width: f32,
@@ -144,6 +147,15 @@ impl DesktopLayout {
         }
     }
 
+    /// Changes whenever a console scroll offset changes (cached quads of the subtrees below a fixed frame depend on it).
+    pub fn pan_stamp(&self) -> f32 {
+        self.pans.values().sum::<f32>() + self.pans.len() as f32 * 0.001
+    }
+
+    pub fn clip_of(&self, tr: &Value) -> Option<[f32; 4]> {
+        self.clips.get(&id(tr)?).copied()
+    }
+
     pub fn width(&self) -> f32 {
         if self.console && self.width > 0.0 { self.width } else { self.width.max(BASE) }
     }
@@ -235,6 +247,7 @@ impl DesktopLayout {
         let v = self.console_view_h.min(600.0);
         self.bars.clear();
         self.regions.clear();
+        self.clips.clear();
         let views = scroll_views(vm);
         let right = self.width();
         let roots: Vec<(String, Value, Xf)> = children(&self.canvas).into_iter().filter_map(|root| {
@@ -390,6 +403,9 @@ impl DesktopLayout {
         let edges = if squeezed { 0.0 } else { 60.0 };
         for (tr, x) in parts {
             self.remap_fit(tr, *x, &f, &inner, edges);
+            if rem > 0.0 && key == PAGE {
+                self.freeze_frame(tr, *x, &f, pan, target);
+            }
         }
         for (vp, a, b) in &lists {
             let k = id(vp).unwrap_or(0);
@@ -406,6 +422,47 @@ impl DesktopLayout {
             self.region(k, [x0, t, x1, e], extra, comp, range, off, bar, b - a + range);
         }
         self.region(key, [xs[0], 0.0, xs[1], target], rem, Value::Null, 0.0, 0.0, [bar_x, 10.0, bar_x + 10.0, target - 10.0], target + rem);
+    }
+
+    /// A page that scrolls keeps its frame (the bordered panel, or the panel just below the page root) where the unscrolled
+    /// layout puts it, cut at the bottom of the screen; only what is inside the border slides, clipped to the inside.
+    fn freeze_frame(&mut self, tr: &Value, x: Xf, f: &dyn Fn(f32) -> f32, pan: f32, target: f32) {
+        let mut frame = None;
+        let mut stack = vec![(tr.clone(), x)];
+        while let Some((n, nx)) = stack.pop() {
+            let go = go_of(&n);
+            let framed = with_go(&go, |g| g.comps.clone()).unwrap_or_default().iter().any(|c| {
+                with_comp(c, |k| match &k.k {
+                    CK::Image(i) if k.enabled && i.typ == 1 => with_comp(&i.sprite, |s| matches!(&s.k, CK::Sprite(sp) if sp.border.iter().any(|b| *b > 0.0))).unwrap_or(false),
+                    _ => false,
+                }).unwrap_or(false)
+            });
+            let h = nx.h * nx.scale[1].abs();
+            if framed && h >= 300.0 && width(nx) >= 300.0 {
+                frame = Some((n, nx));
+                break;
+            }
+            for ch in children(&n) {
+                if let Some(cx) = self.now(&ch, &nx) {
+                    stack.push((ch, cx));
+                }
+            }
+        }
+        let Some((node, now)) = frame else { return };
+        let h = now.h * now.scale[1].abs();
+        let top_now = 600.0 - (now.origin[1] + (1.0 - now.pivot[1]) * h);
+        let (a, b) = (top_now + pan, top_now + pan + h);
+        let _ = (a, b, f);
+        let top = (top_now + pan).max(0.0);
+        let bottom = (top_now + pan + h).min(target);
+        if bottom - top < 100.0 {
+            return;
+        }
+        let fixed = vertical(now, top, bottom - top);
+        let Some(key) = id(&node) else { return };
+        self.rects.insert(key, fixed);
+        const INSET: f32 = 14.0;
+        self.clips.insert(key, [left(fixed) + INSET, top + INSET, left(fixed) + width(fixed) - INSET, bottom - INSET]);
     }
 
     /// Rows taken by visible content (texts, controls, pictures) and by the scroll views the game shows, below `tr`.

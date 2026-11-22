@@ -19,7 +19,8 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   2. the game's own scroll views (a skill list, the augment list, a log...) get shorter and keep scrolling;
   3. the player column and the fight screens (Adventure, Boss) are pressed together instead of scrolling (controls get
      slightly shorter, texts keep their size); other pages are pressed together when the overflow is small (up to 12 %);
-  4. what still does not fit scrolls, with a scrollbar drawn from the game's own scrollbar images (the Augments menu's).
+  4. what still does not fit scrolls, only inside the page frame: the bordered frame (and its bolts) stays fixed and the
+     content slides under it, clipped to the inside of the border (`freeze_frame` in `desktop_layout.rs`), with a scrollbar drawn from the game's own scrollbar images (the Augments menu's).
 - **Scrolling**: right stick (the part under the selection, else the page's list), mouse wheel (the part under the pointer),
   and the selection itself: moving past the last visible row scrolls the part and reaches the next row. A new menu starts at
   its top.

@@ -574,7 +574,7 @@ impl Renderer {
         }
         // containers above bound regions: their subtree mixes transforms that change without the game noticing
         let cacheable = self.regions.is_empty() || depth >= 2;
-        let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy, vm.eng.desktop_layout.width()];
+        let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy, vm.eng.desktop_layout.width(), vm.eng.desktop_layout.pan_stamp()];
         let ck = [clip.x0, clip.y0, clip.x1, clip.y1];
         let gen = self.gen;
         // valid cache?
@@ -675,6 +675,14 @@ impl Renderer {
                 }
                 D::None => {}
             }
+        }
+        if let Some([x0, y0, x1, y1]) = vm.eng.desktop_layout.clip_of(tr) {
+            let a = self.to_dev([x0, self.vh - y0]);
+            let b = self.to_dev([x1, self.vh - y1]);
+            child_clip = Clip {
+                x0: child_clip.x0.max(a[0].floor() as i32), y0: child_clip.y0.max(a[1].floor() as i32),
+                x1: child_clip.x1.min(b[0].ceil() as i32), y1: child_clip.y1.min(b[1].ceil() as i32),
+            };
         }
         let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
         for ch in children {
@@ -1196,7 +1204,7 @@ impl Renderer {
 
 pub struct NodeCache {
     pub gen: u32,
-    pub key: [f32; 13],
+    pub key: [f32; 14],
     pub clip: [i32; 4],
     pub quads: Rc<Vec<Quad>>,
 }
