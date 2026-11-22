@@ -262,6 +262,9 @@ pub struct Engine {
     pub focus: Value,
     pub focus_rect: Option<[f32; 4]>,
     pub(crate) focus_cache: Option<crate::focus::ControlCache>,
+    pub(crate) console_switch: Option<crate::console_mode::Switch>,
+    /// console presentation state (hold, pan), present while the console mode is on
+    pub console: Option<Box<crate::console_mode::Console>>,
     pub(crate) cache_focus_controls: bool,
     pub(crate) parked_menu_canvases: crate::vm::FxMap<usize, Value>,
     /// last `Screen.SetResolution(w, h, fullscreen)` request and the frame it was made at
@@ -1211,6 +1214,7 @@ impl Vm {
             }
         }
         crate::save_slots::prepare_title(self);
+        crate::console_mode::prepare(self);
     }
 
     pub fn awake_go(&mut self, go: &Value) {

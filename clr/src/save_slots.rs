@@ -656,7 +656,7 @@ fn return_to_title(vm: &mut Vm, dir: &Path) -> Result<Value, String> {
     Ok(title)
 }
 
-fn new_node(vm: &mut Vm, name: &str, parent: &Value, x: [f32; 2], y: f32, height: f32) -> Value {
+pub(crate) fn new_node(vm: &mut Vm, name: &str, parent: &Value, x: [f32; 2], y: f32, height: f32) -> Value {
     let ty = vm.type_id("UnityEngine.GameObject");
     let go = Value::Obj(Obj::new(
         ty,
@@ -709,7 +709,7 @@ fn attach(vm: &mut Vm, go: &Value, name: &str, kind: CK) -> Value {
     comp
 }
 
-fn image(vm: &mut Vm, go: &Value, sample: Option<&ImageD>, raycast: bool) -> Value {
+pub(crate) fn image(vm: &mut Vm, go: &Value, sample: Option<&ImageD>, raycast: bool) -> Value {
     let mut image = sample.cloned().unwrap_or(ImageD {
         typ: 0,
         sprite: Value::Null,
@@ -749,7 +749,7 @@ fn icon_in_frame(vm: &mut Vm, frame: &Value, size: f32) -> Value {
     image(vm, &art, None, false)
 }
 
-fn text(vm: &mut Vm, go: &Value, sample: Option<&TextD>, size: Option<i32>, align: i32) -> Value {
+pub(crate) fn text(vm: &mut Vm, go: &Value, sample: Option<&TextD>, size: Option<i32>, align: i32) -> Value {
     let mut t = sample.cloned().unwrap_or(TextD {
         text: String::new(),
         font: Value::Null,
@@ -779,17 +779,17 @@ fn text(vm: &mut Vm, go: &Value, sample: Option<&TextD>, size: Option<i32>, alig
     attach(vm, go, "UnityEngine.UI.Text", CK::Text(Box::new(t)))
 }
 
-fn tr(go: &Value) -> Value {
+pub(crate) fn tr(go: &Value) -> Value {
     with_go(go, |g| g.transform.clone()).unwrap_or_default()
 }
 
-fn named_go(vm: &Vm, name: &str) -> Option<Value> {
+pub(crate) fn named_go(vm: &Vm, name: &str) -> Option<Value> {
     vm.eng.gos.iter().find(|go| {
         with_go(go, |g| g.name == name).unwrap_or(false)
     }).cloned()
 }
 
-fn child(parent: &Value, name: &str) -> Value {
+pub(crate) fn child(parent: &Value, name: &str) -> Value {
     with_tr(&tr(parent), |p| {
         p.children.iter().find_map(|node| {
             let go = go_of(node);
@@ -804,7 +804,7 @@ fn child(parent: &Value, name: &str) -> Value {
     .unwrap_or_default()
 }
 
-fn style<T>(go: &Value, f: impl Fn(&CK) -> Option<T>) -> Option<T> {
+pub(crate) fn style<T>(go: &Value, f: impl Fn(&CK) -> Option<T>) -> Option<T> {
     with_go(go, |g| {
         g.comps
             .iter()
@@ -1157,7 +1157,7 @@ fn copy_theme_sprite(target: &Value, source: &Value) {
     }
 }
 
-fn label(comp: &Value, value: String) {
+pub(crate) fn label(comp: &Value, value: String) {
     with_comp(comp, |c| {
         if let CK::Text(t) = &mut c.k {
             t.text = value;

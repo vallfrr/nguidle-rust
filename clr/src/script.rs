@@ -24,6 +24,50 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             vm.frame(1.0 / 30.0);
             continue;
         }
+        if p[0] == "consolemode" {
+            // consolemode,on|off: the Settings switch (desktop UI) and the console presentation
+            vm.eng.desktop_panels = true;
+            crate::console_mode::prepare(vm);
+            crate::console_mode::set_enabled(vm, p.get(1) == Some(&"on"));
+            crate::console_mode::sync(vm);
+            println!("[console] {}", crate::console_mode::enabled(vm));
+            continue;
+        }
+        if p[0] == "pad" {
+            // pad,u|d|l|r|a|s|b|prev|next|holdstart|holdend|scroll[,dy]: console controller input
+            use crate::console_mode::Pad;
+            let pad = match p[1] {
+                "u" | "d" | "l" | "r" => Pad::Dir(p[1].chars().next().unwrap()),
+                "a" => Pad::Activate,
+                "s" => Pad::Secondary,
+                "b" => Pad::Back,
+                "prev" => Pad::Prev,
+                "next" => Pad::Next,
+                "holdstart" => Pad::HoldStart,
+                "holdend" => Pad::HoldEnd,
+                _ => Pad::Scroll(0.0, p.get(2).and_then(|v| v.parse().ok()).unwrap_or(100.0)),
+            };
+            let Some(mut c) = vm.eng.console.take() else { println!("[pad] console mode is off"); continue };
+            let click = c.input(vm, pad);
+            vm.eng.console = Some(c);
+            crate::console_mode::sync(vm);
+            println!("[pad] {} -> focus {:?} click {:?}", p[1], crate::focus::focused_label(vm), click);
+            if let Some(k) = click {
+                vm.eng.mouse = (k.x, k.y);
+                vm.eng.mouse_button = k.button;
+                vm.eng.mouse_down = true;
+                vm.eng.mouse_down_edge = true;
+                vm.frame(1.0 / 30.0);
+                vm.eng.mouse_down = false;
+                vm.eng.mouse_up_edge = true;
+                vm.frame(1.0 / 30.0);
+                vm.eng.mouse_button = 0;
+            }
+            for _ in 0..6 {
+                vm.frame(1.0 / 30.0);
+            }
+            continue;
+        }
         if p[0] == "focus_at" {
             let found = crate::focus::select_at(vm, p[1].parse().unwrap(), p[2].parse().unwrap());
             println!("[focus] point selected: {found}");

@@ -346,7 +346,7 @@ impl Vm {
 
     pub fn dispatch(&mut self, go: &Value, e: Ev, ped: &Value) {
         if e == Ev::Click && with_ped(ped, |p| p.button == 0).unwrap_or(true)
-            && crate::save_slots::click(self, go, self.eng.mouse.0)
+            && (crate::save_slots::click(self, go, self.eng.mouse.0) || crate::console_mode::click(self, go))
         {
             return;
         }

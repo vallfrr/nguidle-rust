@@ -146,7 +146,7 @@ fn set_text_comp(v: &Value, s: &str) {
     }
 }
 
-fn save_prefs(vm: &mut Vm) {
+pub(crate) fn save_prefs(vm: &mut Vm) {
     let mut m = serde_json::Map::new();
     for (k, v) in &vm.eng.prefs {
         m.insert(

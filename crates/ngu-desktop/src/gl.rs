@@ -2,7 +2,7 @@
 //! size, presented at the monitor's refresh rate (vsync), like the original game (`vSyncCount = 1`).
 //! The game logic runs in fixed 1/30 s steps caught up on real time, exactly like the software window.
 //! Input: every key goes to the game (original behaviour) unless F1 toggled focus navigation; F11 toggles fullscreen.
-use crate::actions::{apply, Action};
+use crate::actions::{apply, console_pad, Action};
 use crate::{layout, Options, LOGIC_DT, VIRT_H, VIRT_W};
 use clr::render::{Quad, Renderer, ATLAS_SIZE, TEX_ATLAS, TEX_WHITE};
 use clr::Vm;
@@ -73,7 +73,8 @@ struct Stage {
     windowed_bounds: Option<((u32, u32), (u32, u32))>,
     typed: Vec<char>,
     text_buf: String,
-    pending: Vec<(f32, f32)>,
+    /// synthetic clicks: engine-space point and mouse button
+    pending: Vec<(f32, f32, i32)>,
     synth_phase: u8,
     perf: bool,
     p: [f32; 4],
@@ -209,8 +210,16 @@ impl Stage {
             return;
         }
         self.focus_input = true;
-        if let Some(click) = apply(self.vm, action) {
-            self.pending.push(click);
+        if let Some(mut console) = self.vm.eng.console.take() {
+            let click = console.input(self.vm, console_pad(action));
+            self.vm.eng.console = Some(console);
+            if let Some(c) = click {
+                self.pending.push((c.x, c.y, c.button));
+            }
+            return;
+        }
+        if let Some((x, y)) = apply(self.vm, action) {
+            self.pending.push((x, y, 0));
         }
     }
 
@@ -392,9 +401,11 @@ impl EventHandler for Stage {
             #[cfg(not(windows))]
             let _ = name;
         }
+        // console mode (Settings): menu column hidden, page in its width, L / R / hold L for menus
+        let console = clr::console_mode::sync(self.vm);
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]
-        for action in self.pad.as_mut().map(|pad| pad.poll(self.vm.dropdown_is_open())).unwrap_or_default() {
+        for action in self.pad.as_mut().map(|pad| pad.poll(self.vm.dropdown_is_open(), console)).unwrap_or_default() {
             self.navigate(action);
         }
         self.update_hover();
@@ -404,10 +415,10 @@ impl EventHandler for Stage {
         self.last = now;
         let mut steps = 0;
         while self.acc >= LOGIC_DT && steps < 6 {
-            if let Some(&(x, y)) = self.pending.first() {
+            if let Some(&(x, y, button)) = self.pending.first() {
                 if self.synth_phase == 0 {
                     self.vm.eng.mouse = (x, y);
-                    self.vm.eng.mouse_button = 0;
+                    self.vm.eng.mouse_button = button;
                     self.vm.eng.mouse_down = true;
                     self.vm.eng.mouse_down_edge = true;
                     self.synth_phase = 1;
@@ -416,6 +427,9 @@ impl EventHandler for Stage {
                     self.vm.eng.mouse_up_edge = true;
                     self.synth_phase = 0;
                     self.pending.remove(0);
+                    if self.pending.is_empty() {
+                        self.vm.eng.mouse_button = 0;
+                    }
                 }
             }
             self.vm.frame(LOGIC_DT);

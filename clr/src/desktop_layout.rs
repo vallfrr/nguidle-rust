@@ -12,7 +12,13 @@ const CONTENT_LEFT: f32 = 292.0;
 #[derive(Default)]
 pub struct DesktopLayout {
     pub pc_resolutions: bool,
+    /// console mode (`docs/CONSOLE-MODE.md`): the menu column is hidden and the page takes its width
+    pub console: bool,
+    /// console mode with L held: the menu list is laid over the player column
+    pub console_hold: bool,
     width: f32,
+    /// console mode: how far left the page moved (the menu column's width)
+    shift: f32,
     canvas: Value,
     rects: FxMap<usize, Xf>,
 }
@@ -22,6 +28,8 @@ struct Columns {
     left: f32,
     width: f32,
     growth: f32,
+    /// horizontal move of the whole table (console mode: the page starts where the menu column was)
+    moved: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +49,8 @@ enum Area {
     Bag,
     Slots,
     Fixed,
+    /// uniform horizontal stretch of a whole subtree (the console menu list widened to the player column)
+    Scale,
 }
 
 impl DesktopLayout {
@@ -61,8 +71,8 @@ impl DesktopLayout {
 
     fn rebuild(&mut self, vm: &Vm) {
         self.rects.clear();
-        let extra = self.width - BASE;
-        if extra <= 0.0 {
+        let extra = self.width.max(BASE) - BASE;
+        if extra <= 0.0 && !self.console {
             return;
         }
         if self.canvas.is_null() {
@@ -71,6 +81,23 @@ impl DesktopLayout {
             }).unwrap_or_default();
         }
         let canvas = xf(vm, &self.canvas);
+        // the menu column and the player column: panels inside full-screen canvases
+        let panel = |canvas_name: &str, panel_name: &str| {
+            let root = children(&self.canvas).into_iter().find(|root| with_go(&go_of(root), |g| g.name == canvas_name).unwrap_or(false))?;
+            let root_rect = child_rect(&canvas, &root)?;
+            let node = children(&root).into_iter().find(|n| with_go(&go_of(n), |g| g.name == panel_name).unwrap_or(false))?;
+            let rect = child_rect(&root_rect, &node)?;
+            Some((node, rect))
+        };
+        let features = panel("Features Canvas", "Features Panel");
+        // console mode: the page starts where the menu column started
+        let shift = if self.console { features.as_ref().map_or(0.0, |(_, f)| (CONTENT_LEFT - left(*f)).max(0.0)) } else { 0.0 };
+        self.shift = shift;
+        if self.console_hold {
+            if let (Some((node, f)), Some((_, player))) = (features, panel("Player Panel Canvas", "Player Panel")) {
+                self.place(&node, f, horizontal(f, left(player), width(player)), Area::Scale);
+            }
+        }
         for root in children(&self.canvas) {
             let Some(original) = child_rect(&canvas, &root) else { continue };
             let label = with_go(&go_of(&root), |g| g.name.clone()).unwrap_or_default();
@@ -96,13 +123,13 @@ impl DesktopLayout {
                 }
             } else if content_panel(original) {
                 let area = if label == "Inventory Menu Canvas" { Area::Inventory } else { Area::Flow };
-                self.place(&root, original, horizontal(original, left(original), width(original) + extra), area);
+                self.place(&root, original, horizontal(original, left(original) - shift, width(original) + extra + shift), area);
             } else if label == "Test Canvas 2" || label == "Train Attack Menu Canvas" {
                 // The input strip and initial training panel are placed independently of their parent.
                 for child in children(&root) {
                     let Some(x) = child_rect(&original, &child) else { continue };
                     if content_panel(x) {
-                        self.place(&child, x, horizontal(x, left(x), width(x) + extra), Area::Flow);
+                        self.place(&child, x, horizontal(x, left(x) - shift, width(x) + extra + shift), Area::Flow);
                     }
                 }
             } else if label.starts_with("End Panel") || label == "Tutorial Panel" {
@@ -121,6 +148,7 @@ impl DesktopLayout {
                     left: left(source),
                     width: width(source),
                     growth: width(target) - width(source),
+                    moved: left(target) - left(source),
                 })
             }
             "Adventure Menu" => Area::Adventure,
@@ -144,7 +172,7 @@ impl DesktopLayout {
                     return None;
                 }
                 let x = child_rect(&source, &child)?;
-                let (mut next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width - BASE);
+                let (mut next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width.max(BASE) - BASE + self.shift);
                 next.origin[1] += target.origin[1] - source.origin[1];
                 if training_viewport && g.name == "Contents" {
                     // Basic Training's full-height scroll content has no scroll range.
@@ -177,7 +205,7 @@ pub(crate) fn pc_resolution_label(label: &str) -> Option<String> {
 }
 
 pub(crate) fn rebuild(vm: &mut Vm) {
-    if vm.eng.desktop_layout.width <= BASE {
+    if vm.eng.desktop_layout.width <= BASE && !vm.eng.desktop_layout.console {
         return;
     }
     let mut desktop = std::mem::take(&mut vm.eng.desktop_layout);
@@ -304,6 +332,10 @@ fn position(tr: &Value, name: &str, comps: &[Value], area: Area, source: Xf, tar
             (keep(extra * column / 11.0), Area::Fixed)
         }
         Area::Fixed | Area::Slots => (keep(0.0), Area::Fixed),
+        Area::Scale => {
+            let r = width(target) / width(source).max(1e-3);
+            (horizontal(x, left(target) + (left(x) - left(source)) * r, width(x) * r), Area::Scale)
+        }
         Area::Table(columns) => {
             if width(x) >= columns.width * 0.65 || name.starts_with("Middle Bolt") {
                 return (flow(name, comps, source, target, x), Area::Table(columns));
@@ -316,7 +348,7 @@ fn position(tr: &Value, name: &str, comps: &[Value], area: Area, source: Xf, tar
             );
             let at = (left(x) + width(x) / 2.0 - columns.left) / columns.width;
             let next = if max - min > columns.width * 0.65 { Area::Table(columns) } else { Area::Fixed };
-            (horizontal(x, left(x) + columns.growth * at.clamp(0.0, 1.0), width(x)), next)
+            (horizontal(x, left(x) + columns.moved + columns.growth * at.clamp(0.0, 1.0), width(x)), next)
         }
         _ => (flow(name, comps, source, target, x), Area::Flow),
     }

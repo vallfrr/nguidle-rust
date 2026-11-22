@@ -16,6 +16,30 @@ pub enum Action {
     /// previous / next menu (L / R)
     Prev,
     Next,
+    /// console mode: the game's right click on the focused control (square)
+    Secondary,
+    /// console mode: L held / released (menu list)
+    HoldStart,
+    HoldEnd,
+}
+
+/// The same input for the console presentation (`clr::console_mode`).
+pub fn console_pad(a: Action) -> clr::console_mode::Pad {
+    use clr::console_mode::Pad;
+    match a {
+        Action::Up => Pad::Dir('u'),
+        Action::Down => Pad::Dir('d'),
+        Action::Left => Pad::Dir('l'),
+        Action::Right => Pad::Dir('r'),
+        Action::Activate => Pad::Activate,
+        Action::Back => Pad::Back,
+        Action::Scroll { x, y } => Pad::Scroll(x, y),
+        Action::Prev => Pad::Prev,
+        Action::Next => Pad::Next,
+        Action::Secondary => Pad::Secondary,
+        Action::HoldStart => Pad::HoldStart,
+        Action::HoldEnd => Pad::HoldEnd,
+    }
 }
 
 /// Applies an action; returns the click point (engine space, y up) for `Activate`.
@@ -52,6 +76,7 @@ pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
         Action::Scroll { x, y } => clr::focus::scroll(vm, x, y),
         Action::Prev => return clr::focus::menu_step(vm, -1),
         Action::Next => return clr::focus::menu_step(vm, 1),
+        Action::Secondary | Action::HoldStart | Action::HoldEnd => {}
     }
     None
 }

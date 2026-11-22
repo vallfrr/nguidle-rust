@@ -205,7 +205,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
             }
             #[cfg(windows)]
             if let Some(p) = pad.as_mut() {
-                acts.extend(p.poll(vm.dropdown_is_open()));
+                acts.extend(p.poll(vm.dropdown_is_open(), false));
             }
             for a in acts {
                 if let Some(p) = apply(vm, a) {

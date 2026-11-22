@@ -5,7 +5,11 @@ Switch). It is built and tested on PC first, where it is **off by default** and 
 original layout. The game logic, scenes and saves are unchanged: the console mode is a presentation and input layer of the
 engine, and `tools/regress.sh` must stay all OK.
 
-Status: design stage. Mockups v3 (player column kept, menu list on hold of L) follow the maintainer's review of 2026-11-22; the final look is being settled before any code.
+Status: first PC version (2026-11-22), behind Settings > Some Settings > Console Mode (off by default). It reuses the PC
+responsive layout (`clr/src/desktop_layout.rs`): the menu column is hidden and each page is laid out again in its width, so
+every menu keeps its native arrangement and one scale; holding L lays the menu list over the player column. Code:
+`clr/src/console_mode.rs`; gamepad in `crates/ngu-desktop/src/pad.rs`; interpreter-only test window `ngu-window`.
+Not done yet: amount pad, in-game keyboard, Adventure face-button skills, inventory pick-up, touch, Vita port.
 
 ## Art direction (mandatory)
 Everything added must look as if it had shipped with NGU Idle.

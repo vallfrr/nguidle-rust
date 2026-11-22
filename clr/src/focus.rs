@@ -179,6 +179,20 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
     }).collect()
 }
 
+/// Whether the focused control sits inside a scrollable list (the right stick then scrolls that list).
+pub fn in_scroll_view(vm: &Vm) -> bool {
+    !vm.eng.focus.is_null() && vm.eng.scrollrects.iter().any(|comp| {
+        let go = go_of(comp);
+        active_in_hierarchy(&go) && within(&vm.eng.focus, &go) && with_comp(comp, |c| c.enabled).unwrap_or(false)
+    })
+}
+
+/// Text of the focused control (logs and tests).
+pub fn focused_label(vm: &Vm) -> Option<String> {
+    (!vm.eng.focus.is_null()).then(|| text_under(&transform_of(&vm.eng.focus), 3))
+}
+
+
 fn choose_control(vm: &mut Vm, dir: char) -> Option<Focusable> {
     let find = |controls: &[Focusable], focus: &Value| {
         let next = match controls.iter().position(|f| same(&f.go, focus)) {

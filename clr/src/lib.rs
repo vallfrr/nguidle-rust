@@ -5,6 +5,7 @@ pub mod bcl_core;
 pub mod bcl_sys;
 pub mod capi;
 pub mod code;
+pub mod console_mode;
 mod cooking_score;
 pub mod dev;
 pub mod desktop_layout;
