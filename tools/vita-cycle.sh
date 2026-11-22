@@ -50,6 +50,15 @@ done
 for f in trace.bin host.txt; do A fs download $B/$f "$OUT/$f" > /dev/null 2>&1; done
 A fs download ux0:data/ngu/log.txt "$OUT/log.txt" > /dev/null 2>&1
 A app close NGUI00001 > /dev/null 2>&1
+# scenarios with `shot` lines: fetch the screenshots (bench/shotN.tga) and make PNGs for a look by eye
+if grep -qE '^[0-9]+ shot' "$SC"; then
+  mkdir -p "$OUT/shots"
+  for n in $(seq 1 $(grep -cE '^[0-9]+ shot' "$SC")); do
+    A fs download $B/shot$n.tga "$OUT/shots/shot$n.tga" > /dev/null 2>&1; A fs trash $B/shot$n.tga > /dev/null 2>&1
+    [ -s "$OUT/shots/shot$n.tga" ] && python3 tools/tga2png.py "$OUT/shots/shot$n.tga" 2>/dev/null
+  done
+  echo "screenshots: $(ls "$OUT/shots"/*.png 2>/dev/null | wc -l) in $OUT/shots"
+fi
 if [ -z "$DONE" ]; then echo "no end marker after ${LIMIT}s (crash or far too slow); last log lines:"; tail -n 5 "$OUT/log.txt" 2>/dev/null; fi
 [ -s "$OUT/trace.bin" ] || { echo "no trace downloaded"; exit 7; }
 BASE=${BASELINE:-out/vita-60/baseline.json}; EXTRA=(); [ -f "$BASE" ] && EXTRA=(--baseline "$BASE")

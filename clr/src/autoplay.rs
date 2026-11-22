@@ -27,6 +27,8 @@ pub enum Act {
     Click(String),
     Mark(String),
     Check(String),
+    /// the host saves a screenshot (Vita benchmark build: bench/shotN.tga)
+    Shot,
     /// debug aid: writes the screen as text to the log
     Ui,
     End,
@@ -44,6 +46,8 @@ pub struct Autoplay {
     pub marks: Vec<String>,
     pub digests: Vec<(String, u64)>,
     pub done: bool,
+    /// `shot` events executed so far (the host takes a screenshot each time this grows)
+    pub shots: u32,
 }
 
 pub fn parse(text: &str) -> Result<Vec<(u64, Vec<Act>)>, String> {
@@ -70,6 +74,7 @@ pub fn parse(text: &str) -> Result<Vec<(u64, Vec<Act>)>, String> {
             "click" => vec![Act::Click(rest.to_string())],
             "mark" => vec![Act::Mark(rest.to_string())],
             "check" => vec![Act::Check(rest.to_string())],
+            "shot" => vec![Act::Shot],
             "ui" => vec![Act::Ui],
             "end" => vec![Act::End],
             _ => return Err(err(&format!("unknown action {verb}"))),

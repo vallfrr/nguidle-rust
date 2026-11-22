@@ -58,6 +58,8 @@ struct State {
     need_emit: bool,
     /// steps completed early because input arrived (counted in the next frame's trace)
     extra_steps: u32,
+    /// number of draw lists built so far (the host publishes a list to its render thread only when this changes)
+    emit_seq: u32,
 }
 
 static mut STATE: Option<State> = None;
@@ -182,7 +184,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0, need_emit: true, extra_steps: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0, need_emit: true, extra_steps: 0, emit_seq: 0 });
     }
     0
 }
@@ -387,7 +389,13 @@ pub extern "C" fn ngu_emit() -> i32 {
         }
     }
     s.rend.quads = quads;
+    s.emit_seq = s.emit_seq.wrapping_add(1);
     s.batches.len() as i32
+}
+
+#[no_mangle]
+pub extern "C" fn ngu_emit_seq() -> u32 {
+    st().map_or(0, |s| s.emit_seq)
 }
 
 #[no_mangle]
@@ -565,6 +573,7 @@ fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
                 crate::elog!("[autoplay] check {name} {h:016x} tick={}", s.ticks);
                 ap.digests.push((name, h));
             }
+            Some(Act::Shot) => ap.shots += 1,
             Some(Act::Ui) => crate::elog!("[autoplay] ui tick={}
 {}", s.ticks, crate::dev::ui(&mut s.vm)),
             Some(Act::End) => crate::elog!("[autoplay] end tick={} actions={}", s.ticks, ap.action_id),
@@ -604,7 +613,8 @@ pub extern "C" fn ngu_frame_info(out: *mut u32) {
         .and_then(|f| s.vm.eng.user_comps.iter().find_map(|c| crate::vm::read_field(c, f)))
         .map_or(-1, |v| v.as_i32());
     let (action, marks, done) = s.autoplay.as_ref().map_or((0, 0, 0), |a| (a.action_id, a.marks.len() as u32, u32::from(a.done)));
-    let v = [s.ticks as u32, s.last_steps, s.last_instr.min(u64::from(u32::MAX)) as u32, menu as u32, action, marks, done];
+    let shots = s.autoplay.as_ref().map_or(0, |a| a.shots);
+    let v = [s.ticks as u32, s.last_steps, s.last_instr.min(u64::from(u32::MAX)) as u32, menu as u32, action, marks, done, shots];
     unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
 }
 
