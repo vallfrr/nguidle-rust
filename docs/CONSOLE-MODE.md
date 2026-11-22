@@ -5,7 +5,7 @@ Switch). It is built and tested on PC first, where it is **off by default** and 
 original layout. The game logic, scenes and saves are unchanged: the console mode is a presentation and input layer of the
 engine, and `tools/regress.sh` must stay all OK.
 
-Status: design stage. The mockups were reviewed by the maintainer on 2026-11-22; the final look is being settled before any code.
+Status: design stage. Mockups v3 (player column kept, menu list on hold of L) follow the maintainer's review of 2026-11-22; the final look is being settled before any code.
 
 ## Art direction (mandatory)
 Everything added must look as if it had shipped with NGU Idle.
@@ -32,39 +32,41 @@ Everything added must look as if it had shipped with NGU Idle.
 PlayStation layout only for now; other consoles get their own sheet later.
 
 ## Screen layout (960 x 544 reference)
-- **Top bar** (game panel): energy, magic, HP bars, gold, and the current menu name between the L and R glyphs.
-- **Content**: the current menu only, scaled to the full width (about 1.4x the PC size). Taller menus scroll and follow the
-  selection; the game's scrollbar shows the position.
-- **Prompt bar** (game panel): the actions available for the current selection, glyph + plain label. It changes with the context.
-- The player column and the menu list are not shown permanently (see controls).
+- **Left column**: the game's own player column (stats, rebirth, spend EXP, save/load, settings) stays on screen and can be
+  selected like the rest. The menu list is no longer shown permanently.
+- **Content**: the current menu, scaled into all the remaining width (about 1.2x the PC size). Taller menus scroll and follow the
+  selection.
+- **Prompt bar** (game panel, bottom): the actions available for the current selection, glyph + plain label, changing with the
+  context; on its right, the current menu name between the L and R glyphs.
 
 ## Controls (PlayStation layout)
 | input | action |
 |---|---|
-| d-pad / left stick | move the selection |
+| d-pad / left stick | move the selection (left from the page reaches the player column) |
 | cross | press the selected control |
 | circle | back / close |
 | square | secondary action: the game's right click (equip, +10 zones...), "Cap" on allocation rows |
-| triangle | show / hide the selected control's tooltip, docked opposite the selection; on a number, open the amount pad |
-| L / R | previous / next menu |
-| START (hold) | menu grid: every menu as its real button; release to open the chosen one |
-| SELECT | player column drawer (stats, rebirth, save) |
-| right stick | scroll the current panel |
+| triangle | show / hide the selected control's tooltip, docked in free space opposite the selection; on a number, open the amount pad |
+| L / R (tap) | previous / next menu |
+| L (hold) | the menu list replaces the player column; move the cursor with the d-pad or stick, release L to open the menu under it |
+| START | apply in the amount pad / keyboard |
+| SELECT | next skill page in Adventure |
+| right stick | scroll the current page |
 
 Context rules:
 - **Allocation rows** (+ / - / Cap): left/right = - / +, holding repeats with acceleration, square = Cap, triangle = amount pad.
-- **Adventure**: the four face buttons fire the four skills of the current page; holding R switches page (Attacks, Defense,
-  Special); left/right change zone.
+- **Adventure**: the four face buttons fire the four skills of the current page (Attacks, Defense, Special); SELECT switches
+  page; left/right change zone.
 - **Inventory and loadouts**: cross picks up and drops (merge as in the game), square equips, triangle shows info, circle puts
   the item back; the rear touch pad changes pages on the Vita.
-- **Instant feedback**: the top bar shows the next menu name on the very next frame after L/R, before the game has finished
+- **Instant feedback**: the menu name in the prompt bar changes on the very next frame after L/R, before the game has finished
   building the menu.
 - Selection is remembered per menu; entering a menu for the first time selects its main control.
 
 ## Touch (Vita, later Switch)
 - Tap = click. Touch targets grow to finger size (nearest control within a few millimetres).
 - Hold = the game's right click, shown by a yellow ring in the game's colours; hold on a name = its tooltip.
-- Swipe scrolls; a swipe from the left edge opens the player column; the rear pad scrolls lists and changes pages.
+- Swipe scrolls; touching the menu name in the prompt bar opens the menu list; the rear pad scrolls lists and changes pages.
 
 ## In-game text and number entry
 No system keyboard: the game opens its own **amount pad** (digits, K / M / B, x2, /2, Max, Half, Idle, Clear) in a game panel,
