@@ -761,32 +761,6 @@ impl Renderer {
     }
 
     fn draw_image(&mut self, vm: &mut Vm, x: &Xf, im: &ImageSnap, clip: Clip, focused: bool) {
-        let local = [-x.pivot[0] * x.w, -x.pivot[1] * x.h, x.w, x.h];
-        // console mode: the game's own "selected" mark (yellow frame with a dark edge, as on the Adventure skill bar)
-        if focused && vm.eng.console.is_some() {
-            self.draw_image_inner(vm, x, im, clip, false);
-            let [x0, y0, w, h] = local;
-            let (t, e) = (3.0, 1.0);
-            let dark = [0.06, 0.05, 0.0, 1.0];
-            let yellow = [1.0, 0.92, 0.02, 1.0];
-            for (r, col) in [
-                ([x0 - t - e, y0 - t - e, w + 2.0 * (t + e), e], dark),
-                ([x0 - t - e, y0 + h + t, w + 2.0 * (t + e), e], dark),
-                ([x0 - t - e, y0 - t, e, h + 2.0 * t], dark),
-                ([x0 + w + t, y0 - t, e, h + 2.0 * t], dark),
-                ([x0 - t, y0 - t, w + 2.0 * t, t], yellow),
-                ([x0 - t, y0 + h, w + 2.0 * t, t], yellow),
-                ([x0 - t, y0, t, h], yellow),
-                ([x0 + w, y0, t, h], yellow),
-            ] {
-                self.quad(x, r, None, [0.0; 4], col, clip);
-            }
-            return;
-        }
-        self.draw_image_inner(vm, x, im, clip, focused);
-    }
-
-    fn draw_image_inner(&mut self, vm: &mut Vm, x: &Xf, im: &ImageSnap, clip: Clip, focused: bool) {
         let dir = vm.eng.assets_dir.clone();
         let local = [-x.pivot[0] * x.w, -x.pivot[1] * x.h, x.w, x.h];
         let sp = with_comp(&im.sprite, |k| match &k.k {

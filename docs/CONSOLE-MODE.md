@@ -15,7 +15,7 @@ Not done yet: amount pad, in-game keyboard, Adventure face-button skills, invent
 Everything added must look as if it had shipped with NGU Idle.
 1. **Reuse the game first**: its panels (`Border`, `BorderRed`, the corner screws), buttons (`ThinBorderWhite`, `ThinBorderBlue`,
    tinted like the menu buttons), its scrollbar (`UISprite`), its fonts (title font for headings, Liberation Sans for text),
-   its colours, and its own "selected" mark (yellow frame with a dark edge, as on the Adventure skill bar).
+   its colours, and the port's focus mark (the yellow fill inside the selected control, as on PC and Vita).
 2. **When the game has no such element** (controller glyphs, a touch hint), we draw it ourselves in the game's crude,
    hand-drawn style: white body, thick slightly wobbly black outline, flat colours. Never reuse glyphs or art from elsewhere.
    The maintainer may redraw any of them; the sizes below are the exchange format.
