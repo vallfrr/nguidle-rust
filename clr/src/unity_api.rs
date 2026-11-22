@@ -696,10 +696,15 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         },
         "UnityEngine.UI.Image::set_sprite" => |vm, a| {
             let v = rv(vm, &a[0]);
-            let ch = with_comp(&v, |k| if let CK::Image(i) = &mut k.k { !same(&std::mem::replace(&mut i.sprite, a[1].clone()), &a[1]) } else { false }).unwrap_or(false);
-            if ch {
+            let old = with_comp(&v, |k| if let CK::Image(i) = &mut k.k { Some(std::mem::replace(&mut i.sprite, a[1].clone())) } else { None }).flatten();
+            if let Some(old) = old.filter(|old| !same(old, &a[1])) {
                 mark_dirty(&v);
-                bump_layout(&v);
+                // The layout only reads a sprite's size (rect and pixels per unit): a swap between same-sized sprites
+                // (a blinking highlight, an item icon) cannot move anything, so it must not relayout the whole scene.
+                let size = |sp: &Value| with_comp(sp, |k| if let CK::Sprite(s) = &k.k { Some((s.rect[2], s.rect[3], s.ppu)) } else { None }).flatten();
+                if size(&old) != size(&a[1]) {
+                    bump_layout(&v);
+                }
             }
             Ok(Value::Null)
         },

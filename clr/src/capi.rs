@@ -54,6 +54,10 @@ struct State {
     /// moving average (ms) of what one simulation step costs, and the cost of the step in progress
     tick_ms: f32,
     cur_tick_ms: f32,
+    /// the scene or the input changed since the last draw list: with slicing, unchanged frames re-present the previous list
+    need_emit: bool,
+    /// steps completed early because input arrived (counted in the next frame's trace)
+    extra_steps: u32,
 }
 
 static mut STATE: Option<State> = None;
@@ -178,7 +182,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0, need_emit: true, extra_steps: 0 });
     }
     0
 }
@@ -191,10 +195,16 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         None => return,
     };
     let (x, y, down) = autoplay_input(s, x, y, down);
+    let touch_now = down != 0;
     let instr0 = s.vm.steps;
     let (vx, vy_dev) = ((x - s.ox) / s.scale, (y - s.oy) / s.scale);
     let vy = 600.0 - vy_dev; // bottom-left origin (Unity)
     let touch = down != 0;
+    // Discrete input (a press, a release, a pad click) is applied between steps only, so the game state never depends on
+    // where a time-sliced step was cut: an unfinished step is completed first.
+    if s.pad_click.is_some() || touch != s.touch_down {
+        finish_tick(s);
+    }
     if let Some((at, press)) = s.pad_click.take() {
         s.vm.eng.mouse = at;
         s.vm.eng.mouse_down = press;
@@ -233,10 +243,12 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         let mut steps = 0;
         if s.slice_ms > 0.0 {
             // Time-sliced steps: a step may span several display frames, so a heavy step never delays a presentation.
-            // The work is spread evenly: a step is planned over two frames (30 Hz steps on 60 Hz frames), with a little margin,
-            // and never takes more than what is left of the frame after the layout, the draw list and the submission.
-            let cap = (14.0 - s.render_ms - 2.0).max(3.0).min(s.slice_ms);
-            let budget = (s.tick_ms * 0.6).max(2.0).min(cap);
+            // The scene is only drawn again when a step completes or the input changed, so frames alternate between "simulate"
+            // (cheap to present) and "complete the step and draw". The share of the step done before the last frame is what
+            // remains after reserving that frame's layout, draw list and submission.
+            let finish_ms = (frame_target_ms() - s.render_ms - 2.0).max(2.5);
+            let rem = if s.vm.eng.slice.is_some() { (s.tick_ms - s.cur_tick_ms).max(0.5) } else { s.tick_ms };
+            let budget = if rem <= finish_ms { finish_ms } else { (rem - finish_ms).clamp(2.0, s.slice_ms) }.min(s.slice_ms);
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f32(budget / 1000.0);
             loop {
                 let t = std::time::Instant::now();
@@ -269,7 +281,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
             }
         }
         s.last_steps = steps;
-        if steps == 0 && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
+        if steps == 0 && s.vm.eng.slice.is_none() && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
             s.vm.pointer_update();
             s.vm.eng.mouse_down_edge = false;
             s.vm.eng.mouse_up_edge = false;
@@ -277,6 +289,10 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     }
     s.was_at_title = at_title;
     s.ticks += u64::from(s.last_steps);
+    s.last_steps += std::mem::take(&mut s.extra_steps);
+    if s.slice_ms <= 0.0 || s.last_steps > 0 || touch_now || s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() {
+        s.need_emit = true;
+    }
     s.last_instr = s.vm.steps - instr0;
     if let Some((start, steps)) = profile {
         s.frames += 1;
@@ -294,6 +310,8 @@ pub extern "C" fn ngu_pad(action: u32) -> i32 {
 }
 
 fn pad_action(s: &mut State, action: u32) -> i32 {
+    finish_tick(s);
+    s.need_emit = true;
     if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
     let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
@@ -330,6 +348,8 @@ pub extern "C" fn ngu_scroll(dx: f32, dy: f32) {
 }
 
 fn scroll_action(s: &mut State, dx: f32, dy: f32) {
+    finish_tick(s);
+    s.need_emit = true;
     if !s.touch_down && s.vm.eng.text_req.is_none() {
         s.pad_focus = true;
         crate::focus::scroll(&mut s.vm, dx, dy);
@@ -343,6 +363,11 @@ pub extern "C" fn ngu_emit() -> i32 {
         Some(s) => s,
         None => return 0,
     };
+    if !s.need_emit && !s.batches.is_empty() && std::env::var_os("NGU_NO_SKIP").is_none() {
+        return s.batches.len() as i32; // nothing changed: the host draws the previous list again
+    }
+    s.need_emit = false;
+    s.rend.defer_layout = s.vm.eng.slice.is_some();
     s.rend.set_subframe_time(s.accumulator.min(GAME_STEP) as f32);
     s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
     s.render_ms = s.render_ms * 0.9 + s.rend.t_emit * 0.1;
@@ -605,4 +630,24 @@ pub fn profile_report(top: usize) -> String {
 /// Slice budget: `NGU_SLICE_MS` (0 = off), default 12 ms on the Vita and off elsewhere (a PC replay stays one step per call).
 fn slice_default() -> f32 {
     std::env::var("NGU_SLICE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(if cfg!(target_os = "vita") { 12.0 } else { 0.0 })
+}
+
+/// CPU time (ms) a frame that completes a step and redraws the scene should not exceed: the 16.7 ms refresh minus a margin for
+/// the variation of the layout, texture work and the vsync hand-over. `NGU_FRAME_MS` overrides it.
+fn frame_target_ms() -> f32 {
+    std::env::var("NGU_FRAME_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(12.0)
+}
+
+/// Completes the time-sliced step in progress (no deadline).
+fn finish_tick(s: &mut State) {
+    if s.vm.eng.slice.is_none() {
+        return;
+    }
+    let t = std::time::Instant::now();
+    s.vm.frame_run(None);
+    s.cur_tick_ms += t.elapsed().as_secs_f32() * 1000.0;
+    s.tick_ms = s.tick_ms * 0.8 + s.cur_tick_ms * 0.2;
+    s.ticks += 1;
+    s.extra_steps += 1;
+    s.need_emit = true;
 }

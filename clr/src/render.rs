@@ -142,6 +142,9 @@ pub struct Renderer {
     subframe_seconds: f64,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
     pub regions: Vec<crate::profile::Region>,
+    /// do not reflow the scene in `emit` (a time-sliced step is in progress: the layout runs between steps only, so the game
+    /// state never depends on where a step was cut)
+    pub defer_layout: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -202,6 +205,7 @@ impl Renderer {
             drawing_overlay: false,
             subframe_seconds: 0.0,
             regions: vec![],
+            defer_layout: false,
         }
     }
 
@@ -309,7 +313,9 @@ impl Renderer {
     pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
         #[cfg(target_os = "vita")]
         let layout_start = std::time::Instant::now();
-        self.prepare_layout(vm);
+        if !self.defer_layout {
+            self.prepare_layout(vm);
+        }
         #[cfg(target_os = "vita")]
         {
             self.layout_us = layout_start.elapsed().as_micros() as u32;

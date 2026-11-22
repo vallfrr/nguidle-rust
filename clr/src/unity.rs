@@ -350,7 +350,16 @@ pub fn bump_layout(v: &Value) {
     let g = go_of(v);
     if with_go(&g, |x| x.in_layout).unwrap_or(false) {
         LAYOUT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if layout_log() {
+            crate::elog!("[layout] bump {}", with_go(&g, |x| x.name.clone()).unwrap_or_default());
+        }
     }
+}
+
+/// `NGU_LAYOUT_LOG=1`: names the nodes whose change forces a full relayout (dev aid for slow frames).
+fn layout_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("NGU_LAYOUT_LOG").is_some())
 }
 
 pub static DIRTYLOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
