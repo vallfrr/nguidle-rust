@@ -175,6 +175,12 @@ impl Stage {
 
     fn viewport(&self, w: f32, h: f32) -> (f32, f32, f32, f32) {
         let (scale, ox, oy) = layout(w.max(1.0) as usize, h.max(1.0) as usize);
+        let rows = self.vm.eng.desktop_layout.console_view_h;
+        if self.profile.is_none() && rows > 0.0 {
+            // console mode: zoomed, the top `rows` game rows fill the window height
+            let scale = h.max(1.0) / rows;
+            return (scale, 0.0, 0.0, w / scale);
+        }
         if self.profile.is_none() {
             (scale, 0.0, oy, w / scale)
         } else {

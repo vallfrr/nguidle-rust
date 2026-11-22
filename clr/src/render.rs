@@ -138,6 +138,8 @@ pub struct Renderer {
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
     tooltip: Option<Value>,
+    /// console mode scrollbars: the game's own scrollbar images (track, handle), taken from the Augments menu
+    console_bar: Option<Option<(ImageSnap, ImageSnap)>>,
     drawing_overlay: bool,
     subframe_seconds: f64,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
@@ -202,6 +204,7 @@ impl Renderer {
             hits: 0,
             tints: vec![],
             tooltip: None,
+            console_bar: None,
             drawing_overlay: false,
             subframe_seconds: 0.0,
             regions: vec![],
@@ -383,6 +386,9 @@ impl Renderer {
             }
             self.drawing_overlay = false;
         }
+        if vm.eng.console.is_some() {
+            self.draw_console_bars(vm, full);
+        }
         self.draw_dropdown(vm);
         if let Some(tooltip) = self.tooltip.clone().filter(|tr| {
             !crate::save_slots::choosing_save(vm) && !crate::input::offline_screen_visible(vm)
@@ -410,6 +416,37 @@ impl Renderer {
             self.draw_node(vm, &tooltip, x, clip, 2);
             self.drawing_overlay = false;
         }
+    }
+
+    /// Console mode: scrollbars of the parts that scroll, drawn with the game's own scrollbar images (Augments menu).
+    fn draw_console_bars(&mut self, vm: &mut Vm, clip: Clip) {
+        if self.console_bar.is_none() {
+            let image = |go: &Value| with_go(go, |g| g.comps.clone()).unwrap_or_default().iter().find_map(|c| {
+                with_comp(c, |k| match &k.k { CK::Image(i) => Some(ImageSnap::from(i)), _ => None }).flatten()
+            });
+            let bar = vm.eng.gos.iter().find(|go| {
+                with_go(go, |g| g.name == "Scrollbar").unwrap_or(false) && {
+                    let parent = with_go(go, |g| with_tr(&g.transform, |t| t.parent.clone())).flatten().unwrap_or_default();
+                    !parent.is_null() && with_go(&go_of(&parent), |g| g.name == "Augments Menu").unwrap_or(false)
+                }
+            }).cloned();
+            let handle = bar.as_ref().and_then(|b| {
+                let area = with_tr(&with_go(b, |g| g.transform.clone()).unwrap_or_default(), |t| t.children.clone()).unwrap_or_default();
+                area.iter().flat_map(|a| with_tr(a, |t| t.children.clone()).unwrap_or_default()).next().map(|h| go_of(&h))
+            });
+            self.console_bar = Some(bar.as_ref().and_then(image).zip(handle.as_ref().and_then(image)));
+        }
+        let Some(Some((track, handle))) = self.console_bar.take() else { return };
+        for ([x0, y0, x1, y1], start, len) in vm.eng.desktop_layout.bars.clone() {
+            let vh = self.vh;
+            let at = |top: f32, h: f32| Xf { origin: [x0, vh - top], scale: [1.0, 1.0], rot: 0.0, w: x1 - x0, h, pivot: [0.0, 1.0] };
+            let h = y1 - y0;
+            let snap = |i: &ImageSnap| ImageSnap { sprite: i.sprite.clone(), ..*i };
+            self.draw_image(vm, &at(y0, h), &snap(&track), clip, false);
+            let (hy, hh) = (y0 + h * start.clamp(0.0, 1.0), (h * len.clamp(0.05, 1.0)).max(x1 - x0));
+            self.draw_image(vm, &at(hy.min(y1 - hh), hh), &snap(&handle), clip, false);
+        }
+        self.console_bar = Some(Some((track, handle)));
     }
 
     /// Emission + software rasterization into `fb`.

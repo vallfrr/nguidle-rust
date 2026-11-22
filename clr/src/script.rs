@@ -364,14 +364,15 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             // dev: pngl,<file>,<profile>,<w>,<h>[,hold][,pointer y] : capture through a screen profile (layouts/README.md)
             let (w, h): (f32, f32) = (p[3].parse().unwrap(), p[4].parse().unwrap());
             if p[2] == "desktop" {
-                let scale = (w / 960.0).min(h / 600.0);
+                let rows = vm.eng.desktop_layout.console_view_h;
+                let scale = if rows > 0.0 { h / rows } else { (w / 960.0).min(h / 600.0) };
                 let old_width = vm.eng.desktop_layout.width();
                 vm.eng.desktop_layout.set_width(w / scale);
                 let mut r = crate::render::Renderer::new(w as usize, h as usize);
                 if let Some(ms) = p.get(5).and_then(|v| v.parse::<f32>().ok()) {
                     r.set_subframe_time(ms / 1000.0);
                 }
-                r.render(vm, scale, 0.0, (h - 600.0 * scale) / 2.0);
+                r.render(vm, scale, 0.0, if rows > 0.0 { 0.0 } else { (h - 600.0 * scale) / 2.0 });
                 r.save_png(p[1]);
                 vm.eng.desktop_layout.set_width(old_width);
                 crate::desktop_layout::rebuild(vm);

@@ -126,6 +126,8 @@ pub struct Console {
     pub hold: bool,
     /// the menu column and the player column (root canvases)
     columns: Option<(Value, Value)>,
+    /// junction bolts of the root canvas: on the menu column's right edge, and on the player column's sections
+    bolts: Option<(Vec<Value>, Vec<Value>)>,
 }
 
 /// Buttons of the menu column that open a menu (`MenuSwapper.swapMenu(id)`), top to bottom, with their menu id.
@@ -177,6 +179,27 @@ fn open(vm: &mut Vm, button: &Value) {
     }
 }
 
+/// Bolts placed directly on the root canvas (y down): those on the menu column's right edge (it is hidden in console mode)
+/// and those between the player column's sections (covered by the menu list while L is held).
+fn junction_bolts(vm: &Vm) -> (Vec<Value>, Vec<Value>) {
+    let Some(canvas) = named_go(vm, "Canvas") else { return Default::default() };
+    let (mut edge, mut sections) = (vec![], vec![]);
+    for node in with_tr(&tr(&canvas), |t| t.children.clone()).unwrap_or_default() {
+        let go = go_of(&node);
+        if !with_go(&go, |g| g.name.starts_with("Middle Bolt")).unwrap_or(false) {
+            continue;
+        }
+        let x = crate::ui::xf(vm, &node);
+        let (cx, cy) = (x.origin[0], 600.0 - x.origin[1]);
+        if (250.0..320.0).contains(&cx) {
+            edge.push(go);
+        } else if cx < 200.0 && (30.0..570.0).contains(&cy) {
+            sections.push(go);
+        }
+    }
+    (edge, sections)
+}
+
 fn set_hidden(go: &Value, hidden: bool) {
     let changed = with_go(go, |g| std::mem::replace(&mut g.port_hidden, hidden) != hidden).unwrap_or(false);
     if changed {
@@ -184,6 +207,19 @@ fn set_hidden(go: &Value, hidden: bool) {
         invalidate_input();
         bump_layout(go);
     }
+}
+
+/// Console mode zoom: game rows shown on screen out of 600 (600 / 540 = 1.11x the PC size at the same window height).
+/// The player column fits these rows once its build number goes; menus taller than that scroll.
+pub const VIEW_H: f32 = 540.0;
+/// Margin kept around the selection when a part scrolls to it.
+const MARGIN: f32 = 12.0;
+
+/// Drops the cached focus targets after a scroll offset changed (their presented rectangles moved).
+fn relayout(vm: &mut Vm) {
+    crate::desktop_layout::rebuild(vm);
+    vm.eng.focus_cache = None;
+    invalidate_input();
 }
 
 impl Console {
@@ -195,8 +231,19 @@ impl Console {
         let Some((menus, player)) = self.columns.clone() else { return };
         set_hidden(&menus, !self.hold);
         set_hidden(&player, self.hold);
+        if let Some(build) = named_go(vm, "Build #") {
+            set_hidden(&build, true);
+        }
+        let (menu_edge, sections) = self.bolts.get_or_insert_with(|| junction_bolts(vm)).clone();
+        for b in &menu_edge {
+            set_hidden(b, true);
+        }
+        for b in &sections {
+            set_hidden(b, self.hold);
+        }
         vm.eng.desktop_layout.console = true;
         vm.eng.desktop_layout.console_hold = self.hold;
+        vm.eng.desktop_layout.console_view_h = VIEW_H;
     }
 
     /// Restores the PC presentation.
@@ -205,8 +252,16 @@ impl Console {
             set_hidden(&menus, false);
             set_hidden(&player, false);
         }
-        vm.eng.desktop_layout.console = false;
-        vm.eng.desktop_layout.console_hold = false;
+        if let Some(build) = named_go(vm, "Build #") {
+            set_hidden(&build, false);
+        }
+        for b in self.bolts.take().map(|(a, b)| [a, b].concat()).unwrap_or_default() {
+            set_hidden(&b, false);
+        }
+        let d = &mut vm.eng.desktop_layout;
+        (d.console, d.console_hold, d.console_view_h) = (false, false, 0.0);
+        (d.page_pan, d.list_pan, d.body_pan) = (0.0, 0.0, 0.0);
+        d.bars.clear();
     }
 
     fn step_menu(&mut self, vm: &mut Vm, delta: i32) {
@@ -221,6 +276,62 @@ impl Console {
         let next = ((at + delta) % n + n) % n;
         open(vm, &list[next as usize].0);
         crate::focus::clear(vm);
+        let d = &mut vm.eng.desktop_layout;
+        (d.page_pan, d.body_pan) = (0.0, 0.0);
+    }
+
+    /// Scrolls whatever part holds the selection so that it is fully on screen.
+    fn follow(&mut self, vm: &mut Vm) {
+        let Some(r) = vm.eng.focus_rect else { return };
+        let d = &vm.eng.desktop_layout;
+        let (lo, hi, which) = if self.hold {
+            (0.0, d.console_view_h, 0)
+        } else if let Some(b) = d.body_view.filter(|b| r[0] >= b[0] && r[2] <= b[2] + 1.0 && r[1] >= b[1] - 1.0) {
+            (b[1], b[3], 1)
+        } else if r[0] >= 160.0 {
+            (0.0, d.console_view_h, 2)
+        } else {
+            return;
+        };
+        let delta = if r[3] > hi - MARGIN { r[3] - (hi - MARGIN) } else if r[1] < lo + MARGIN { r[1] - (lo + MARGIN) } else { 0.0 };
+        if delta.abs() < 0.5 {
+            return;
+        }
+        self.pan_by(vm, which, delta);
+        // the selection moved with its part
+        if let Some(r) = vm.eng.focus_rect.as_mut() {
+            r[1] -= delta;
+            r[3] -= delta;
+        }
+    }
+
+    /// Adds `delta` rows to a scroll offset (0 the menu list, 1 the menu body, 2 the page); returns whether it moved.
+    fn pan_by(&mut self, vm: &mut Vm, which: u8, delta: f32) -> bool {
+        let d = &mut vm.eng.desktop_layout;
+        let (pan, extra) = match which {
+            0 => (&mut d.list_pan, d.list_extra),
+            1 => (&mut d.body_pan, d.body_extra),
+            _ => (&mut d.page_pan, d.page_extra),
+        };
+        let next = (*pan + delta).clamp(0.0, extra);
+        let moved = (next - *pan).abs() > 0.01;
+        *pan = next;
+        if moved {
+            relayout(vm);
+        }
+        moved
+    }
+
+    /// The part the right stick scrolls: the menu body if there is one, else the page.
+    fn stick_target(&self, vm: &Vm) -> Option<u8> {
+        let d = &vm.eng.desktop_layout;
+        if self.hold {
+            (d.list_extra > 0.0).then_some(0)
+        } else if d.body_extra > 0.0 {
+            Some(1)
+        } else {
+            (d.page_extra > 0.0).then_some(2)
+        }
     }
 
     /// Applies a controller input; returns the click to perform, if any.
@@ -240,11 +351,22 @@ impl Console {
             Pad::Dir(d) => {
                 let before = vm.eng.focus.clone();
                 crate::focus::navigate(vm, d);
-                // at the edge of a list: scroll it and look again (the next rows are outside its mask)
-                if matches!(d, 'u' | 'd') && same(&before, &vm.eng.focus) && crate::focus::in_scroll_view(vm) {
-                    crate::focus::scroll(vm, 0.0, if d == 'd' { 40.0 } else { -40.0 });
-                    crate::focus::navigate(vm, d);
+                // at the edge of a part that scrolls: scroll it and look again (the next rows were clipped)
+                if matches!(d, 'u' | 'd') && same(&before, &vm.eng.focus) {
+                    let step = if d == 'd' { 40.0 } else { -40.0 };
+                    let moved = match self.stick_target(vm) {
+                        Some(which) => self.pan_by(vm, which, step),
+                        None if crate::focus::in_scroll_view(vm) => {
+                            crate::focus::scroll(vm, 0.0, step);
+                            true
+                        }
+                        None => false,
+                    };
+                    if moved {
+                        crate::focus::navigate(vm, d);
+                    }
                 }
+                self.follow(vm);
                 None
             }
             Pad::Activate => click(vm, 0),
@@ -265,12 +387,14 @@ impl Console {
             Pad::Prev | Pad::Next => None,
             Pad::HoldStart => {
                 self.hold = true;
+                vm.eng.desktop_layout.list_pan = 0.0;
                 self.apply(vm);
-                crate::render::Renderer::new(0, 0).prepare_layout(vm);
+                relayout(vm);
                 let Some((menus, _)) = self.columns.clone() else { return None };
                 let now = current_menu(vm);
                 if let Some((go, _)) = menu_buttons(vm, &menus).into_iter().find(|(_, id)| *id == now) {
                     crate::focus::select_control(vm, &go);
+                    self.follow(vm);
                 }
                 None
             }
@@ -283,11 +407,20 @@ impl Console {
                 crate::focus::clear(vm);
                 if let Some((go, _)) = chosen {
                     open(vm, &go);
+                    let d = &mut vm.eng.desktop_layout;
+                    (d.page_pan, d.body_pan) = (0.0, 0.0);
                 }
                 None
             }
             Pad::Scroll(dx, dy) => {
-                crate::focus::scroll(vm, dx, dy);
+                // a list of the game (its own scroll view) under the selection scrolls first
+                if crate::focus::in_scroll_view(vm) && vm.eng.desktop_layout.body_extra <= 0.0 {
+                    crate::focus::scroll(vm, dx, dy);
+                } else if let Some(which) = self.stick_target(vm) {
+                    self.pan_by(vm, which, dy);
+                } else {
+                    crate::focus::scroll(vm, dx, dy);
+                }
                 None
             }
         }

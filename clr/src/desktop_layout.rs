@@ -1,6 +1,6 @@
 //! PC presentation rectangles. Game scripts keep their original RectTransforms.
 use crate::ui::{child_xf, xf, Xf};
-use crate::unity::{go_of, with_comp, with_go, with_tr, CK};
+use crate::unity::{go_of, same, with_comp, with_go, with_tr, CK};
 use crate::value::Value;
 use crate::vm::FxMap;
 use crate::Vm;
@@ -16,6 +16,19 @@ pub struct DesktopLayout {
     pub console: bool,
     /// console mode with L held: the menu list is laid over the player column
     pub console_hold: bool,
+    /// console mode: game rows shown on screen (the rest of the 600 rows is zoomed out of view)
+    pub console_view_h: f32,
+    /// console mode scroll offsets (game pixels): the whole page, the menu list (L held), a menu's scrolling body
+    pub page_pan: f32,
+    pub list_pan: f32,
+    pub body_pan: f32,
+    /// set by `rebuild`: how far each of them can scroll, and where the body viewport is (x0, y0, x1, y1; y down)
+    pub page_extra: f32,
+    pub list_extra: f32,
+    pub body_extra: f32,
+    pub body_view: Option<[f32; 4]>,
+    /// scrollbars to draw (track x0, y0, x1, y1 with y down; handle start and length as fractions of the track)
+    pub bars: Vec<([f32; 4], f32, f32)>,
     width: f32,
     /// console mode: how far left the page moved (the menu column's width)
     shift: f32,
@@ -55,14 +68,16 @@ enum Area {
 
 impl DesktopLayout {
     pub fn set_width(&mut self, width: f32) {
-        self.width = if width.is_finite() && width > BASE + 0.01 { width } else { 0.0 };
+        // console mode zooms in: the logical width can be smaller than the game's 960 (the menu column's room is reused)
+        let min = if self.console { 0.0 } else { BASE + 0.01 };
+        self.width = if width.is_finite() && width > min { width } else { 0.0 };
         if self.width == 0.0 {
             self.rects.clear();
         }
     }
 
     pub fn width(&self) -> f32 {
-        self.width.max(BASE)
+        if self.console && self.width > 0.0 { self.width } else { self.width.max(BASE) }
     }
 
     pub(crate) fn rect(&self, tr: &Value) -> Option<Xf> {
@@ -71,7 +86,7 @@ impl DesktopLayout {
 
     fn rebuild(&mut self, vm: &Vm) {
         self.rects.clear();
-        let extra = self.width.max(BASE) - BASE;
+        let extra = self.width() - BASE;
         if extra <= 0.0 && !self.console {
             return;
         }
@@ -90,11 +105,13 @@ impl DesktopLayout {
             Some((node, rect))
         };
         let features = panel("Features Canvas", "Features Panel");
+        let player = panel("Player Panel Canvas", "Player Panel");
+        let (features_v, player_v) = (features.clone(), player.clone());
         // console mode: the page starts where the menu column started
         let shift = if self.console { features.as_ref().map_or(0.0, |(_, f)| (CONTENT_LEFT - left(*f)).max(0.0)) } else { 0.0 };
         self.shift = shift;
         if self.console_hold {
-            if let (Some((node, f)), Some((_, player))) = (features, panel("Player Panel Canvas", "Player Panel")) {
+            if let (Some((node, f)), Some((_, player))) = (features.clone(), player.clone()) {
                 self.place(&node, f, horizontal(f, left(player), width(player)), Area::Scale);
             }
         }
@@ -138,6 +155,128 @@ impl DesktopLayout {
                 }
             }
         }
+        if self.console && self.console_view_h > 0.0 {
+            self.console_vertical(vm, canvas, features_v, player_v);
+        }
+    }
+
+    /// Console mode, after the horizontal layout: fits everything into the rows shown on screen.
+    fn console_vertical(&mut self, vm: &Vm, canvas: Xf, features: Option<(Value, Xf)>, player: Option<(Value, Xf)>) {
+        let v = self.console_view_h;
+        self.bars.clear();
+        (self.page_extra, self.list_extra, self.body_extra, self.body_view) = (0.0, 0.0, 0.0, None);
+        // the player column: the same zoom as the page, its sections drawn closer together (the build number goes)
+        let column = |y: f32| piecewise(y, &PLAYER_ROWS);
+        if let Some((node, rect)) = player.as_ref().filter(|_| !self.console_hold) {
+            let at = self.rects.get(&id(node).unwrap_or(0)).copied().unwrap_or(*rect);
+            self.remap(node, at, &column, 60.0);
+        }
+        for root in children(&self.canvas) {
+            let Some((name, x)) = with_go(&go_of(&root), |g| g.name.clone()).zip(child_rect(&canvas, &root)) else { continue };
+            if name.starts_with("Middle Bolt") && left(x) < 200.0 {
+                self.remap(&root, x, &column, 60.0);
+            }
+        }
+        // the menu list (L held): widened to the column, as tall as that makes it, scrolled to the cursor
+        if let Some((node, f)) = features.filter(|_| self.console_hold) {
+            let at = self.rects.get(&id(&node).unwrap_or(0)).copied().unwrap_or(f);
+            let r = width(at) / width(f).max(1.0);
+            let top = 600.0 - (f.origin[1] + (1.0 - f.pivot[1]) * f.h * f.scale[1].abs());
+            self.list_extra = (f.h * f.scale[1].abs() * r - v).max(0.0);
+            self.list_pan = self.list_pan.clamp(0.0, self.list_extra);
+            let pan = self.list_pan;
+            self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
+        }
+        // pages: Basic Training keeps its header and scrolls its skills; any other page scrolls as a whole for now
+        let training = children(&self.canvas).into_iter().find(|root| {
+            with_go(&go_of(root), |g| g.name == "Train Attack Menu Canvas").unwrap_or(false)
+        }).filter(|root| {
+            // the game shows a menu by moving its first child onto the menu anchor; the canvas itself stays parked
+            child_rect(&canvas, root).is_some_and(|r| children(root).iter().any(|c| child_rect(&r, c).is_some_and(visible)))
+        });
+        if training.is_none() {
+            self.page_extra = 600.0 - v;
+        }
+        self.page_pan = self.page_pan.clamp(0.0, self.page_extra);
+        let pan = self.page_pan;
+        for root in children(&self.canvas) {
+            let Some((name, x)) = with_go(&go_of(&root), |g| g.name.clone()).zip(child_rect(&canvas, &root)) else { continue };
+            if matches!(name.as_str(), "Player Panel Canvas" | "Features Canvas" | "Small Menu Anchor" | "Big Menu Anchor")
+                || name.starts_with("Middle Bolt") {
+                continue;
+            }
+            if !visible(x) && !children(&root).iter().any(|c| child_rect(&x, c).is_some_and(visible)) {
+                continue;
+            }
+            if name == "Box Canvas" {
+                // pop-ups stay centred on the rows shown
+                let lift = (600.0 - v) / 2.0;
+                self.remap(&root, x, &move |y| y - lift, 0.0);
+                continue;
+            }
+            if training.as_ref().is_some_and(|t| same(t, &root)) {
+                self.training_body(&root, x);
+                continue;
+            }
+            self.remap(&root, x, &move |y| y - pan, 0.0);
+        }
+        let right = self.width() - 10.0;
+        if self.page_extra > 0.0 {
+            self.bars.push(([right - 11.0, 14.0, right - 1.0, v - 14.0], pan / (600.0 - 28.0), (v - 28.0) / (600.0 - 28.0)));
+        }
+        let _ = vm;
+    }
+
+    /// Basic Training: the energy header stays, the attack and defense skills scroll under it.
+    fn training_body(&mut self, root: &Value, root_rect: Xf) {
+        let v = self.console_view_h;
+        let at = |s: &Self, tr: &Value, parent: &Xf| s.rects.get(&id(tr).unwrap_or(0)).copied().or_else(|| child_rect(parent, tr));
+        let Some(root_now) = at(self, root, &root_rect) else { return };
+        for view in children(root) {
+            let Some(vx) = at(self, &view, &root_now).filter(|x| visible(*x)) else { continue };
+            let top = 600.0 - (vx.origin[1] + (1.0 - vx.pivot[1]) * vx.h * vx.scale[1].abs());
+            let h = vx.h * vx.scale[1].abs();
+            let shown = (v - top).max(40.0);
+            self.body_extra = (h - shown).max(0.0);
+            self.body_pan = self.body_pan.clamp(0.0, self.body_extra);
+            let pan = self.body_pan;
+            if let Some(key) = id(&view) {
+                self.rects.insert(key, vertical(vx, top, shown));
+            }
+            for child in children(&view) {
+                if let Some(cx) = at(self, &child, &vx) {
+                    self.remap(&child, cx, &move |y| y - pan, 0.0);
+                }
+            }
+            let (x0, x1) = (left(vx), left(vx) + width(vx));
+            self.body_view = Some([x0, top, x1, top + shown]);
+            if self.body_extra > 0.0 {
+                self.bars.push(([x1 - 21.0, top + 10.0, x1 - 11.0, top + shown - 10.0], pan / h, shown / h));
+            }
+        }
+    }
+
+    /// Moves a subtree vertically through `f` (rows, y down). Nodes at least `edges` tall map both edges (panels stretch
+    /// or shrink); smaller ones map their centre and keep their size (buttons and texts are not squashed).
+    fn remap(&mut self, tr: &Value, now: Xf, f: &dyn Fn(f32) -> f32, edges: f32) {
+        let h = now.h * now.scale[1].abs();
+        let top = 600.0 - (now.origin[1] + (1.0 - now.pivot[1]) * h);
+        let next = if h >= edges {
+            let (a, b) = (f(top), f(top + h));
+            vertical(now, a, (b - a).max(0.0))
+        } else {
+            let c = f(top + h / 2.0);
+            vertical(now, c - h / 2.0, h)
+        };
+        if let Some(key) = id(tr) {
+            self.rects.insert(key, next);
+        }
+        for child in children(tr) {
+            let cx = self.rects.get(&id(&child).unwrap_or(0)).copied().or_else(|| child_rect(&now, &child));
+            if let Some(cx) = cx {
+                self.remap(&child, cx, f, edges);
+            }
+        }
     }
 
     fn place(&mut self, tr: &Value, source: Xf, target: Xf, area: Area) {
@@ -172,7 +311,7 @@ impl DesktopLayout {
                     return None;
                 }
                 let x = child_rect(&source, &child)?;
-                let (mut next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width.max(BASE) - BASE + self.shift);
+                let (mut next, child_area) = position(&child, g.name.as_str(), &g.comps, area, source, target, x, self.width() - BASE + self.shift);
                 next.origin[1] += target.origin[1] - source.origin[1];
                 if training_viewport && g.name == "Contents" {
                     // Basic Training's full-height scroll content has no scroll range.
@@ -205,7 +344,7 @@ pub(crate) fn pc_resolution_label(label: &str) -> Option<String> {
 }
 
 pub(crate) fn rebuild(vm: &mut Vm) {
-    if vm.eng.desktop_layout.width <= BASE && !vm.eng.desktop_layout.console {
+    if vm.eng.desktop_layout.width() <= BASE && !vm.eng.desktop_layout.console {
         return;
     }
     let mut desktop = std::mem::take(&mut vm.eng.desktop_layout);
@@ -244,6 +383,31 @@ fn horizontal(mut x: Xf, left: f32, w: f32) -> Xf {
     if x.scale[0] != 0.0 {
         x.w = w / x.scale[0].abs();
         x.origin[0] = left + x.pivot[0] * w;
+    }
+    x
+}
+
+/// Player column rows (y down) in console mode: (from, to) pairs of a piecewise-linear map; past the last pair rows shift.
+/// The gap above the settings row closes and the build number leaves the screen (`console_mode` hides it).
+const PLAYER_ROWS: [(f32, f32); 4] = [(0.0, 0.0), (498.0, 498.0), (528.0, 506.0), (600.0, 540.0)];
+
+fn piecewise(y: f32, map: &[(f32, f32)]) -> f32 {
+    for w in map.windows(2) {
+        let ((a0, b0), (a1, b1)) = (w[0], w[1]);
+        if y <= a1 {
+            return b0 + (y - a0) * (b1 - b0) / (a1 - a0).max(1e-3);
+        }
+    }
+    let (a, b) = map[map.len() - 1];
+    y - a + b
+}
+
+/// `x` with its top edge at `top` (rows, y down) and height `h`.
+fn vertical(mut x: Xf, top: f32, h: f32) -> Xf {
+    let s = x.scale[1].abs();
+    if s != 0.0 {
+        x.h = h / s;
+        x.origin[1] = 600.0 - top - (1.0 - x.pivot[1]) * h;
     }
     x
 }
