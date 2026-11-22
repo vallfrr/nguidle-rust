@@ -19,6 +19,7 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 
 ## Questions pending for the maintainer (ask when they announce their return)
 1. Official LiveArea assets for `nguidle-vita` (icon, background, startup image). Current images are **black placeholders**. Never create assets from scratch.
+3. **Console mode final look** ([CONSOLE-MODE.md](CONSOLE-MODE.md)): mockups v2 (game panels and buttons + our hand-drawn glyphs) await validation before the PC implementation starts.
 2. **Screen profile on wide PC screens** (R3): the `pc` profile is today's letterbox (side bars on 16:9, e.g. 192 px at 1080p). Removing them means enlarging the game area beyond the height, so it would pan vertically with the mouse (like the Vita profile). Keep the bars, or zoom + pan? Screenshots: `docs/img/vita-profile*.png` show the zoom + pan on the Vita profile.
 
 ---
