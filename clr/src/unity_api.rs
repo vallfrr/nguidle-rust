@@ -361,6 +361,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
                 mark_dirty(&g);
                 bump_layout(&g);
                 with_go(&g, |x| x.destroyed = true);
+                crate::unity::bump_hierarchy();
                 vm.set_active(&g, false);
                 let tr = with_go(&g, |x| x.transform.clone()).unwrap_or(Value::Null);
                 let parent = with_tr(&tr, |t| t.parent.clone()).unwrap_or(Value::Null);
@@ -375,7 +376,7 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             if let Value::Obj(o) = &go {
                 let name = a.get(1).and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "GameObject".into());
                 let tr = new_comp(vm, "UnityEngine.Transform", go.clone(), CK::Transform(Box::new(Tr { parent: Value::Null, children: vec![], pos: [0.0; 3], scale: [1.0; 3], rot_z: 0.0, amin: [0.5; 2], amax: [0.5; 2], pivot: [0.5; 2], apos: [0.0; 2], size: [0.0; 2], is_rect: false })));
-                *o.x.borrow_mut() = Ext::Native(Box::new(GoData { name, active: true, port_hidden: false, layer: 0, tag: "Untagged".into(), comps: vec![tr.clone()], transform: tr, destroyed: false, dirty: true, cache: None, in_layout: false }));
+                *o.x.borrow_mut() = Ext::Native(Box::new(GoData { name, active: true, port_hidden: false, layer: 0, tag: "Untagged".into(), comps: vec![tr.clone()], transform: tr, destroyed: false, dirty: true, cache: None, in_layout: false, hier: (0, false) }));
                 vm.eng.gos.push(go.clone());
             }
             Ok(Value::Null)

@@ -184,6 +184,14 @@ pub struct GoData {
     pub cache: Option<Box<crate::render::NodeCache>>,
     /// inside a subtree managed by a layout (layout invalidation)
     pub in_layout: bool,
+    /// cached `active_in_hierarchy`: (epoch it was computed in, result)
+    pub hier: (u32, bool),
+}
+
+/// Bumped whenever an activity flag, a destruction or a parent changes: invalidates every cached `active_in_hierarchy`.
+static HIER_EPOCH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+pub fn bump_hierarchy() {
+    HIER_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub enum Wait {
@@ -412,6 +420,16 @@ pub fn transform_of(v: &Value) -> Value {
 }
 
 pub fn active_in_hierarchy(go: &Value) -> bool {
+    let epoch = HIER_EPOCH.load(std::sync::atomic::Ordering::Relaxed);
+    if let Some(r) = with_go(go, |g| (g.hier.0 == epoch).then_some(g.hier.1)).flatten() {
+        return r;
+    }
+    let r = active_in_hierarchy_walk(go);
+    with_go(go, |g| g.hier = (epoch, r));
+    r
+}
+
+fn active_in_hierarchy_walk(go: &Value) -> bool {
     let mut cur = go.clone();
     loop {
         let (a, tr, dead) = match with_go(&cur, |g| (g.active, g.transform.clone(), g.destroyed)) {
@@ -712,6 +730,7 @@ impl Vm {
                             comps: vec![],
                             transform: Value::Null,
                             destroyed: false,
+                            hier: (0, false),
                             dirty: true,
                             cache: None,
                             in_layout: false,
@@ -1224,6 +1243,9 @@ impl Vm {
     pub fn set_active(&mut self, go: &Value, on: bool) {
         let was = active_in_hierarchy(go);
         let self_changed = with_go(go, |g| std::mem::replace(&mut g.active, on) != on).unwrap_or(false);
+        if self_changed {
+            bump_hierarchy();
+        }
         let now = active_in_hierarchy(go);
         if self_changed {
             mark_dirty(go);

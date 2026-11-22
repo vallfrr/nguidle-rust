@@ -51,6 +51,9 @@ struct State {
     slice_ms: f32,
     /// moving average (ms) of the layout + draw-list time of recent frames, to leave room for them
     render_ms: f32,
+    /// moving average (ms) of what one simulation step costs, and the cost of the step in progress
+    tick_ms: f32,
+    cur_tick_ms: f32,
 }
 
 static mut STATE: Option<State> = None;
@@ -175,7 +178,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0 });
     }
     0
 }
@@ -230,22 +233,29 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         let mut steps = 0;
         if s.slice_ms > 0.0 {
             // Time-sliced steps: a step may span several display frames, so a heavy step never delays a presentation.
-            // The budget leaves room for the layout, the draw list and the submission of the same frame.
-            let budget = (16.0 - 2.5 - s.render_ms).max(3.0).min(s.slice_ms);
+            // The work is spread evenly: a step is planned over two frames (30 Hz steps on 60 Hz frames), with a little margin,
+            // and never takes more than what is left of the frame after the layout, the draw list and the submission.
+            let cap = (14.0 - s.render_ms - 2.0).max(3.0).min(s.slice_ms);
+            let budget = (s.tick_ms * 0.6).max(2.0).min(cap);
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f32(budget / 1000.0);
             loop {
+                let t = std::time::Instant::now();
                 if s.vm.eng.slice.is_none() {
                     if !(s.accumulator >= GAME_STEP && steps < 2) {
                         break;
                     }
                     s.accumulator -= GAME_STEP;
+                    s.cur_tick_ms = 0.0;
                     if !s.vm.frame_start(GAME_STEP as f32) {
                         steps += 1;
                         continue;
                     }
                 }
-                if s.vm.frame_run(Some(deadline)) {
+                let done = s.vm.frame_run(Some(deadline));
+                s.cur_tick_ms += t.elapsed().as_secs_f32() * 1000.0;
+                if done {
                     steps += 1;
+                    s.tick_ms = s.tick_ms * 0.8 + s.cur_tick_ms * 0.2;
                 }
                 if std::time::Instant::now() >= deadline {
                     break;

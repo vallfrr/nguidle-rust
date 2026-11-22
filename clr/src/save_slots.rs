@@ -670,6 +670,7 @@ fn new_node(vm: &mut Vm, name: &str, parent: &Value, x: [f32; 2], y: f32, height
             comps: vec![],
             transform: Value::Null,
             destroyed: false,
+            hier: (0, false),
             dirty: true,
             cache: None,
             in_layout: false,
@@ -1642,6 +1643,7 @@ fn place_home_node(node: &Value, parent: &Value, position: [f32; 2], size: [f32;
         with_tr(&old_parent, |t| t.children.retain(|child| !same(child, &transform)));
         with_tr(parent, |t| t.children.push(transform.clone()));
     }
+    crate::unity::bump_hierarchy();
     with_tr(&transform, |t| {
         t.parent = parent.clone();
         t.amin = [0.5; 2];
