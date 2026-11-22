@@ -69,6 +69,7 @@ Principles and trade-offs in `docs/VISION.md`.
 - [x] **C2** Render the shared draw list with vitaGL at 960 × 544. Verified the home, slot picker, Basic Training and six more panels under the resource strip on the console.
 - [~] **C3** Verified touch inventory dragging, D-pad dropdown selection, right-stick patch note scrolling, numbered saves, a fresh game and an Adventure fight on the console. The system keyboard is wired. Verify naming through it and cover the remaining submenus, controls and button-only routes.
 - [~] **C4** Initialization dropped from 26.7 s to about 15.5 s at the default clocks. Measure time to the first accepted title input and continue toward < 5 s.
+- [~] **C5a (2026-11-22, plan `docs/VITA-60.md`): scripted sessions + per-frame trace + analyzer + PC instruction profile written; PC side verified, console side (host trace, `vita-cycle.sh`) not yet run.**
 - [~] **C5** Fixed the persistent D-pad hover stall and completed the advanced-save endurance run. Gameplay still misses refreshes and advanced-save focus feedback exceeds two refreshes. Profile autosave snapshot and encoding work separately, then reduce late-game simulation and transition costs. Repeat the release acceptance run and verify sleep/resume on hardware. See [Vita measurements](VITA.md#measurements-and-remaining-stalls).
 - [x] **C6** Build the VPK separately from the prepared SD-card data pack (2026-11-21).
 - [ ] **C7** Official LiveArea assets **[maintainer]**.

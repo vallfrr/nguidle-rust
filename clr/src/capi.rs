@@ -42,6 +42,11 @@ struct State {
     was_at_title: bool,
     benchmark: bool,
     frames: u64,
+    /// scripted player (`ngu_autoplay_load`), simulation steps run so far and what the last frame did
+    autoplay: Option<crate::autoplay::Autoplay>,
+    ticks: u64,
+    last_steps: u32,
+    last_instr: u64,
 }
 
 static mut STATE: Option<State> = None;
@@ -166,7 +171,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0 });
+        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0 });
     }
     0
 }
@@ -178,6 +183,8 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         Some(s) => s,
         None => return,
     };
+    let (x, y, down) = autoplay_input(s, x, y, down);
+    let instr0 = s.vm.steps;
     let (vx, vy_dev) = ((x - s.ox) / s.scale, (y - s.oy) / s.scale);
     let vy = 600.0 - vy_dev; // bottom-left origin (Unity)
     let touch = down != 0;
@@ -206,9 +213,11 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     s.vm.eng.pad_hover = s.pad_focus && !touch;
     let profile = s.benchmark.then(|| (std::time::Instant::now(), s.vm.steps));
     let at_title = s.vm.at_desktop_start();
+    s.last_steps = 0;
     if at_title {
         s.accumulator = 0.0;
         s.vm.frame(GAME_STEP as f32);
+        s.last_steps = 1;
     } else {
         // Bound recovery work so a slow frame does not monopolize input and presentation.
         if !s.was_at_title && dt.is_finite() {
@@ -220,6 +229,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
             s.vm.frame(GAME_STEP as f32);
             steps += 1;
         }
+        s.last_steps = steps;
         if steps == 0 && (s.vm.eng.mouse_down_edge || s.vm.eng.mouse_up_edge || s.vm.eng.ptr.last_pos != s.vm.eng.mouse) {
             s.vm.pointer_update();
             s.vm.eng.mouse_down_edge = false;
@@ -227,6 +237,8 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         }
     }
     s.was_at_title = at_title;
+    s.ticks += u64::from(s.last_steps);
+    s.last_instr = s.vm.steps - instr0;
     if let Some((start, steps)) = profile {
         s.frames += 1;
         if s.frames <= 12 || s.frames % 100 == 0 {
@@ -239,6 +251,10 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
 #[no_mangle]
 pub extern "C" fn ngu_pad(action: u32) -> i32 {
     let Some(s) = st() else { return 0 };
+    pad_action(s, action)
+}
+
+fn pad_action(s: &mut State, action: u32) -> i32 {
     if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
     let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
@@ -271,6 +287,10 @@ pub extern "C" fn ngu_pad(action: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn ngu_scroll(dx: f32, dy: f32) {
     let Some(s) = st() else { return };
+    scroll_action(s, dx, dy);
+}
+
+fn scroll_action(s: &mut State, dx: f32, dy: f32) {
     if !s.touch_down && s.vm.eng.text_req.is_none() {
         s.pad_focus = true;
         crate::focus::scroll(&mut s.vm, dx, dy);
@@ -420,4 +440,104 @@ pub extern "C" fn ngu_tex_release(id: u32) {
     if let Some(s) = st() {
         s.rend.tex_release(id);
     }
+}
+
+/// Runs the scripted player for this frame (if any) and returns the touch the engine must see.
+fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
+    use crate::autoplay::Act;
+    let Some(mut ap) = s.autoplay.take() else { return (x, y, down) };
+    let mut touch = None;
+    if let Some((hx, hy, n)) = ap.hold.take() {
+        touch = Some((hx, hy, 1));
+        if n > 1 {
+            ap.hold = Some((hx, hy, n - 1));
+        }
+    } else if !ap.done {
+        match ap.poll(s.ticks) {
+            Some(Act::Pad(c)) => {
+                pad_action(s, c as u32);
+            }
+            Some(Act::Touch(tx, ty)) => {
+                ap.hold = Some((tx, ty, 2));
+                touch = Some((tx, ty, 1));
+            }
+            Some(Act::Scroll(dx, dy)) => scroll_action(s, dx, dy),
+            Some(Act::Menu(n)) => crate::autoplay::swap_menu(&mut s.vm, n),
+            Some(Act::Click(text)) => {
+                if let Some((cx, cy, _)) = crate::dev::find_click(&mut s.vm, &text) {
+                    s.pad_focus = true;
+                    s.pad_click = Some(((cx, cy), true));
+                } else {
+                    crate::elog!("[autoplay] click: no control '{text}' at tick {}", s.ticks);
+                }
+            }
+            Some(Act::Mark(name)) => {
+                crate::elog!("[autoplay] mark {} {name} tick={}", ap.marks.len(), s.ticks);
+                ap.marks.push(name);
+            }
+            Some(Act::Check(name)) => {
+                let h = crate::autoplay::save_text(&mut s.vm).map(|t| crate::autoplay::digest(&t)).unwrap_or(0);
+                crate::elog!("[autoplay] check {name} {h:016x} tick={}", s.ticks);
+                ap.digests.push((name, h));
+            }
+            Some(Act::Ui) => crate::elog!("[autoplay] ui tick={}
+{}", s.ticks, crate::dev::ui(&mut s.vm)),
+            Some(Act::End) => crate::elog!("[autoplay] end tick={} actions={}", s.ticks, ap.action_id),
+            None => {}
+        }
+    }
+    s.autoplay = Some(ap);
+    match touch {
+        Some((tx, ty, d)) => (tx, ty, d),
+        None => (x, y, down),
+    }
+}
+
+/// Loads a scenario file (`clr/src/autoplay.rs`); returns 0 on success.
+#[no_mangle]
+pub extern "C" fn ngu_autoplay_load(path: *const c_char) -> i32 {
+    let (Some(s), path) = (st(), unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string()) else { return 1 };
+    match crate::autoplay::Autoplay::load(&path) {
+        Ok(a) => {
+            crate::elog!("[autoplay] scenario {path} loaded");
+            s.autoplay = Some(a);
+            0
+        }
+        Err(e) => {
+            crate::elog!("[autoplay] {e}");
+            2
+        }
+    }
+}
+
+/// What the last `ngu_frame` did, for the host's per-frame trace: out = [ticks, simulation steps, instructions (saturated),
+/// menu id, last action number, mark number (+1, 0 = none), finished flag].
+#[no_mangle]
+pub extern "C" fn ngu_frame_info(out: *mut u32) {
+    let Some(s) = st() else { return };
+    let menu = crate::vm::field_ref(&s.vm, "MenuSwapper", "menuID")
+        .and_then(|f| s.vm.eng.user_comps.iter().find_map(|c| crate::vm::read_field(c, f)))
+        .map_or(-1, |v| v.as_i32());
+    let (action, marks, done) = s.autoplay.as_ref().map_or((0, 0, 0), |a| (a.action_id, a.marks.len() as u32, u32::from(a.done)));
+    let v = [s.ticks as u32, s.last_steps, s.last_instr.min(u64::from(u32::MAX)) as u32, menu as u32, action, marks, done];
+    unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
+}
+
+/// `CLR_PROF` report: the `top` methods by exclusive interpreted instructions (hardware-independent cost), one per line:
+/// `exclusive inclusive calls Type::Method`. Used by `tools/ngu-profile.sh` to choose what to translate to Rust.
+pub fn profile_report(top: usize) -> String {
+    let Some(s) = st() else { return String::new() };
+    let Some(p) = s.vm.prof.as_ref() else { return "set CLR_PROF=1
+".into() };
+    let mut v: Vec<_> = p.iter().collect();
+    v.sort_by(|a, b| b.1 .2.cmp(&a.1 .2));
+    let total: u64 = p.values().map(|e| e.2).sum();
+    let mut out = format!("total {total} instructions in {} methods
+", p.len());
+    for (m, (calls, incl, excl)) in v.into_iter().take(top) {
+        let mi = &s.vm.prog.methods[*m as usize];
+        out += &format!("{excl:>10} {incl:>10} {calls:>8}  {}::{}
+", s.vm.types[mi.owner as usize].name, mi.name);
+    }
+    out
 }

@@ -122,7 +122,9 @@ pub struct Vm {
     pub steps: u64,
     pub cur_exc: Vec<Value>,
     pub callstack: Vec<u32>,
-    pub prof: Option<HashMap<u32, (u64, u64)>>,
+    /// `CLR_PROF`: per method (calls, inclusive instructions, exclusive instructions)
+    pub prof: Option<HashMap<u32, (u64, u64, u64)>>,
+    prof_child: u64,
     pub last_meta: Option<Rc<ExtMeta>>,
     /// Native mode: the game logic runs as the generated Rust (ngu-gen), not in the interpreter.
     pub native_inv: Option<fn(*mut Vm, u32, &[Value]) -> Option<R<Value>>>,
@@ -182,6 +184,7 @@ impl Vm {
             achievement_stats: None,
             effective_boss_fields: None,
             prof: if std::env::var("CLR_PROF").is_ok() { Some(HashMap::new()) } else { None },
+            prof_child: 0,
         };
         for i in 0..vm.types.len() {
             vm.init_statics(i as u32);
@@ -697,6 +700,7 @@ impl Vm {
             self.slots.extend_from_slice(lv.as_ref().unwrap());
         }
         let s0 = self.steps;
+        let outer_child = std::mem::take(&mut self.prof_child);
         let r = self.run(code, base);
         if let (Some(recipe), Ok(Value::F32(score))) = (recipe, &r) {
             self.optimal_score = Some((recipe, *score));
@@ -716,9 +720,14 @@ impl Vm {
             self.achievement_stats = previous;
         }
         if let Some(p) = &mut self.prof {
-            let e = p.entry(mid).or_insert((0, 0));
+            let incl = self.steps - s0;
+            let e = p.entry(mid).or_insert((0, 0, 0));
             e.0 += 1;
-            e.1 += self.steps - s0;
+            e.1 += incl;
+            e.2 += incl - self.prof_child;
+            self.prof_child = outer_child + incl;
+        } else {
+            self.prof_child = outer_child;
         }
         self.callstack.pop();
         self.depth -= 1;

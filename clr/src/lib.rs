@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod autoplay;
 pub mod bcl;
 pub mod bcl_core;
 pub mod bcl_sys;

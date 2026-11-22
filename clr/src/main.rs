@@ -8,6 +8,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("usage: clr <dll> [scan|run Type::Method]");
     let mode = args.get(2).map(|s| s.as_str()).unwrap_or("info");
+    if mode == "autoplay" {
+        // loads its own VM through the console API
+        if let Err(e) = autoplay::run_pc(&args[3..]) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let mut vm = Vm::new(path);
     match mode {
         "scan" => scan(&mut vm),
@@ -155,11 +163,11 @@ fn load(vm: &mut Vm, a: &[String]) {
     println!("BENCH {} images en {:?} : {} instr, {:.2} M instr/s", frames, el, vm.steps - sb, (vm.steps - sb) as f64 / el.as_secs_f64() / 1e6);
     if let Some(p) = vm.prof.take() {
         let mut v: Vec<_> = p.into_iter().collect();
-        v.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
-        println!("== profile (inclusive instructions, calls) ==");
-        for (m, (calls, incl)) in v.iter().take(30) {
+        v.sort_by(|a, b| b.1 .2.cmp(&a.1 .2));
+        println!("== profile (exclusive instructions, inclusive, calls) ==");
+        for (m, (calls, incl, excl)) in v.iter().take(30) {
             let mi = &vm.prog.methods[*m as usize];
-            println!("{:>10} {:>8}  {}::{}", incl, calls, vm.types[mi.owner as usize].name, mi.name);
+            println!("{:>10} {:>10} {:>8}  {}::{}", excl, incl, calls, vm.types[mi.owner as usize].name, mi.name);
         }
     }
     let mut miss: Vec<_> = vm.missing.iter().cloned().collect();
