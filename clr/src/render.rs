@@ -407,7 +407,10 @@ impl Renderer {
                         else { pointer - length - 10.0 };
                     origin.clamp(0.0, (limit - length).max(0.0))
                 };
-                x.origin = [place(mx, w, width) + w * x.pivot[0], place(my, h, self.vh) + h * x.pivot[1]];
+                // console mode zoomed in: only the top rows are on screen (y up: from vh - rows to vh)
+                let rows = vm.eng.desktop_layout.console_view_h;
+                let floor = if vm.eng.console.is_some() && rows > 0.0 && rows < self.vh { self.vh - rows } else { 0.0 };
+                x.origin = [place(mx, w, width) + w * x.pivot[0], floor + place(my - floor, h, self.vh - floor) + h * x.pivot[1]];
             }
             let clip = if self.regions.is_empty() { full } else {
                 Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 }

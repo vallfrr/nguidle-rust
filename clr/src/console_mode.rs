@@ -1,17 +1,37 @@
-//! Console mode switch (`docs/CONSOLE-MODE.md`): an On / Off pair added to Settings > "Some Settings", built from the
-//! game's own Tooltips setting so it looks native. Off by default; stored in PlayerPrefs. The PC window reads `enabled`
-//! to switch to the console presentation (player column + page in the menu column's width, menu list on hold of L).
+//! Console mode (`docs/CONSOLE-MODE.md`): a gamepad-first presentation of the same game, shared by the console ports and
+//! tried on PC. Settings > Page 2 > "Bloopydoops" holds its switch (off by default) and its scale (100 / 110 / 120 %),
+//! built from the game's own setting buttons and kept in PlayerPrefs.
+//!
+//! The menu column is hidden: L / R change menu, holding L shows the menu list in place of the player column. The page is
+//! laid out by the PC layout (`desktop_layout`) in the freed width. Above 100 % everything is drawn bigger and fewer game
+//! rows fit on screen: `desktop_layout` squeezes empty bands, then shortens the game's own scroll views, and scrolls only
+//! what still does not fit (`ScrollRegion`, with the game's scrollbar images). This module drives those scrolls from the
+//! right stick, the mouse wheel and the selection.
+use crate::desktop_layout::{ScrollRegion, COLUMN, LIST, PAGE};
 use crate::save_slots::{child, image, label, named_go, new_node, style, text, tr};
 use crate::unity::*;
 use crate::value::Value;
 use crate::Vm;
 
 const PREF: &str = "nguConsoleMode";
+const SCALE_PREF: &str = "nguConsoleScale";
+/// Scale steps, in percent of the PC size.
+pub const SCALES: [i32; 3] = [100, 110, 120];
 const TAG: &str = "PortConsoleMode";
+/// Narrowest logical width the PC layout handles without squeezing the page sideways (player column + page).
+const MIN_WIDTH: f32 = 834.0;
+/// Margin kept around the selection when a part scrolls to it, and the step of a d-pad press at a scroll edge.
+const MARGIN: f32 = 12.0;
+const STEP: f32 = 40.0;
 
 pub(crate) struct Switch {
     on: Value,
     off: Value,
+    scales: Vec<(Value, i32)>,
+    /// the game's own setting button and caption these copy their look from (themes)
+    sample: Value,
+    sample_text: Value,
+    captions: Vec<Value>,
 }
 
 pub fn enabled(vm: &Vm) -> bool {
@@ -24,28 +44,73 @@ pub fn set_enabled(vm: &mut Vm, on: bool) {
     refresh(vm);
 }
 
-/// Builds the switch once the settings menu exists (desktop builds only).
+/// The chosen scale in percent (100 when unset or not one of `SCALES`).
+pub fn scale(vm: &Vm) -> i32 {
+    match vm.eng.prefs.get(SCALE_PREF) {
+        Some(Value::I32(s)) if SCALES.contains(s) => *s,
+        _ => 100,
+    }
+}
+
+pub fn set_scale(vm: &mut Vm, percent: i32) {
+    vm.eng.prefs.insert(SCALE_PREF.into(), Value::I32(percent));
+    crate::unity_api::save_prefs(vm);
+    refresh(vm);
+    vm.eng.desktop_layout.pans.clear();
+}
+
+/// Console presentation on a `w` x `h` screen: (screen pixels per game pixel, game rows shown, logical width).
+/// At 100 % it is the PC fit; higher scales zoom in, capped where the page would have to be squeezed sideways.
+pub fn view(vm: &Vm, w: f32, h: f32) -> (f32, f32, f32) {
+    let base = (w / 960.0).min(h / 600.0).max(1e-3);
+    let cap = (w / (MIN_WIDTH * base)).max(1.0);
+    let k = base * (scale(vm) as f32 / 100.0).min(cap);
+    (k, (h / k).min(600.0), w / k)
+}
+
+/// Builds the settings once the settings menus exist (desktop builds only): Page 2's empty "Bloopydoops" column.
 pub(crate) fn prepare(vm: &mut Vm) {
     if !vm.eng.desktop_panels || vm.eng.console_switch.is_some() {
         return;
     }
-    let Some(menu) = named_go(vm, "Settings Menu") else { return };
-    let panel = child(&menu, "Settings Panel 1");
-    let sample = child(&child(&menu, "Settings Panel 2"), "Tooltips");
-    let (sample_on, sample_text) = (child(&sample, "On Button"), child(&sample, "Tooltips Text"));
-    if panel.is_null() || sample_on.is_null() {
+    // two "Settings Menu" objects exist (page 1 and page 2): the sample is page 1's Tooltips setting
+    let sample_group = vm.eng.gos.iter().filter(|go| with_go(go, |g| g.name == "Settings Menu").unwrap_or(false))
+        .map(|menu| child(&child(menu, "Settings Panel 2"), "Tooltips")).find(|g| !g.is_null()).unwrap_or_default();
+    // the empty column of Settings page 2 (another node shares its name elsewhere)
+    let under = |go: &Value, name: &str| {
+        let mut t = with_go(go, |g| g.transform.clone()).unwrap_or_default();
+        while !t.is_null() {
+            if with_go(&go_of(&t), |g| g.name.trim() == name).unwrap_or(false) {
+                return true;
+            }
+            t = with_tr(&t, |x| x.parent.clone()).unwrap_or_default();
+        }
+        false
+    };
+    let Some(panel) = vm.eng.gos.iter().find(|go| {
+        with_go(go, |g| g.name == "Augment Settings 1").unwrap_or(false) && under(go, "Settings 2 Canvas")
+    }).cloned() else { return };
+    let (sample, sample_text) = (child(&sample_group, "On Button"), child(&sample_group, "Tooltips Text"));
+    if sample.is_null() {
         return;
     }
-    let frame = style(&sample_on, |k| match k { CK::Image(i) => Some(i.as_ref().clone()), _ => None });
-    let sel = style(&sample_on, |k| match k { CK::Sel(s) => Some((s.colors, s.transition)), _ => None });
+    let frame = style(&sample, |k| match k { CK::Image(i) => Some(i.as_ref().clone()), _ => None });
+    let sel = style(&sample, |k| match k { CK::Sel(s) => Some((s.colors, s.transition)), _ => None });
     let caption_style = style(&sample_text, |k| match k { CK::Text(t) => Some(t.as_ref().clone()), _ => None });
-    let button_style = style(&child(&sample_on, "Text"), |k| match k { CK::Text(t) => Some(t.as_ref().clone()), _ => None });
-    // Panel 1 is 160 x 480; the free band sits between the resolution buttons and "Number Display Style".
-    let title = new_node(vm, "Console Mode Text", &tr(&panel), [0.0, 1.0], 180.0, 18.0);
-    let caption = text(vm, &title, caption_style.as_ref(), None, 4);
-    label(&caption, "Console Mode".into());
-    let button = |vm: &mut Vm, name: &str, caption: &str, x: [f32; 2]| {
-        let go = new_node(vm, name, &tr(&panel), x, 202.0, 30.0);
+    let button_style = style(&child(&sample, "Text"), |k| match k { CK::Text(t) => Some(t.as_ref().clone()), _ => None });
+    let mut captions = vec![];
+    let mut caption = |vm: &mut Vm, name: &str, value: &str, y: f32| {
+        let node = new_node(vm, name, &tr(&panel), [0.0, 1.0], y, 20.0);
+        let t = text(vm, &node, caption_style.as_ref(), None, 4);
+        label(&t, value.into());
+        with_go(&node, |g| g.tag = TAG.into());
+        captions.push(t);
+    };
+    // the column is 160 x 480 under its title
+    caption(vm, "Console Mode Text", "Console Mode", 40.0);
+    caption(vm, "Console Scale Text", "Console Scale", 108.0);
+    let button = |vm: &mut Vm, name: &str, value: &str, x: [f32; 2], y: f32| {
+        let go = new_node(vm, name, &tr(&panel), x, y, 30.0);
         let graphic = image(vm, &go, frame.as_ref(), true);
         let mut s = default_sel(SelKind::Button);
         if let Some((colors, transition)) = sel {
@@ -54,26 +119,32 @@ pub(crate) fn prepare(vm: &mut Vm) {
         }
         s.target_graphic = graphic;
         let comp = new_comp(vm, "UnityEngine.UI.Button", go.clone(), CK::Sel(Box::new(s)));
-        with_go(&go, |g| g.comps.push(comp));
+        with_go(&go, |g| {
+            g.comps.push(comp);
+            g.tag = TAG.into();
+        });
         let t = new_node(vm, "Text", &tr(&go), [0.0, 1.0], 0.0, 30.0);
         let t = text(vm, &t, button_style.as_ref(), None, 4);
-        label(&t, caption.into());
+        label(&t, value.into());
         go
     };
-    let on = button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0]);
-    let off = button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0]);
-    for go in [&title, &on, &off] {
-        with_go(go, |g| g.tag = TAG.into());
-    }
-    vm.eng.console_switch = Some(Switch { on, off });
+    let on = button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0);
+    let off = button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0);
+    let scales = SCALES.iter().enumerate().map(|(i, &p)| {
+        let x0 = 6.0 + i as f32 * 50.0;
+        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 48.0) / 160.0], 132.0), p)
+    }).collect();
+    vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions });
     refresh(vm);
 }
 
 /// The game marks the active choice of a setting by making its button non-interactable (darker); same here.
 fn refresh(vm: &mut Vm) {
     let Some(s) = &vm.eng.console_switch else { return };
-    let on = enabled(vm);
-    for (go, interactable) in [(s.on.clone(), !on), (s.off.clone(), on)] {
+    let (on, now) = (enabled(vm), scale(vm));
+    let mut states: Vec<(Value, bool)> = vec![(s.on.clone(), !on), (s.off.clone(), on)];
+    states.extend(s.scales.iter().map(|(go, p)| (go.clone(), *p != now)));
+    for (go, interactable) in states {
         for comp in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
             with_comp(&comp, |c| {
                 if let CK::Sel(sel) = &mut c.k {
@@ -84,6 +155,63 @@ fn refresh(vm: &mut Vm) {
         invalidate_input();
         mark_sel_dirty(&go);
         mark_dirty(&go);
+    }
+}
+
+/// UI themes swap the settings' sprites and colours: the added buttons and captions follow their samples.
+fn follow_theme(vm: &Vm) {
+    let Some(s) = &vm.eng.console_switch else { return };
+    let look = |go: &Value| with_go(go, |g| g.comps.clone()).unwrap_or_default().iter().find_map(|c| {
+        with_comp(c, |k| match &k.k { CK::Image(i) => Some((i.sprite.clone(), i.color)), _ => None }).flatten()
+    });
+    let text_colour = |go: &Value| with_go(go, |g| g.comps.clone()).unwrap_or_default().iter().find_map(|c| {
+        with_comp(c, |k| match &k.k { CK::Text(t) => Some(t.color), _ => None }).flatten()
+    });
+    let Some((sprite, colour)) = look(&s.sample) else { return };
+    let caption = text_colour(&s.sample_text);
+    let label_colour = text_colour(&child(&s.sample, "Text"));
+    let buttons = [s.on.clone(), s.off.clone()].into_iter().chain(s.scales.iter().map(|(g, _)| g.clone()));
+    for go in buttons {
+        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
+            let changed = with_comp(&c, |k| match &mut k.k {
+                CK::Image(i) if !same(&i.sprite, &sprite) || i.color != colour => {
+                    i.sprite = sprite.clone();
+                    i.color = colour;
+                    true
+                }
+                _ => false,
+            }).unwrap_or(false);
+            if changed {
+                mark_dirty(&go);
+            }
+        }
+        if let Some(col) = label_colour {
+            recolour(&child(&go, "Text"), col);
+        }
+    }
+    if let Some(col) = caption {
+        for t in &s.captions {
+            recolour(&go_of_comp(t), col);
+        }
+    }
+}
+
+fn go_of_comp(comp: &Value) -> Value {
+    with_comp(comp, |c| c.go.clone()).unwrap_or_default()
+}
+
+fn recolour(go: &Value, col: [f32; 4]) {
+    for c in with_go(go, |g| g.comps.clone()).unwrap_or_default() {
+        let changed = with_comp(&c, |k| match &mut k.k {
+            CK::Text(t) if t.color != col => {
+                t.color = col;
+                true
+            }
+            _ => false,
+        }).unwrap_or(false);
+        if changed {
+            mark_dirty(go);
+        }
     }
 }
 
@@ -106,7 +234,7 @@ pub enum Pad {
     /// L held: the menu list replaces the player column; released: open the menu under the cursor
     HoldStart,
     HoldEnd,
-    /// right stick, in game pixels for this poll (y > 0 = towards the bottom of the list)
+    /// right stick, in game pixels for this poll (y > 0 = towards the bottom)
     Scroll(f32, f32),
 }
 
@@ -119,8 +247,7 @@ pub struct Click {
     pub button: i32,
 }
 
-/// Console presentation state, kept in `Engine::console` while the mode is on. The page itself is laid out by the PC
-/// layout (`desktop_layout`, `console` flag): the menu column is hidden and the page takes its width.
+/// Console presentation state, kept in `Engine::console` while the mode is on.
 #[derive(Default)]
 pub struct Console {
     pub hold: bool,
@@ -209,17 +336,62 @@ fn set_hidden(go: &Value, hidden: bool) {
     }
 }
 
-/// Console mode zoom: game rows shown on screen out of 600 (600 / 540 = 1.11x the PC size at the same window height).
-/// The player column fits these rows once its build number goes; menus taller than that scroll.
-pub const VIEW_H: f32 = 540.0;
-/// Margin kept around the selection when a part scrolls to it.
-const MARGIN: f32 = 12.0;
 
 /// Drops the cached focus targets after a scroll offset changed (their presented rectangles moved).
 fn relayout(vm: &mut Vm) {
     crate::desktop_layout::rebuild(vm);
     vm.eng.focus_cache = None;
     invalidate_input();
+}
+
+/// Scrolls a region by `delta` rows (> 0 = further down). A game scroll view scrolls by itself first (or last when going
+/// back up), the console squeeze covers the rest. Returns whether anything moved.
+fn scroll_region(vm: &mut Vm, r: &ScrollRegion, delta: f32) -> bool {
+    let mut left = delta;
+    let mut moved = false;
+    let native = |vm: &mut Vm, d: f32| {
+        let before = crate::desktop_layout::native_offset(vm, &r.native);
+        vm.scroll_by(&r.native, 0.0, d);
+        crate::desktop_layout::native_offset(vm, &r.native) - before
+    };
+    if !r.native.is_null() && left > 0.0 {
+        let done = native(vm, left);
+        moved |= done.abs() > 0.01;
+        left -= done;
+    }
+    let pans = &mut vm.eng.desktop_layout.pans;
+    let p = pans.entry(r.key).or_insert(0.0);
+    let next = (*p + left).clamp(0.0, r.extra);
+    left -= next - *p;
+    moved |= (next - *p).abs() > 0.01;
+    *p = next;
+    if !r.native.is_null() && left < 0.0 {
+        moved |= native(vm, left).abs() > 0.01;
+    }
+    if moved {
+        relayout(vm);
+    }
+    moved
+}
+
+/// The innermost region on screen at a point (rows, y down; game x).
+fn region_at(vm: &Vm, x: f32, y: f32) -> Option<ScrollRegion> {
+    vm.eng.desktop_layout.regions.iter().filter(|r| x >= r.view[0] && x < r.view[2] && y >= r.view[1] && y < r.view[3])
+        .min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
+}
+
+fn area(r: &ScrollRegion) -> f32 {
+    (r.view[2] - r.view[0]) * (r.view[3] - r.view[1])
+}
+
+/// The region holding the selection: the innermost whose columns contain it and whose rows it overlaps (it may lie
+/// just under the view after a d-pad move).
+fn region_of_focus(vm: &Vm) -> Option<ScrollRegion> {
+    let f = vm.eng.focus_rect?;
+    let cx = (f[0] + f[2]) / 2.0;
+    vm.eng.desktop_layout.regions.iter()
+        .filter(|r| cx >= r.view[0] && cx < r.view[2] && f[3] > r.view[1] - 1.0 && f[1] < r.view[3] + r.extra + 1.0)
+        .min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
 }
 
 impl Console {
@@ -231,8 +403,9 @@ impl Console {
         let Some((menus, player)) = self.columns.clone() else { return };
         set_hidden(&menus, !self.hold);
         set_hidden(&player, self.hold);
+        let zoomed = vm.eng.desktop_layout.console_view_h < 599.5;
         if let Some(build) = named_go(vm, "Build #") {
-            set_hidden(&build, true);
+            set_hidden(&build, zoomed);
         }
         let (menu_edge, sections) = self.bolts.get_or_insert_with(|| junction_bolts(vm)).clone();
         for b in &menu_edge {
@@ -243,7 +416,6 @@ impl Console {
         }
         vm.eng.desktop_layout.console = true;
         vm.eng.desktop_layout.console_hold = self.hold;
-        vm.eng.desktop_layout.console_view_h = VIEW_H;
     }
 
     /// Restores the PC presentation.
@@ -260,7 +432,8 @@ impl Console {
         }
         let d = &mut vm.eng.desktop_layout;
         (d.console, d.console_hold, d.console_view_h) = (false, false, 0.0);
-        (d.page_pan, d.list_pan, d.body_pan) = (0.0, 0.0, 0.0);
+        d.pans.clear();
+        d.regions.clear();
         d.bars.clear();
     }
 
@@ -276,61 +449,19 @@ impl Console {
         let next = ((at + delta) % n + n) % n;
         open(vm, &list[next as usize].0);
         crate::focus::clear(vm);
-        let d = &mut vm.eng.desktop_layout;
-        (d.page_pan, d.body_pan) = (0.0, 0.0);
+        new_page(vm);
     }
 
-    /// Scrolls whatever part holds the selection so that it is fully on screen.
+    /// Scrolls whatever region holds the selection so that it is fully on screen.
     fn follow(&mut self, vm: &mut Vm) {
-        let Some(r) = vm.eng.focus_rect else { return };
-        let d = &vm.eng.desktop_layout;
-        let (lo, hi, which) = if self.hold {
-            (0.0, d.console_view_h, 0)
-        } else if let Some(b) = d.body_view.filter(|b| r[0] >= b[0] && r[2] <= b[2] + 1.0 && r[1] >= b[1] - 1.0) {
-            (b[1], b[3], 1)
-        } else if r[0] >= 160.0 {
-            (0.0, d.console_view_h, 2)
-        } else {
-            return;
-        };
-        let delta = if r[3] > hi - MARGIN { r[3] - (hi - MARGIN) } else if r[1] < lo + MARGIN { r[1] - (lo + MARGIN) } else { 0.0 };
-        if delta.abs() < 0.5 {
-            return;
-        }
-        self.pan_by(vm, which, delta);
-        // the selection moved with its part
-        if let Some(r) = vm.eng.focus_rect.as_mut() {
-            r[1] -= delta;
-            r[3] -= delta;
-        }
-    }
-
-    /// Adds `delta` rows to a scroll offset (0 the menu list, 1 the menu body, 2 the page); returns whether it moved.
-    fn pan_by(&mut self, vm: &mut Vm, which: u8, delta: f32) -> bool {
-        let d = &mut vm.eng.desktop_layout;
-        let (pan, extra) = match which {
-            0 => (&mut d.list_pan, d.list_extra),
-            1 => (&mut d.body_pan, d.body_extra),
-            _ => (&mut d.page_pan, d.page_extra),
-        };
-        let next = (*pan + delta).clamp(0.0, extra);
-        let moved = (next - *pan).abs() > 0.01;
-        *pan = next;
-        if moved {
-            relayout(vm);
-        }
-        moved
-    }
-
-    /// The part the right stick scrolls: the menu body if there is one, else the page.
-    fn stick_target(&self, vm: &Vm) -> Option<u8> {
-        let d = &vm.eng.desktop_layout;
-        if self.hold {
-            (d.list_extra > 0.0).then_some(0)
-        } else if d.body_extra > 0.0 {
-            Some(1)
-        } else {
-            (d.page_extra > 0.0).then_some(2)
+        for _ in 0..4 {
+            let (Some(f), Some(r)) = (vm.eng.focus_rect, region_of_focus(vm)) else { return };
+            let (lo, hi) = (r.view[1] + MARGIN, r.view[3] - MARGIN);
+            let delta = if f[3] > hi { (f[3] - hi).min(f[1] - lo).max(0.0) } else if f[1] < lo { f[1] - lo } else { 0.0 };
+            if delta.abs() < 0.5 || !scroll_region(vm, &r, delta) {
+                return;
+            }
+            crate::focus::refresh_rect(vm);
         }
     }
 
@@ -351,19 +482,19 @@ impl Console {
             Pad::Dir(d) => {
                 let before = vm.eng.focus.clone();
                 crate::focus::navigate(vm, d);
-                // at the edge of a part that scrolls: scroll it and look again (the next rows were clipped)
+                // at the edge of a region that scrolls: scroll it and look again (the next rows were clipped)
                 if matches!(d, 'u' | 'd') && same(&before, &vm.eng.focus) {
-                    let step = if d == 'd' { 40.0 } else { -40.0 };
-                    let moved = match self.stick_target(vm) {
-                        Some(which) => self.pan_by(vm, which, step),
-                        None if crate::focus::in_scroll_view(vm) => {
-                            crate::focus::scroll(vm, 0.0, step);
-                            true
+                    let step = if d == 'd' { STEP } else { -STEP };
+                    for _ in 0..6 {
+                        let Some(r) = region_of_focus(vm) else { break };
+                        if !scroll_region(vm, &r, step) {
+                            break;
                         }
-                        None => false,
-                    };
-                    if moved {
+                        crate::focus::refresh_rect(vm);
                         crate::focus::navigate(vm, d);
+                        if !same(&before, &vm.eng.focus) {
+                            break;
+                        }
                     }
                 }
                 self.follow(vm);
@@ -387,7 +518,7 @@ impl Console {
             Pad::Prev | Pad::Next => None,
             Pad::HoldStart => {
                 self.hold = true;
-                vm.eng.desktop_layout.list_pan = 0.0;
+                vm.eng.desktop_layout.pans.remove(&LIST);
                 self.apply(vm);
                 relayout(vm);
                 let Some((menus, _)) = self.columns.clone() else { return None };
@@ -407,28 +538,46 @@ impl Console {
                 crate::focus::clear(vm);
                 if let Some((go, _)) = chosen {
                     open(vm, &go);
-                    let d = &mut vm.eng.desktop_layout;
-                    (d.page_pan, d.body_pan) = (0.0, 0.0);
+                    new_page(vm);
                 }
+                relayout(vm);
                 None
             }
             Pad::Scroll(dx, dy) => {
-                // a list of the game (its own scroll view) under the selection scrolls first
-                if crate::focus::in_scroll_view(vm) && vm.eng.desktop_layout.body_extra <= 0.0 {
-                    crate::focus::scroll(vm, dx, dy);
-                } else if let Some(which) = self.stick_target(vm) {
-                    self.pan_by(vm, which, dy);
-                } else {
-                    crate::focus::scroll(vm, dx, dy);
+                // the region under the selection, else the one in the middle of the page
+                let r = region_of_focus(vm).or_else(|| {
+                    let d = &vm.eng.desktop_layout;
+                    d.regions.iter().filter(|r| r.key != COLUMN && r.key != LIST).min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
+                });
+                match r {
+                    Some(r) => {
+                        scroll_region(vm, &r, dy);
+                    }
+                    None => crate::focus::scroll(vm, dx, dy),
                 }
                 None
             }
         }
     }
+
+    /// Mouse wheel at a game point (y up, like `Engine::mouse`); `true` when a console region took it.
+    pub fn wheel(&mut self, vm: &mut Vm, x: f32, y: f32, notches: f32) -> bool {
+        let Some(r) = region_at(vm, x, 600.0 - y) else { return false };
+        scroll_region(vm, &r, -notches * STEP);
+        true
+    }
 }
 
-/// Turns the console presentation on or off to match the setting (the shell calls this every frame).
+/// A new menu starts at its top.
+fn new_page(vm: &mut Vm) {
+    vm.eng.desktop_layout.pans.retain(|k, _| *k == COLUMN);
+    let _ = PAGE;
+}
+
+/// Turns the console presentation on or off to match the setting and keeps its scale (the shell calls this every frame
+/// with the screen size, before drawing).
 pub fn sync(vm: &mut Vm) -> bool {
+    follow_theme(vm);
     let on = enabled(vm);
     let mut console = vm.eng.console.take();
     match (on, console.as_mut()) {
@@ -450,10 +599,28 @@ pub fn sync(vm: &mut Vm) -> bool {
     on
 }
 
-/// Click on one of the switch buttons; `true` when handled.
+/// Sets the rows shown for a screen size (console mode only); returns (pixels per game pixel, rows, logical width).
+pub fn fit_screen(vm: &mut Vm, w: f32, h: f32) -> (f32, f32, f32) {
+    let (k, rows, width) = view(vm, w, h);
+    let d = &mut vm.eng.desktop_layout;
+    if (d.console_view_h - rows).abs() > 0.01 {
+        d.console_view_h = rows;
+        d.pans.clear();
+    }
+    (k, rows, width)
+}
+
+/// Click on one of the settings buttons; `true` when handled.
 pub(crate) fn click(vm: &mut Vm, go: &Value) -> bool {
     let Some(s) = &vm.eng.console_switch else { return false };
-    let choice = if same(go, &s.on) { true } else if same(go, &s.off) { false } else { return false };
-    set_enabled(vm, choice);
-    true
+    if same(go, &s.on) || same(go, &s.off) {
+        let on = same(go, &s.on);
+        set_enabled(vm, on);
+        return true;
+    }
+    if let Some(p) = s.scales.iter().find(|(g, _)| same(g, go)).map(|(_, p)| *p) {
+        set_scale(vm, p);
+        return true;
+    }
+    false
 }

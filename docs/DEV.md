@@ -37,7 +37,10 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `png,file` | 960x600 capture |
 | `r,x,y[,wait]`, `mc,x,y[,wait]` | right / middle click |
 | `k,<key>[,frames]`, `kd,<key>`, `ku,<key>` | tap / hold / release a key (Unity KeyCode number or name: `a`, `3`, `left shift`, `space`) |
-| `wheel,x,y,notches` | mouse wheel at a point (positive = up) |
+| `wheel,x,y,notches` | mouse wheel at a point (positive = up); in console mode the parts it squeezed scroll first |
+| `consolemode,on\|off`, `consolescale,100\|110\|120` | console mode switch and scale (`docs/CONSOLE-MODE.md`) |
+| `pad,u\|d\|l\|r\|a\|s\|b\|prev\|next\|holdstart\|holdend\|scroll[,rows]` | console controller input (d-pad, cross, square, circle, L / R tap, L held / released, right stick) |
+| `consolestate` | console mode: rows shown and the parts that scroll after the last capture (`pngl,...,desktop,w,h` lays the screen out) |
 | `x,y[,wait]`, `w,N`, `h,x,y`, `d,x1,y1,x2,y2`, `f,u/d/l/r/list`, `a`, `m,+-1`, `s,f`, `l,f` | click, wait, hold, drag, focus, activate, next menu, save probe/load |
 
 `Type` = game class attached to the scene (first component of that type): `Character`, `ButtonShower`, `HoverTooltip`, `MenuSwapper`...
@@ -53,3 +56,8 @@ To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.c
 - Not yet available in native mode or in the window (F12 console): to add if needed.
 
 Rules: go through the game's own fields and methods (as a save would); never change the translated logic for a test need.
+
+## Test window without the native build
+`ngu-window <Assembly-CSharp.dll> <out/ngu> [fps] [max_frames]` (crate `ngu-desktop`, interpreter only): the same GPU window
+and gamepad handling as `ngu-gen window`, built in seconds; `NGU_SAVE_DIR` picks the save folder, `NGU_STEPS` runs steps first.
+Build: `$env:CARGO_TARGET_DIR="J:\NGUvita\build-ngu-win"; .\tools\capbuild.ps1 10 cargo build --release -p ngu-desktop --bin ngu-window`.

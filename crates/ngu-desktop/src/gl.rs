@@ -175,11 +175,11 @@ impl Stage {
 
     fn viewport(&self, w: f32, h: f32) -> (f32, f32, f32, f32) {
         let (scale, ox, oy) = layout(w.max(1.0) as usize, h.max(1.0) as usize);
-        let rows = self.vm.eng.desktop_layout.console_view_h;
-        if self.profile.is_none() && rows > 0.0 {
-            // console mode: zoomed, the top `rows` game rows fill the window height
-            let scale = h.max(1.0) / rows;
-            return (scale, 0.0, 0.0, w / scale);
+        if self.profile.is_none() && self.vm.eng.console.is_some() {
+            // console mode: its scale setting (100 % = the PC fit); zoomed views show the top rows, the rest scrolls
+            let (k, rows, width) = clr::console_mode::view(self.vm, w.max(1.0), h.max(1.0));
+            let oy = ((h - rows * k) / 2.0).max(0.0);
+            return (k, 0.0, oy, width);
         }
         if self.profile.is_none() {
             (scale, 0.0, oy, w / scale)
@@ -454,6 +454,9 @@ impl EventHandler for Stage {
             return;
         }
         self.size = (w, h);
+        if self.vm.eng.console.is_some() {
+            clr::console_mode::fit_screen(self.vm, w, h);
+        }
         self.rend.resize(w as usize, h as usize, false);
         let (scale, ox, oy, width) = self.viewport(w, h);
         if let Some(p) = &self.profile {
@@ -542,7 +545,17 @@ impl EventHandler for Stage {
 
     fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
         if self.map_pointer() {
-            self.vm.scroll_wheel(y.signum() * y.abs().min(3.0));
+            let notches = y.signum() * y.abs().min(3.0);
+            // console mode: a part it squeezed scrolls first (a game list keeps its own scrolling inside)
+            if let Some(mut c) = self.vm.eng.console.take() {
+                let (mx, my) = self.vm.eng.mouse;
+                let taken = c.wheel(self.vm, mx, my, notches);
+                self.vm.eng.console = Some(c);
+                if taken {
+                    return;
+                }
+            }
+            self.vm.scroll_wheel(notches);
         }
     }
 

@@ -33,6 +33,20 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[console] {}", crate::console_mode::enabled(vm));
             continue;
         }
+        if p[0] == "consolescale" {
+            // consolescale,100|110|125: the console mode's scale setting
+            crate::console_mode::set_scale(vm, p[1].parse().unwrap_or(100));
+            println!("[console] scale {}", crate::console_mode::scale(vm));
+            continue;
+        }
+        if p[0] == "consolestate" {
+            // regions that scroll right now (after a capture or a frame laid the screen out)
+            for r in &vm.eng.desktop_layout.regions {
+                println!("[console] region {} view ({:.0},{:.0})-({:.0},{:.0}) extra {:.0} native {}", r.key, r.view[0], r.view[1], r.view[2], r.view[3], r.extra, !r.native.is_null());
+            }
+            println!("[console] rows {:.0} pans {:?}", vm.eng.desktop_layout.console_view_h, vm.eng.desktop_layout.pans.values().collect::<Vec<_>>());
+            continue;
+        }
         if p[0] == "pad" {
             // pad,u|d|l|r|a|s|b|prev|next|holdstart|holdend|scroll[,dy]: console controller input
             use crate::console_mode::Pad;
@@ -286,9 +300,21 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 continue;
             }
             "wheel" => {
-                // wheel,x,y,notches : mouse wheel at a point (positive = up)
+                // wheel,x,y,notches : mouse wheel at a point (positive = up); console mode's squeezed parts first
                 vm.eng.mouse = (p[1].parse().unwrap(), 600.0 - p[2].parse::<f32>().unwrap());
-                vm.scroll_wheel(p[3].parse().unwrap());
+                let notches: f32 = p[3].parse().unwrap();
+                let taken = match vm.eng.console.take() {
+                    Some(mut c) => {
+                        let (mx, my) = vm.eng.mouse;
+                        let t = c.wheel(vm, mx, my, notches);
+                        vm.eng.console = Some(c);
+                        t
+                    }
+                    None => false,
+                };
+                if !taken {
+                    vm.scroll_wheel(notches);
+                }
                 vm.frame(1.0 / 30.0);
                 continue;
             }
@@ -364,15 +390,21 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             // dev: pngl,<file>,<profile>,<w>,<h>[,hold][,pointer y] : capture through a screen profile (layouts/README.md)
             let (w, h): (f32, f32) = (p[3].parse().unwrap(), p[4].parse().unwrap());
             if p[2] == "desktop" {
-                let rows = vm.eng.desktop_layout.console_view_h;
-                let scale = if rows > 0.0 { h / rows } else { (w / 960.0).min(h / 600.0) };
+                let console = vm.eng.console.is_some();
+                let (scale, rows) = if console {
+                    let (k, rows, _) = crate::console_mode::fit_screen(vm, w, h);
+                    crate::desktop_layout::rebuild(vm);
+                    (k, rows)
+                } else {
+                    ((w / 960.0).min(h / 600.0), 600.0)
+                };
                 let old_width = vm.eng.desktop_layout.width();
                 vm.eng.desktop_layout.set_width(w / scale);
                 let mut r = crate::render::Renderer::new(w as usize, h as usize);
                 if let Some(ms) = p.get(5).and_then(|v| v.parse::<f32>().ok()) {
                     r.set_subframe_time(ms / 1000.0);
                 }
-                r.render(vm, scale, 0.0, if rows > 0.0 { 0.0 } else { (h - 600.0 * scale) / 2.0 });
+                r.render(vm, scale, 0.0, ((h - rows * scale) / 2.0).max(0.0));
                 r.save_png(p[1]);
                 vm.eng.desktop_layout.set_width(old_width);
                 crate::desktop_layout::rebuild(vm);

@@ -1,15 +1,48 @@
-# Console mode: target design
+# Console mode
 
-A gamepad- and touch-first presentation of the same game, shared by every console port (Vita first, later PlayStation and
-Switch). It is built and tested on PC first, where it is **off by default** and enabled in the settings; PC players keep the
-original layout. The game logic, scenes and saves are unchanged: the console mode is a presentation and input layer of the
-engine, and `tools/regress.sh` must stay all OK.
+A gamepad-first presentation of the same game, shared by every console port (Vita first, later PlayStation and Switch). It
+is built and tested on PC first, where it is **off by default**; PC players keep the original layout. The game logic, scenes
+and saves are unchanged: the console mode is a presentation and input layer of the engine, and `tools/regress.sh` must stay
+all OK.
 
-Status: first PC version (2026-11-22), behind Settings > Some Settings > Console Mode (off by default). It reuses the PC
-responsive layout (`clr/src/desktop_layout.rs`): the menu column is hidden and each page is laid out again in its width, so
-every menu keeps its native arrangement and one scale; holding L lays the menu list over the player column. Code:
-`clr/src/console_mode.rs`; gamepad in `crates/ngu-desktop/src/pad.rs`; interpreter-only test window `ngu-window`.
-Not done yet: amount pad, in-game keyboard, Adventure face-button skills, inventory pick-up, touch, Vita port.
+## Where it stands (2026-11-23)
+
+Implemented on PC (Windows window and the scripted captures), not yet on the Vita:
+- **Settings > Page 2 > Bloopydoops** (the game's empty column): *Console Mode* On / Off and *Console Scale* 100 % / 110 % /
+  120 %. Both are built from the game's own setting buttons, follow the UI themes and are kept in PlayerPrefs
+  (`nguConsoleMode`, `nguConsoleScale`).
+- **Menus without the menu column**: tap L / R for the previous / next menu; hold L and the menu list replaces the player
+  column (bigger buttons, it scrolls with the cursor); release L to open the menu under the cursor.
+- **Scale**: 100 % is the PC layout with the menu column removed (no zoom, no added scrollbar). 110 % and 120 % draw everything
+  bigger; what no longer fits is handled in this order, and only where needed:
+  1. empty bands between contents get thinner;
+  2. the game's own scroll views (a skill list, the augment list, a log...) get shorter and keep scrolling;
+  3. the player column and the fight screens (Adventure, Boss) are pressed together instead of scrolling (controls get
+     slightly shorter, texts keep their size); other pages are pressed together when the overflow is small (up to 12 %);
+  4. what still does not fit scrolls, with a scrollbar drawn from the game's own scrollbar images (the Augments menu's).
+- **Scrolling**: right stick (the part under the selection, else the page's list), mouse wheel (the part under the pointer),
+  and the selection itself: moving past the last visible row scrolls the part and reaches the next row. A new menu starts at
+  its top.
+- **Selection**: the port's yellow fill inside the selected control, as on PC and Vita. Square = the game's right click.
+- Verified (2026-11-23), scripted captures of the 58 menus at 100 / 110 / 120 % in 1280 x 720, 120 % in 960 x 544 (Vita size)
+  and 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); stick, wheel and d-pad scrolling, hold-L list, L / R; PC mode
+  pixel-identical to before when the console mode is off; `tools/regress.sh` all OK.
+- Not verified: a physical gamepad on this version (the maintainer's playtest), mouse wheel in the real window.
+- Not done yet: per-menu reorganisations beyond the generic fit (the maintainer's notes: Fight Boss bottom smaller and
+  portraits bigger, Money Pit picture proportions, Inventory bigger), amount pad, in-game keyboard, Adventure face-button
+  skills, inventory pick-up with buttons, the glyph prompts, touch, the Vita port.
+
+Code: `clr/src/console_mode.rs` (settings, scale, controls, scrolling), `clr/src/desktop_layout.rs` (`console_vertical`: the
+fit), `clr/src/render.rs` (`draw_console_bars`), gamepad timing in `crates/ngu-desktop/src/pad.rs`, PC window in
+`crates/ngu-desktop/src/gl.rs`. Test window without the native build: `ngu-window` (see `docs/DEV.md`).
+
+### How to change it
+- Scale steps: `SCALES` in `console_mode.rs`; the zoom is capped so the page never gets narrower than `MIN_WIDTH`.
+- Fit tuning: `PAD`, `GAP`, `EDGE_GAP`, `LIST_MIN` and `SQUEEZE` in `desktop_layout.rs`; screens that must never scroll:
+  the names in `has_named(..., &["Adventure Menu", "Boss Menu"])`.
+- Scroll speed: `STEP` (d-pad at an edge, one wheel notch) in `console_mode.rs`, stick speed in `pad.rs`.
+- Debug: `NGU_CONSOLE_DEBUG=1` prints each fit (rows, runs, what scrolls); the script step `consolestate` lists the parts that
+  scroll.
 
 ## Art direction (mandatory)
 Everything added must look as if it had shipped with NGU Idle.
@@ -35,13 +68,11 @@ Everything added must look as if it had shipped with NGU Idle.
 
 PlayStation layout only for now; other consoles get their own sheet later.
 
-## Screen layout (960 x 544 reference)
-- **Left column**: the game's own player column (stats, rebirth, spend EXP, save/load, settings) stays on screen and can be
-  selected like the rest. The menu list is no longer shown permanently.
-- **Content**: the current menu, scaled into all the remaining width (about 1.2x the PC size). Taller menus scroll and follow the
-  selection.
-- **Prompt bar** (game panel, bottom): the actions available for the current selection, glyph + plain label, changing with the
-  context; on its right, the current menu name between the L and R glyphs.
+## Screen layout
+- **Left column**: the game's own player column (stats, rebirth, spend EXP, save/load, settings); it can be selected like the
+  rest. Its build number is hidden when zoomed in.
+- **Content**: the current menu, laid out by the PC layout in all the remaining width, at the chosen scale.
+- **Prompt bar**: dropped (maintainer's decision, 2026-11-22).
 
 ## Controls (PlayStation layout)
 | input | action |
@@ -55,9 +86,9 @@ PlayStation layout only for now; other consoles get their own sheet later.
 | L (hold) | the menu list replaces the player column; move the cursor with the d-pad or stick, release L to open the menu under it |
 | START | apply in the amount pad / keyboard |
 | SELECT | next skill page in Adventure |
-| right stick | scroll the current page |
+| right stick | scroll the part under the selection (else the page's list) |
 
-Context rules:
+Context rules (planned; only L / R, hold L, cross, circle, square and the scrolling are implemented):
 - **Allocation rows** (+ / - / Cap): left/right = - / +, holding repeats with acceleration, square = Cap, triangle = amount pad.
 - **Adventure**: the four face buttons fire the four skills of the current page (Attacks, Defense, Special); SELECT switches
   page; left/right change zone.

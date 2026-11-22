@@ -187,6 +187,14 @@ pub fn in_scroll_view(vm: &Vm) -> bool {
     })
 }
 
+/// Recomputes the focused control's presented rectangle (after its part scrolled).
+pub fn refresh_rect(vm: &mut Vm) {
+    if !vm.eng.focus.is_null() {
+        let go = vm.eng.focus.clone();
+        select_control(vm, &go);
+    }
+}
+
 /// Text of the focused control (logs and tests).
 pub fn focused_label(vm: &Vm) -> Option<String> {
     (!vm.eng.focus.is_null()).then(|| text_under(&transform_of(&vm.eng.focus), 3))
