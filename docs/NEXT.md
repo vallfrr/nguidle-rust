@@ -4,11 +4,11 @@ Read after `AGENTS.md`. Take the **first unchecked task** (`[ ]`), do it until i
 (`[x]` + date), update `docs/STATUS.md`, commit, push, move on. A task marked **[maintainer]** waits for the maintainer: skip it,
 do the next one, and ask at the end.
 
-Goal and decisions: `docs/VISION.md`. Proof of conformance to the original game: `docs/AUDIT-ILGEN.md`, `docs/STATUS.md`.
+Goal and decisions: `docs/VISION.md`. Evidence and scope of comparisons: `docs/AUDIT-ILGEN.md`, `docs/STATUS.md`.
 
 ## Current state (2026-11-22)
 - The Windows build and first personal web preview are playable. See [Release audit](RELEASE-AUDIT.md) and [Status](STATUS.md) for coverage and release checks.
-- The game's C# is translated to Rust (99.4 % of methods) and produces exactly the same state as the reference interpreter (same visible state, saves, thousands of clicks).
+- The November 20 translation covered 99.4% of methods. Selected scripted scenarios matched the reference interpreter's state and saves. The two paths share the Unity and library implementations, and `tools/statediff.sh` disables interpreter guards for its comparisons. Direct comparisons with the original have separate coverage.
 - The PC window runs at ~58 img/s at 1280x800 with a CPU rasterizer (13 ms/frame). The original runs at the monitor rate (200 Hz here), 8 % of one core, 341 MB.
 - Done today: dev mode (`docs/DEV.md`), first comparison with the real game (`docs/COMPARISON.md`), disabled-button tint, system-culture number formatting, Unity-like text metrics.
 - The Vita host runs the shared 960 × 544 layout with game tooltips, save panels, touch and controller focus. Both engine variants have booted on hardware. See the [Vita audit](VITA.md) for the published preview, hardware results and open checks.
@@ -25,8 +25,8 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 ---
 
 ## Phase 0: clean publication
-- [x] **P0.1** Everything in English (code comments, program messages, scripts, docs, READMEs, skills); update the scripts that grep program output.
-- [x] **P0.2** Audit: no French left, no personal information, no game content; regression suite all OK.
+- [x] **P0.1** English is the repository convention. The repository check scans incoming changes for common French phrases and local paths.
+- [x] **P0.2** The audit follow-up removed the identified workstation paths and French messages. See `just check` for repository hygiene and `just verify-game` for the separate local comparison suite.
 - [x] **P0.3** Fresh history pushed to the three repositories (one initial commit each on top of the remote `Initial commit`).
 - [x] **P0.4** `nguidle-web`: setup and hosting guide for the self-hosted service.
 - [x] **P0.5** Black LiveArea placeholders in `nguidle-vita`.
@@ -44,7 +44,7 @@ sub-pixel anti-aliasing or rounding unless a defect is visible to the naked eye:
 ## Phase 2: platform and rendering
 - [~] **A4. GPU rendering (PC done 2026-11-20 with `miniquad` instead of SDL2: pure Rust, OpenGL on desktop and WebGL on the web, no native dependency; `ngu-desktop/src/gl.rs`; `ngu-gen window` = GPU window, `window-cpu` = software window for test captures; vsync like the original; measured 60 img/s on a 60 Hz display with 0.1 ms of draw time per frame and 2,300 img/s without vsync; sharp when resized; 4K, fullscreen (F11) and gamepad not tried; the Vita keeps its own vitaGL host in C fed by the same quad list; audio: pick a pure-Rust crate in A6; gamepad: `gilrs`) - original task text:** SDL2 + GPU rendering (sharp at any size, monitor refresh rate even at 4K). The engine already produces a quad list (texture, uv, colour, clip); it becomes the GPU input. SDL2 (window, input, gamepad, audio, on-screen keyboard) exists on PC, web (emscripten) and Vita (VitaSDK); OpenGL ES 2 / WebGL / vitaGL. Keep the CPU rasterizer for test captures. **Start with the risk**: a "hello quad" on the Vita as soon as the console is reachable; fallback = separate Vita backend (sceGxm) behind the same quad list. Presentation like the original: vsync, one frame per monitor refresh (`vSyncCount = 1`). **Done when:** monitor rate held at 1280x800 and 4K (`NGU_PERF=1`), text sharp at any size.
 - [~] **A3. Free window (free resize works, sharp, letterboxed; F11 fullscreen written, not tried; the game's resolution buttons now work: `Screen.SetResolution` resizes the GPU window or toggles fullscreen, start-up calls ignored; written, compiled, not tried by hand; still to do: replace the fixed list by common resolutions + fullscreen as decided in VISION).** The original offers fixed sizes 640x400..2880x1800 (`NGUResolutions.cs`); `Screen.SetResolution` is a stub here. Override `NGUResolutions` (documented): its buttons offer common windowed resolutions (<= the screen: 1280x720, 1366x768, 1600x900, 1920x1080, 2560x1440, 3840x2160, 1280x800, 1440x900, 1680x1050, 1920x1200, 2560x1600, 3440x1440) + fullscreen; free resize with the mouse; size remembered. No frame-rate setting for the player. **Done when:** every button applies its size, F11/fullscreen works, free resize has no distortion.
-- [~] **B1. Gamepad on Windows** (wired 2026-11-20 with `gilrs` in the GPU window: d-pad / left stick = focus, A = confirm, B = back, L/R bumpers = previous/next menu; compiled and the window starts, **not tried with a physical pad**; Start/Select/square/triangle not mapped yet). Original task text: through SDL2 (remove the never-compiled `gilrs` `pad` feature). Mapping: d-pad/stick = focus, cross = confirm, circle = back, L/R = previous/next menu, Start = settings, Select = info, square = right click, triangle = tooltip, hold +/- = repeat. **[maintainer]** for the physical test.
+- [~] **B1. Gamepad on Windows.** The GPU window uses `gilrs` through `ngu-desktop/src/pad.rs`. See [Console mode](CONSOLE-MODE.md) for navigation, scaling and the scope of physical controller tests. Complete the remaining physical controller coverage with the maintainer.
 
 ## Phase 3: responsive, modifiable, documented base (the heart of the project)
 Principles and trade-offs in `docs/VISION.md`.

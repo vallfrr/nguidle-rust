@@ -25,7 +25,7 @@
   around 59.9 frames/s after startup. Their longest frame intervals were 23.4 ms and 22.8 ms. The earlier
   150 ms stalls did not recur in these runs.
 - The wheel and thumb reached the same final Basic Training row. The wheel over a fixed area left the right pane
-  pixel-identical in Basic Training and Inventory. The right stick scrolled Wishes. Nine Rust tests and the native
+  pixel-identical in Basic Training and Inventory. The right stick scrolled Wishes. The Windows library run passed nine Rust tests (eight in `clr` and one in `ngu-desktop`, including two with prepared data). The ignored `wish_tick` integration tests were outside that run. The native
   comparison suite (`tools/regress.sh`) passed.
 - The mouse wheel reached the final Basic Training row in the Windows GPU window, and the in-game Off button restored
   Settings Page 2. A physical gamepad on this version and the new console mode on the Vita remain to be verified.
@@ -303,6 +303,13 @@ presses. The new-save test created a numbered save, passed the opening
 screen and reached Fight Boss after two right presses, with about 53–54
 displayed FPS in the final steady windows.
 
+The earlier 49–52 FPS notes and these 53–54 FPS windows came from separate
+runs with different scenarios and coverage. Treat them as historical
+observations. Earlier host averages of input, logic, layout and emit could
+race the render thread's counters and used the render-loop sample count.
+Use a fresh benchmark for per-thread comparisons. The display sampler used
+a separate measurement path.
+
 The short menus were then captured on the console with the updated archive.
 The seven 960 × 544 PC/Vita pairs all show the right pane reaching the
 screen bottom. The follow-up soak cycled seven gameplay screens on the same
@@ -379,7 +386,7 @@ Honest table. "Verified" means seen or measured; everything else is stated as no
 | Sound | **absent** (task A6) |
 | Focus navigation (list, spatial move, confirm, frame) | **verified** by headless script and capture; not with a gamepad |
 | Previous/next menu with L/R (`swapMenu` buttons) | **verified** by script (`m,1` / `m,-1`); Tab/E/PageUp-Down in the window not tried |
-| Gamepad (`pad` feature, gilrs) | **written, never compiled** (to be replaced by SDL2) |
+| Gamepad (`gilrs`) | Active in the desktop GPU window. See [Console mode](CONSOLE-MODE.md) for later verification and open coverage. |
 | Tutorial arrows, text typing, Start = settings, Select = info | **not verified / to do** |
 | Vita V2 | **nothing verified**: only V1 (interpreter) ran on a console |
 

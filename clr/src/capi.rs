@@ -31,7 +31,6 @@ struct State {
     rend: Renderer,
     verts: Vec<NguVertex>,
     batches: Vec<NguBatch>,
-    dev: (f32, f32),
     scale: f32,
     ox: f32,
     oy: f32,
@@ -49,6 +48,8 @@ struct State {
     last_instr: u64,
     /// time budget (ms) of simulation per display frame; 0 = a step always runs in one piece
     slice_ms: f32,
+    frame_target_ms: f32,
+    no_skip: bool,
     /// moving average (ms) of the layout + draw-list time of recent frames, to leave room for them
     render_ms: f32,
     /// moving average (ms) of what one simulation step costs, and the cost of the step in progress
@@ -144,7 +145,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     };
     let t0 = std::time::Instant::now();
     let mut vm = Box::new(Vm::from_bytes(dll));
-    crate::elog!("[ngu] VM prete en {:?}", t0.elapsed());
+    crate::elog!("[ngu] VM ready in {:?}", t0.elapsed());
     vm.eng.screen = (960, 600);
     vm.eng.desktop_panels = true;
     vm.eng.cache_focus_controls = true;
@@ -164,7 +165,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     let fonts = crate::render::prepare_startup_fonts();
     let t2 = std::time::Instant::now();
     vm.awake_all();
-    crate::elog!("[ngu] Awake en {:?}", t2.elapsed());
+    crate::elog!("[ngu] Awake in {:?}", t2.elapsed());
     vm.enable_visual_motion();
     if let Err(error) = vm.start_desktop_save_picker() {
         crate::elog!("[ngu] save picker: {error}");
@@ -184,7 +185,15 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.resize(dev_w as usize, dev_h as usize, false);
     rend.prepare_layout(&mut vm);
     unsafe {
-        STATE = Some(State { vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], dev: (dev_w as f32, dev_h as f32), scale, ox, oy, touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true, benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0, slice_ms: slice_default(), render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0, need_emit: true, extra_steps: 0, emit_seq: 0 });
+        STATE = Some(State {
+            vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], scale, ox, oy,
+            touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true,
+            benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
+            slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
+            frame_target_ms: timing_ms("NGU_FRAME_MS", 12.0),
+            no_skip: std::env::var_os("NGU_NO_SKIP").is_some(),
+            render_ms: 6.0, tick_ms: 8.0, cur_tick_ms: 0.0, need_emit: true, extra_steps: 0, emit_seq: 0,
+        });
     }
     0
 }
@@ -248,9 +257,9 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
             // The scene is only drawn again when a step completes or the input changed, so frames alternate between "simulate"
             // (cheap to present) and "complete the step and draw". The share of the step done before the last frame is what
             // remains after reserving that frame's layout, draw list and submission.
-            let finish_ms = (frame_target_ms() - s.render_ms - 2.0).max(2.5);
+            let finish_ms = (s.frame_target_ms - s.render_ms - 2.0).max(2.5);
             let rem = if s.vm.eng.slice.is_some() { (s.tick_ms - s.cur_tick_ms).max(0.5) } else { s.tick_ms };
-            let budget = if rem <= finish_ms { finish_ms } else { (rem - finish_ms).clamp(2.0, s.slice_ms) }.min(s.slice_ms);
+            let budget = if rem <= finish_ms { finish_ms } else { (rem - finish_ms).max(2.0) }.min(s.slice_ms);
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f32(budget / 1000.0);
             loop {
                 let t = std::time::Instant::now();
@@ -365,7 +374,7 @@ pub extern "C" fn ngu_emit() -> i32 {
         Some(s) => s,
         None => return 0,
     };
-    if !s.need_emit && !s.batches.is_empty() && std::env::var_os("NGU_NO_SKIP").is_none() {
+    if !s.need_emit && !s.batches.is_empty() && !s.no_skip {
         return s.batches.len() as i32; // nothing changed: the host draws the previous list again
     }
     s.need_emit = false;
@@ -451,21 +460,6 @@ pub extern "C" fn ngu_atlas(dirty: *mut i32, size: *mut u32) -> *const u8 {
         *size = ATLAS_SIZE as u32;
     }
     s.rend.atlas_pixels().as_ptr()
-}
-
-#[no_mangle]
-pub extern "C" fn ngu_texture_count() -> u32 {
-    st().map(|s| s.rend.textures.len() as u32).unwrap_or(0)
-}
-
-#[no_mangle]
-pub extern "C" fn ngu_dev_size(w: *mut f32, h: *mut f32) {
-    if let Some(s) = st() {
-        unsafe {
-            *w = s.dev.0;
-            *h = s.dev.1;
-        }
-    }
 }
 
 /// Pending text entry request? Copies the initial text into `buf`.
@@ -637,15 +631,12 @@ pub fn profile_report(top: usize) -> String {
     out
 }
 
-/// Slice budget: `NGU_SLICE_MS` (0 = off), default 12 ms on the Vita and off elsewhere (a PC replay stays one step per call).
-fn slice_default() -> f32 {
-    std::env::var("NGU_SLICE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(if cfg!(target_os = "vita") { 12.0 } else { 0.0 })
-}
-
-/// CPU time (ms) a frame that completes a step and redraws the scene should not exceed: the 16.7 ms refresh minus a margin for
-/// the variation of the layout, texture work and the vsync hand-over. `NGU_FRAME_MS` overrides it.
-fn frame_target_ms() -> f32 {
-    std::env::var("NGU_FRAME_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(12.0)
+/// Optional host experiments read their timing options once, during initialization.
+fn timing_ms(name: &str, default: f32) -> f32 {
+    std::env::var(name).ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| (0.0..=1000.0).contains(value))
+        .unwrap_or(default)
 }
 
 /// Completes the time-sliced step in progress (no deadline).

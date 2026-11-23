@@ -113,6 +113,10 @@ pub struct Stream {
 
 type Res<T> = Result<T, String>;
 
+// Bound decoded values, including nulls whose wire records can be very compact.
+const MAX_SLOTS: usize = 1 << 20;
+const MAX_NESTING: usize = 128;
+
 enum Rec {
     Node(N),
     Nulls(usize),
@@ -126,6 +130,8 @@ struct Rd<'a> {
     libs: HashMap<i32, String>,
     classes: HashMap<i32, Rc<ClassMeta>>,
     index: HashMap<i32, N>,
+    slots_left: usize,
+    depth: usize,
 }
 
 impl<'a> Rd<'a> {
@@ -143,19 +149,18 @@ impl<'a> Rd<'a> {
         Ok(i32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
     fn lps(&mut self) -> Res<String> {
-        let (mut n, mut sh) = (0usize, 0);
-        loop {
+        let mut n = 0u32;
+        for shift in (0..=28).step_by(7) {
             let c = self.u8()?;
-            n |= ((c & 0x7f) as usize) << sh;
-            sh += 7;
-            if c & 0x80 == 0 {
-                break;
-            }
-            if sh > 35 {
+            if shift == 28 && c > 0x07 {
                 return Err("bad length prefix".into());
             }
+            n |= u32::from(c & 0x7f) << shift;
+            if c & 0x80 == 0 {
+                return Ok(String::from_utf8_lossy(self.take(n as usize)?).into_owned());
+            }
         }
-        Ok(String::from_utf8_lossy(self.take(n)?).to_string())
+        Err("bad length prefix".into())
     }
     fn prim(&mut self, t: u8) -> Res<Pv> {
         Ok(match t {
@@ -204,9 +209,15 @@ impl<'a> Rd<'a> {
         let names = (0..n).map(|_| self.lps()).collect::<Res<Vec<_>>>()?;
         Ok((id, name, names))
     }
-    /// Values of `count` object-or-primitive slots; `elem` = fixed primitive element type for primitive slots.
+    fn claim_slots(&mut self, count: usize) -> Res<()> {
+        self.slots_left = self.slots_left.checked_sub(count).ok_or("save has too many slots")?;
+        Ok(())
+    }
+
+    /// Values of `count` object-or-primitive slots; `kind` gives a primitive slot's fixed type.
     fn slots(&mut self, count: usize, mut kind: impl FnMut(usize) -> Option<u8>) -> Res<Vec<N>> {
-        let mut out = Vec::with_capacity(count.min(1 << 16));
+        self.claim_slots(count)?;
+        let mut out = Vec::with_capacity(count.min(4096));
         while out.len() < count {
             if let Some(pt) = kind(out.len()) {
                 out.push(N::P(self.prim(pt)?));
@@ -214,12 +225,14 @@ impl<'a> Rd<'a> {
             }
             match self.record()? {
                 Rec::Node(n) => out.push(n),
-                Rec::Nulls(k) => (0..k).for_each(|_| out.push(N::Null)),
+                Rec::Nulls(k) => {
+                    if k == 0 || k > count - out.len() {
+                        return Err("invalid null run length".into());
+                    }
+                    out.resize(out.len() + k, N::Null);
+                }
                 Rec::End => return Err("unexpected end of stream".into()),
             }
-        }
-        if out.len() != count {
-            return Err("null run overflows the slot list".into());
         }
         Ok(out)
     }
@@ -231,20 +244,32 @@ impl<'a> Rd<'a> {
         Ok(n)
     }
     fn record(&mut self) -> Res<Rec> {
-        let t = self.u8()?;
+        let t = loop {
+            match self.u8()? {
+                0 => {
+                    self.root = self.i32()?;
+                    self.take(12)?;
+                }
+                12 => {
+                    let id = self.i32()?;
+                    let name = self.lps()?;
+                    self.libs.insert(id, name);
+                }
+                t => break t,
+            }
+        };
+        if self.depth >= MAX_NESTING {
+            return Err("save has too many nested records".into());
+        }
+        self.depth += 1;
+        let result = self.value_record(t);
+        self.depth -= 1;
+        result
+    }
+
+    fn value_record(&mut self, t: u8) -> Res<Rec> {
         Ok(Rec::Node(match t {
-            0 => {
-                self.root = self.i32()?;
-                self.take(12)?;
-                return self.record();
-            }
             11 => return Ok(Rec::End),
-            12 => {
-                let id = self.i32()?;
-                let name = self.lps()?;
-                self.libs.insert(id, name);
-                return self.record();
-            }
             10 => N::Null,
             13 => return Ok(Rec::Nulls(self.u8()? as usize)),
             14 => return Ok(Rec::Nulls(self.i32()?.max(0) as usize)),
@@ -282,6 +307,7 @@ impl<'a> Rd<'a> {
                 if !(0..100_000_000).contains(&n) {
                     return Err("bad array length".into());
                 }
+                self.claim_slots(n as usize)?;
                 let vals = (0..n).map(|_| self.prim(pt)).collect::<Res<Vec<_>>>()?;
                 let a = N::PArr(Rc::new(PArrN { id, ptype: pt, vals }));
                 self.index.insert(id, a.clone());
@@ -315,6 +341,7 @@ impl<'a> Rd<'a> {
                 let eadd = self.add(etype)?;
                 let a = if etype == 0 {
                     let Add::Prim(pt) = eadd else { return Err("primitive array without type".into()) };
+                    self.claim_slots(n as usize)?;
                     let vals = (0..n).map(|_| self.prim(pt)).collect::<Res<Vec<_>>>()?;
                     N::PArr(Rc::new(PArrN { id, ptype: pt, vals }))
                 } else {
@@ -332,7 +359,16 @@ impl<'a> Rd<'a> {
 /// Parses a whole stream (header ... MessageEnd). BinaryFormatter writes referenced objects after the object that
 /// uses them (`MemberReference`), so records are read until MessageEnd and indexed by object id.
 pub fn parse(bytes: &[u8]) -> Res<Stream> {
-    let mut r = Rd { b: bytes, p: 0, root: 0, libs: HashMap::new(), classes: HashMap::new(), index: HashMap::new() };
+    let mut r = Rd {
+        b: bytes,
+        p: 0,
+        root: 0,
+        libs: HashMap::new(),
+        classes: HashMap::new(),
+        index: HashMap::new(),
+        slots_left: MAX_SLOTS,
+        depth: 0,
+    };
     let mut first = None;
     loop {
         match r.record()? {

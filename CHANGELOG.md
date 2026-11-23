@@ -4,6 +4,12 @@
 
 - Add local and GitHub check recipes for the workspace and synthetic save fixtures.
 
+## [0.2.0]
+
+- Bound decoded save records and verify compressed null runs before expanding them.
+- Keep Vita time slicing off by default and read experimental timing settings once.
+- Remove the unused C exports `ngu_texture_count` and `ngu_dev_size`.
+
 ## [0.1.0]
 
 - Establish the first versioned engine source for the desktop, web and Vita checkouts.
