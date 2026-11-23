@@ -7,6 +7,7 @@ Python 3.11 or later. Install Ruff with
 `python -m pip install ruff==0.11.13` (use `python3` where appropriate).
 The pinned Rust toolchain includes Clippy and rustfmt. Linux desktop
 compilation also needs libudev development headers and pkg-config.
+On Windows, the check recipes use Windows PowerShell.
 
 The command checks repository hygiene and the formatting of the new save
 fixtures. It runs Clippy on the workspace without the generated game crate. The
