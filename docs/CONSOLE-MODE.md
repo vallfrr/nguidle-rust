@@ -13,6 +13,8 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   (`nguConsoleMode`, `nguConsoleScale`).
 - **Menus without the menu column**: tap L / R for the previous / next menu; hold L and the menu list replaces the player
   column (bigger buttons, it scrolls with the cursor); release L to open the menu under the cursor.
+  In the Windows GPU window, the keyboard **L** uses the same 250 ms tap/hold gesture as the controller. While L is down,
+  Up and Down open the list immediately and move the selection, without toggling F1.
 - **Scale**: 100 % is the PC layout with the menu column removed and existing scroll views. 110 % and 120 % draw everything
   bigger; what no longer fits is handled in this order, and only where needed:
   1. empty bands between contents get thinner. If the regular spacing does not fit, the layout tightens internal gaps
@@ -47,6 +49,7 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
     "Choose your prize" screens of the game;
 - **Examples at 120 %**: Basic Training scrolls its Defense skill rows with Attack and the headings fixed. Inventory
   scrolls its item grid. Settings Page 2 scrolls the Loot Filter block. Wish and card lists use their grid as the viewport.
+  Steam Achievements fits its grid, details and pagination with the three tabs in the right pane.
 - **Not done yet**: per-menu reorganisations beyond the generic fit (the maintainer's notes: Fight Boss bottom part smaller
   and portraits bigger, Money Pit picture proportions, Inventory bigger), amount pad, in-game keyboard, Adventure
   face-button skills, inventory pick-up with buttons, the glyph prompts (the glyph sheet below is design only), touch, the
@@ -71,13 +74,14 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
    range. `COLUMN` and `LIST` are independent sidebar regions.
 6. Input: `Console::input(Pad)` maps pad events; the PC shell (`crates/ngu-desktop/src/gl.rs`) feeds it from `pad.rs`
    (gilrs) and the mouse wheel, and turns returned `Click`s into the two-step synthetic click the PC shell already used.
-7. `Renderer::draw_console_bars` reads `UIThemeController.curTheme` and uses the game's scrollbar sprites. The Normal,
-   Dark, Gold and Dark Gold themes are selected on each draw so theme changes apply immediately.
+7. `Renderer::draw_console_bar` paints the track inside its owning block and uses that block's clip and scene order.
+   The shared layout reserves a gutter within the view, clear of the outside frame. The game sprites follow
+   `UIThemeController.curTheme` for Normal, Dark, Gold and Dark Gold.
 8. The settings are real game objects (`prepare`): captions and buttons cloned from the Tooltips setting, kept in sync with
    the theme by `follow_theme`.
 
 Code: `clr/src/console_mode.rs` (settings, scale, controls, scrolling), `clr/src/desktop_layout.rs` (`console_vertical`,
-`fit`, `scroll_block`: the layout), `clr/src/render.rs` (`draw_console_bars`, clips), `clr/src/focus.rs` (`refresh_rect`,
+`fit`, `scroll_block`: the layout), `clr/src/render.rs` (`draw_console_bar`, clips), `clr/src/focus.rs` (`refresh_rect`,
 `in_scroll_view`), script steps in `clr/src/script.rs`, gamepad timing in `crates/ngu-desktop/src/pad.rs`, PC window in
 `crates/ngu-desktop/src/gl.rs`. Test window without the native build: `ngu-window` (see `docs/DEV.md`).
 

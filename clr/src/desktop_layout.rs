@@ -40,6 +40,7 @@ pub struct DesktopLayout {
 #[derive(Clone)]
 pub struct ScrollRegion {
     pub key: usize,
+    owner: usize,
     pub view: [f32; 4],
     pub extra: f32,
     pub native: Value,
@@ -196,6 +197,11 @@ impl DesktopLayout {
     pub(crate) fn clip_scroll_child(&self, parent: &Value, child: &Value) -> Option<[f32; 4]> {
         let clip = self.clips.get(&id(parent)?)?;
         scrolls_with_block(&go_of(child), clip.rows).then_some(clip.bounds)
+    }
+
+    pub(crate) fn scrollbar_for(&self, node: &Value) -> Option<&ScrollRegion> {
+        let owner = id(node)?;
+        self.regions.iter().find(|region| region.owner == owner)
     }
 
     pub(crate) fn content_left(&self) -> f32 {
@@ -370,7 +376,8 @@ impl DesktopLayout {
             let pan = self.pan(LIST, extra);
             self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
             let x1 = left(at) + width(at);
-            self.region(LIST, [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0, [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
+            self.region(LIST, id(&node).unwrap(), [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0,
+                [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
         }
         if let Some((panel, shade)) = crate::save_slots::content_panels(vm) {
             let left = self.content_left();
@@ -394,7 +401,12 @@ impl DesktopLayout {
                 page.extend(children(r).into_iter().filter_map(|c| self.now(&c, x).filter(|cx| visible(*cx)).map(|cx| (c, cx))));
             }
         }
-        if v >= 599.5 || !self.fit_settings_columns(&page, v, &views) {
+        if let Some(panel) = crate::save_slots::steam_achievements_panel(vm) {
+            let left = self.content_left();
+            let at = horizontal(xf(vm, &panel), left, right - left);
+            page.push((panel, at));
+            self.fit(vm, &page, v, &views, false);
+        } else if v >= 599.5 || !self.fit_settings_columns(&page, v, &views) {
             self.fit(vm, &page, v, &views, true);
         }
         // pop-ups stay centred on the rows shown
@@ -453,12 +465,12 @@ impl DesktopLayout {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn region(&mut self, key: usize, view: [f32; 4], extra: f32, native: Value, native_range: f32, native_off: f32, bar: [f32; 4], content: f32) {
+    fn region(&mut self, key: usize, owner: usize, view: [f32; 4], extra: f32, native: Value, native_range: f32, native_off: f32, bar: [f32; 4], content: f32) {
         if extra + native_range <= 0.01 {
             return;
         }
         if bar[3] > bar[1] {
-            self.regions.push(ScrollRegion { key, view, extra, native, native_range, native_off, track: bar, content: content.max(1.0) });
+            self.regions.push(ScrollRegion { key, owner, view, extra, native, native_range, native_off, track: bar, content: content.max(1.0) });
         }
     }
 
@@ -565,17 +577,19 @@ impl DesktopLayout {
             let comp = chosen.get(&k).cloned().unwrap_or_default();
             let (range, off) = native_scroll(vm, &comp);
             if extra + range > 0.01 {
-                let inset = if framed(&go_of(&vp)) && comp.is_null() { 5.0 } else { 0.0 };
+                let has_frame = framed(&go_of(&vp));
+                let inset = if has_frame { 5.0 } else { 0.0 };
                 let header = block.as_ref().map_or(0.0, |block| block.header);
                 let start = t + header.max(inset);
-                let gutter = if inset > 0.0 { x1 - 15.0 } else { (x1 + 1.0).min(self.width() - 15.0) };
-                let clip = [x0 + inset, start, (x1 - inset).min(gutter), e - inset];
-                if inset > 0.0 {
-                    self.reserve_scrollbar_gutter(&vp, x, rows, clip[0], clip[2]);
-                }
+                // Framed blocks need room for their corner bolts as well as their straight edges.
+                // An unframed Unity viewport may still extend to the outside edge of the page frame.
+                let clearance = if has_frame { 18.0 } else { 8.0 };
+                let bar_right = (x1 - clearance).min(self.width() - 14.0);
+                let bar = [bar_right - 10.0, (start + 4.0).max(t + clearance), bar_right, e - clearance];
+                let clip = [x0 + inset, start, bar[0] - 2.0, e - inset];
+                self.reserve_scrollbar_gutter(&vp, x, rows, clip[0], clip[2]);
                 self.clips.insert(k, ScrollClip { bounds: clip, rows });
-                let bar = [gutter, start + 3.0, gutter + 10.0, e - 6.0];
-                self.region(k, clip, extra, comp, range, off, bar, b - a + range - header - inset);
+                self.region(k, k, clip, extra, comp, range, off, bar, b - a + range - header - inset);
             }
         }
     }
@@ -980,7 +994,7 @@ mod tests {
     #[test]
     fn scrollbar_thumb_reaches_both_ends_of_its_own_track() {
         let block = ScrollRegion {
-            key: 10, view: [0.0, 10.0, 100.0, 110.0],
+            key: 10, owner: 10, view: [0.0, 10.0, 100.0, 110.0],
             extra: 40.0, native: Value::Null, native_range: 60.0,
             native_off: 60.0, track: [100.0, 10.0, 110.0, 110.0], content: 200.0,
         };

@@ -1,6 +1,17 @@
 # Status: what is verified and what is not
 
 ## Console mode on PC, 2026-11-23 (details and limits: `docs/CONSOLE-MODE.md`)
+- Scrollbars render with their owning content block, with an inset from the outside frame. The 58-menu, 12-configuration
+  capture sweep and the wheel, thumb, and stick replays were repeated after the draw-order change. The 58 classic PC
+  captures at 1280 x 720 remained pixel-identical.
+- Both Battle Points tabs and both Steam Achievements pages were captured at 100 / 110 / 120 % at 960 x 544,
+  1280 x 720, and 1920 x 1080. Selecting an achievement and paging both ways worked at all three scales. Steam
+  Achievements' details and footer stay within the right pane, which also follows the active theme.
+- Keyboard L in the GPU window uses the controller's shared menu gesture. A Rust test covers taps, the 250 ms hold
+  threshold, key repeats and early opening with a direction. The engine's hold, select and release sequence was replayed
+  from Basic Training to Fight Boss and back. The same menu change closes the Steam Achievements panel before moving on.
+  Windows input automation did not deliver the keys in the live test, so a
+  physical keyboard and controller check remains open.
 - Console menus fit their contents with tighter spacing and at most one scrollable block in the right pane. The frame
   and its corners stay fixed. The scrollbar uses the active game theme. The new-game introduction and all seven ending
   screens were replayed at all three scales with the fitted viewport at 960 x 544.
@@ -14,9 +25,8 @@
   around 59.9 frames/s after startup. Their longest frame intervals were 23.4 ms and 22.8 ms. The earlier
   150 ms stalls did not recur in these runs.
 - The wheel and thumb reached the same final Basic Training row. The wheel over a fixed area left the right pane
-  pixel-identical in Basic Training and Inventory. The right stick scrolled Wishes. All 58 PC captures at 1280 x 720
-  matched the previous revision pixel for pixel with the console mode off. Eight Rust tests and `tools/regress.sh`
-  passed on the final revision.
+  pixel-identical in Basic Training and Inventory. The right stick scrolled Wishes. Nine Rust tests and the native
+  comparison suite (`tools/regress.sh`) passed.
 - The mouse wheel reached the final Basic Training row in the Windows GPU window, and the in-game Off button restored
   Settings Page 2. A physical gamepad on this version and the new console mode on the Vita remain to be verified.
 - The maintainer's first playtest of the earlier builds found: stray bolts, wrong selection mark, useless scrollbars, no

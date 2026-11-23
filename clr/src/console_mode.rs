@@ -501,7 +501,7 @@ impl Console {
                     let previous = std::mem::take(&mut self.focus_before_hold);
                     let next = chosen.filter(|(_, id)| *id != current_menu(vm));
                     if let Some((go, _)) = &next {
-                        crate::save_slots::close_console_save_page(vm);
+                        crate::save_slots::close_for_console_navigation(vm);
                         open(vm, go);
                         new_page(vm);
                     }
@@ -556,7 +556,7 @@ impl Console {
                 None
             }
             Pad::Prev | Pad::Next if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
-                crate::save_slots::close_console_save_page(vm);
+                crate::save_slots::close_for_console_navigation(vm);
                 self.step_menu(vm, if pad == Pad::Prev { -1 } else { 1 });
                 None
             }

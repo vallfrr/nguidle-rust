@@ -1586,13 +1586,18 @@ pub(crate) fn content_panels(vm: &Vm) -> Option<(Value, Value)> {
     vm.eng.save_slots.ui.as_ref().map(|ui| (tr(&ui.panel), tr(&ui.locked_sidebar)))
 }
 
+pub(crate) fn steam_achievements_panel(vm: &Vm) -> Option<Value> {
+    let slots = &vm.eng.save_slots;
+    (slots.mode == Some(Mode::Achievements)).then(|| slots.ui.as_ref().map(|ui| tr(&ui.panel))).flatten()
+}
+
 pub(crate) fn frame_junctions(vm: &Vm) -> Option<[Value; 2]> {
     let console = vm.eng.desktop_layout.console;
     vm.eng.save_slots.ui.as_ref().map(|ui| ui.frame_junctions[usize::from(console)].clone())
 }
 
-pub(crate) fn close_console_save_page(vm: &mut Vm) {
-    if covers_game_content(vm) && !choosing_save(vm) {
+pub(crate) fn close_for_console_navigation(vm: &mut Vm) {
+    if is_open(vm) && !choosing_save(vm) {
         let mut state = std::mem::take(&mut vm.eng.save_slots);
         close(vm, &mut state);
         vm.eng.save_slots = state;

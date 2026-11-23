@@ -1,5 +1,6 @@
 //! High-level actions (keyboard, mouse, gamepad) applied to the game: focus navigation and confirmation.
 use clr::Vm;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
@@ -21,6 +22,63 @@ pub enum Action {
     /// console mode: L held / released (menu list)
     HoldStart,
     HoldEnd,
+}
+
+/// The shared tap/hold gesture for the keyboard and controller menu shortcuts.
+#[derive(Default)]
+pub(crate) struct MenuShoulder {
+    pressed: Option<Instant>,
+    pub holding: bool,
+}
+
+impl MenuShoulder {
+    pub fn press(&mut self, now: Instant) {
+        self.pressed.get_or_insert(now);
+    }
+
+    pub fn is_down(&self) -> bool {
+        self.pressed.is_some()
+    }
+
+    pub fn poll(&mut self, now: Instant, navigating: bool) -> Option<Action> {
+        let since = self.pressed?;
+        if !self.holding && (navigating || now.duration_since(since) >= Duration::from_millis(250)) {
+            self.holding = true;
+            return Some(Action::HoldStart);
+        }
+        None
+    }
+
+    pub fn release(&mut self) -> Option<Action> {
+        let was_holding = std::mem::take(&mut self.holding);
+        self.pressed.take()?;
+        Some(if was_holding { Action::HoldEnd } else { Action::Prev })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_shoulder_taps_once_and_holds_until_release() {
+        let now = Instant::now();
+        let mut shoulder = MenuShoulder::default();
+        shoulder.press(now);
+        assert_eq!(shoulder.poll(now + Duration::from_millis(249), false), None);
+        assert_eq!(shoulder.release(), Some(Action::Prev));
+        assert_eq!(shoulder.release(), None);
+
+        shoulder.press(now);
+        shoulder.press(now + Duration::from_millis(200));
+        assert_eq!(shoulder.poll(now + Duration::from_millis(250), false), Some(Action::HoldStart));
+        assert_eq!(shoulder.poll(now + Duration::from_millis(500), true), None);
+        assert_eq!(shoulder.release(), Some(Action::HoldEnd));
+
+        shoulder.press(now);
+        assert_eq!(shoulder.poll(now, true), Some(Action::HoldStart));
+        assert_eq!(shoulder.release(), Some(Action::HoldEnd));
+    }
 }
 
 /// The same input for the console presentation (`clr::console_mode`).

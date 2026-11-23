@@ -2,7 +2,7 @@
 //! size, presented at the monitor's refresh rate (vsync), like the original game (`vSyncCount = 1`).
 //! The game logic runs in fixed 1/30 s steps caught up on real time, exactly like the software window.
 //! Input: every key goes to the game (original behaviour) unless F1 toggled focus navigation; F11 toggles fullscreen.
-use crate::actions::{apply, console_pad, Action};
+use crate::actions::{apply, console_pad, Action, MenuShoulder};
 use crate::{layout, Options, LOGIC_DT, VIRT_H, VIRT_W};
 use clr::render::{Quad, Renderer, ATLAS_SIZE, TEX_ATLAS, TEX_WHITE};
 use clr::Vm;
@@ -64,6 +64,8 @@ struct Stage {
     acc: f32,
     // input
     nav_mode: bool,
+    keyboard_shoulder: MenuShoulder,
+    gamepad_menu_hold: bool,
     #[cfg(windows)]
     audio: Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
     #[cfg(windows)]
@@ -169,6 +171,8 @@ impl Stage {
             t0: Instant::now(),
             profile,
             hold: false,
+            keyboard_shoulder: MenuShoulder::default(),
+            gamepad_menu_hold: false,
             pointer: None,
             focus_input: false,
             hover_at: (-1.0, -1.0),
@@ -210,7 +214,7 @@ impl Stage {
     }
 
     fn navigate(&mut self, action: Action) {
-        if self.vm.eng.text_req.is_some() {
+        if self.vm.eng.text_req.is_some() && action != Action::HoldEnd {
             if action == Action::Back {
                 self.vm.eng.text_req = None;
                 self.text_buf.clear();
@@ -411,9 +415,23 @@ impl EventHandler for Stage {
         }
         // console mode (Settings): menu column hidden, page in its width, L / R / hold L for menus
         let console = clr::console_mode::sync(self.vm);
+        if !console {
+            self.keyboard_shoulder.release();
+            self.gamepad_menu_hold = false;
+        } else if self.keyboard_shoulder.poll(Instant::now(), false).is_some() && !self.gamepad_menu_hold {
+            self.navigate(Action::HoldStart);
+        }
         // gamepad: always drives the focus (the keyboard keeps going to the game)
         #[cfg(windows)]
         for action in self.pad.as_mut().map(|pad| pad.poll(self.vm.dropdown_is_open(), console)).unwrap_or_default() {
+            match action {
+                Action::HoldStart => self.gamepad_menu_hold = true,
+                Action::HoldEnd => self.gamepad_menu_hold = false,
+                _ => {}
+            }
+            if self.keyboard_shoulder.holding && matches!(action, Action::HoldStart | Action::HoldEnd) {
+                continue;
+            }
             self.navigate(action);
         }
         self.update_hover();
@@ -620,7 +638,11 @@ impl EventHandler for Stage {
             return;
         }
         let at_desktop_start = self.vm.at_desktop_start();
-        if self.nav_mode || at_desktop_start {
+        if k == KeyCode::L && self.vm.eng.console.is_some() && !at_desktop_start {
+            self.keyboard_shoulder.press(Instant::now());
+            return;
+        }
+        if self.nav_mode || at_desktop_start || self.keyboard_shoulder.is_down() {
             let a = match k {
                 KeyCode::Up | KeyCode::W => Some(Action::Up),
                 KeyCode::Down | KeyCode::S => Some(Action::Down),
@@ -633,6 +655,10 @@ impl EventHandler for Stage {
                 _ => None,
             };
             if let Some(a) = a {
+                let direction = matches!(a, Action::Up | Action::Down | Action::Left | Action::Right);
+                if direction && self.keyboard_shoulder.poll(Instant::now(), true).is_some() && !self.gamepad_menu_hold {
+                    self.navigate(Action::HoldStart);
+                }
                 self.navigate(a);
             }
             return;
@@ -644,7 +670,19 @@ impl EventHandler for Stage {
         if k == KeyCode::F2 {
             self.hold = false;
         }
+        if k == KeyCode::L && self.keyboard_shoulder.is_down() {
+            if let Some(action) = self.keyboard_shoulder.release().filter(|_| !self.gamepad_menu_hold) {
+                self.navigate(action);
+            }
+            return;
+        }
         self.game_keys(k, false, false);
+    }
+
+    fn window_minimized_event(&mut self) {
+        if self.keyboard_shoulder.release() == Some(Action::HoldEnd) && !self.gamepad_menu_hold {
+            self.navigate(Action::Back);
+        }
     }
 }
 

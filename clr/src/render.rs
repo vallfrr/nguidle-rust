@@ -140,6 +140,7 @@ pub struct Renderer {
     tooltip: Option<Value>,
     /// Authored scrollbar components and sprites. Their current styling is read when drawing.
     console_bar: Option<ConsoleBarArt>,
+    console_bar_theme: Option<i32>,
     drawing_overlay: bool,
     subframe_seconds: f64,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
@@ -205,6 +206,7 @@ impl Renderer {
             tints: vec![],
             tooltip: None,
             console_bar: None,
+            console_bar_theme: None,
             drawing_overlay: false,
             subframe_seconds: 0.0,
             regions: vec![],
@@ -331,6 +333,13 @@ impl Renderer {
         self.draws = 0;
         self.visits = 0;
         self.hits = 0;
+        let theme = (!vm.eng.desktop_layout.regions.is_empty()).then(|| {
+            self.console_bar.get_or_insert_with(|| ConsoleBarArt::from_game(vm)).theme(vm)
+        });
+        if self.console_bar_theme != theme {
+            self.console_bar_theme = theme;
+            self.gen = next_gen();
+        }
         if self.atlas.y > ATLAS_SIZE * 3 / 4 {
             // atlas almost full: start over
             self.atlas.map.clear();
@@ -386,9 +395,6 @@ impl Renderer {
             }
             self.drawing_overlay = false;
         }
-        if vm.eng.console.is_some() {
-            self.draw_console_bars(vm, full);
-        }
         if !vm.eng.desktop_layout.console_modal {
             self.draw_dropdown(vm);
         }
@@ -424,24 +430,17 @@ impl Renderer {
         }
     }
 
-    /// Console mode: scrollbars of the parts that scroll, drawn with the game's own scrollbar images (Augments menu).
-    fn draw_console_bars(&mut self, vm: &mut Vm, clip: Clip) {
-        if vm.eng.desktop_layout.regions.is_empty() {
-            return;
-        }
-        let style = self.console_bar.get_or_insert_with(|| ConsoleBarArt::from_game(vm));
-        let Some((track, handle)) = style.snapshot(vm) else { return };
-        for i in 0..vm.eng.desktop_layout.regions.len() {
-            let region = &vm.eng.desktop_layout.regions[i];
-            let [x0, y0, x1, y1] = region.track;
-            let pan = vm.eng.desktop_layout.pans.get(&region.key).copied().unwrap_or(0.0);
-            let (hy, hh) = region.grip(pan);
-            let vh = self.vh;
-            let at = |top: f32, h: f32| Xf { origin: [x0, vh - top], scale: [1.0, 1.0], rot: 0.0, w: x1 - x0, h, pivot: [0.0, 1.0] };
-            let h = y1 - y0;
-            self.draw_image(vm, &at(y0, h), &track, clip, false);
-            self.draw_image(vm, &at(hy, hh), &handle, clip, false);
-        }
+    /// Paint the track as part of its own scroll block, within that block's inherited clip and draw order.
+    fn draw_console_bar(&mut self, vm: &mut Vm, owner: &Value, clip: Clip) {
+        let Some(region) = vm.eng.desktop_layout.scrollbar_for(owner) else { return };
+        let Some((track, handle)) = self.console_bar.as_ref().and_then(|style| style.snapshot(self.console_bar_theme?)) else { return };
+        let [x0, y0, x1, y1] = region.track;
+        let pan = vm.eng.desktop_layout.pans.get(&region.key).copied().unwrap_or(0.0);
+        let (hy, hh) = region.grip(pan);
+        let vh = self.vh;
+        let at = |top: f32, h: f32| Xf { origin: [x0, vh - top], scale: [1.0, 1.0], rot: 0.0, w: x1 - x0, h, pivot: [0.0, 1.0] };
+        self.draw_image(vm, &at(y0, y1 - y0), &track, clip, false);
+        self.draw_image(vm, &at(hy, hh), &handle, clip, false);
     }
 
     /// Emission + software rasterization into `fb`.
@@ -699,6 +698,9 @@ impl Renderer {
                 })
             } else { child_clip };
             self.draw_node(vm, &ch, cx, clip, depth + 1);
+        }
+        if self.console_bar_theme.is_some() && !self.drawing_overlay {
+            self.draw_console_bar(vm, tr, clip);
         }
         if pushed {
             self.tints.pop();
@@ -1276,9 +1278,12 @@ impl ConsoleBarArt {
         Self { track: image(&track), handle: image(&handle), sprites, theme_controller }
     }
 
-    fn snapshot(&self, vm: &Vm) -> Option<(ImageSnap, ImageSnap)> {
-        let theme = crate::vm::field_ref(vm, "UIThemeController", "curTheme")
-            .and_then(|f| crate::vm::read_field(&self.theme_controller, f)).map_or(0, |id| id.as_i32());
+    fn theme(&self, vm: &Vm) -> i32 {
+        crate::vm::field_ref(vm, "UIThemeController", "curTheme")
+            .and_then(|f| crate::vm::read_field(&self.theme_controller, f)).map_or(0, |id| id.as_i32())
+    }
+
+    fn snapshot(&self, theme: i32) -> Option<(ImageSnap, ImageSnap)> {
         let sprite = &self.sprites[match theme { 1 => 1, 2 | 3 => 2, _ => 0 }];
         let image = |comp: &Value| with_comp(comp, |c| {
             let CK::Image(i) = &c.k else { return None };

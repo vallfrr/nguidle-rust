@@ -2,12 +2,9 @@
 //! scrolls, south confirms, east cancels and the bumpers change menus.
 //! Console mode (`docs/CONSOLE-MODE.md`): tapping L / R changes menu, holding L shows the menu list (released: open the
 //! chosen menu), west is the game's right click.
-use crate::actions::Action;
+use crate::actions::{Action, MenuShoulder};
 use gilrs::{Axis, Button, EventType, Gilrs};
 use std::time::{Duration, Instant};
-
-/// How long L must stay down before the menu list appears (a shorter press is a tap: previous menu).
-const HOLD: Duration = Duration::from_millis(250);
 
 pub struct Pad {
     g: Gilrs,
@@ -16,43 +13,36 @@ pub struct Pad {
     dropdown_scroll: Option<Action>,
     next_dropdown_scroll: Instant,
     last_poll: Instant,
-    l_down: Option<Instant>,
-    l_holding: bool,
+    menu_shoulder: MenuShoulder,
 }
 
 impl Pad {
     pub fn new() -> Option<Pad> {
         Gilrs::new().ok().map(|g| Pad {
             g, held: None, next_repeat: Instant::now(), dropdown_scroll: None,
-            next_dropdown_scroll: Instant::now(), last_poll: Instant::now(), l_down: None, l_holding: false,
+            next_dropdown_scroll: Instant::now(), last_poll: Instant::now(), menu_shoulder: MenuShoulder::default(),
         })
     }
 
     pub fn poll(&mut self, dropdown_open: bool, console: bool) -> Vec<Action> {
         let mut out = vec![];
         let now = Instant::now();
+        if !console {
+            self.menu_shoulder.release();
+        }
         while let Some(ev) = self.g.next_event() {
             match ev.event {
                 EventType::ButtonPressed(b, _) => match b {
                     Button::South => out.push(Action::Activate),
                     Button::East => out.push(Action::Back),
                     Button::West if console => out.push(Action::Secondary),
-                    Button::LeftTrigger if console => {
-                        self.l_down = Some(now);
-                        self.l_holding = false;
-                    }
+                    Button::LeftTrigger if console => self.menu_shoulder.press(now),
                     Button::LeftTrigger => out.push(Action::Prev),
-                    Button::RightTrigger if !self.l_holding => out.push(Action::Next),
+                    Button::RightTrigger if !self.menu_shoulder.holding => out.push(Action::Next),
                     _ => {}
                 },
                 EventType::ButtonReleased(Button::LeftTrigger, _) if console => {
-                    if self.l_holding {
-                        out.push(Action::HoldEnd);
-                    } else if self.l_down.is_some() {
-                        out.push(Action::Prev);
-                    }
-                    self.l_down = None;
-                    self.l_holding = false;
+                    out.extend(self.menu_shoulder.release());
                 }
                 _ => {}
             }
@@ -81,12 +71,7 @@ impl Pad {
             }
         }
         // L held long enough, or a direction pressed while it is down: the menu list
-        if let Some(t) = self.l_down {
-            if !self.l_holding && (now - t >= HOLD || dir.is_some()) {
-                self.l_holding = true;
-                out.push(Action::HoldStart);
-            }
-        }
+        out.extend(self.menu_shoulder.poll(now, dir.is_some()));
         let dt = (now - self.last_poll).as_secs_f32().min(0.05);
         self.last_poll = now;
         match dir {
