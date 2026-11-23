@@ -1,0 +1,11 @@
+# NGU Idle Rust
+
+- [README](README.md) — project and player setup.
+- [Contributing](CONTRIBUTING.md) — developer workspace and checks.
+- [Vision](docs/VISION.md) — objectives and decisions.
+- [Roadmap](docs/ROADMAP.md) — remaining work.
+- [Status](docs/STATUS.md) — current state and evidence.
+- [Testing](docs/TESTING.md) — automated and local checks.
+- [Fidelity](docs/FIDELITY.md) — scope of comparison with the original.
+- [Porting](docs/PORTING.md) — platform integration.
+- [Architecture](docs/ARCHITECTURE.md) — components and data flow.
