@@ -27,8 +27,9 @@ Install the Rust MSVC toolchain, the Visual Studio C++ build tools and Python
 
 ```powershell
 python -B tools/setup
-python -B tools/doctor --game-dir 'D:\Steam\steamapps\common\NGU IDLE\NGUIdle_Data'
-.\tools\prepare-pc.ps1 -GameData 'D:\Steam\steamapps\common\NGU IDLE\NGUIdle_Data'
+$gameData = Read-Host 'Path to NGUIdle_Data'
+python -B tools/doctor --game-dir $gameData
+.\tools\prepare-pc.ps1 -GameData $gameData
 ```
 
 The preparer verifies the supported Windows 1.260 build against a SHA-256

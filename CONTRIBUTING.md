@@ -45,9 +45,9 @@ Use Rustup, Python 3.11 or later with venv support (or `uv`), and a native
 compiler. Run `python3 -B tools/setup` and `python3 -B tools/doctor` from the
 engine checkout. The setup can be rerun.
 
-Install [just](https://github.com/casey/just) and run `just check` in the
-engine checkout. It checks the workspace and the game-data verifier without
-requiring any game files. Use the [web](https://github.com/vallfrr/nguidle-web)
+Run `just check` in the engine checkout. The [test guide](docs/TESTING.md)
+lists the tools and explains the split between repository checks and local
+game verification. Use the [web](https://github.com/vallfrr/nguidle-web)
 and [Vita](https://github.com/vallfrr/nguidle-vita) repositories for their
 build, setup and troubleshooting commands.
 

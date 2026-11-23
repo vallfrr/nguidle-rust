@@ -107,7 +107,7 @@ fn titan_checks_preserve_state_with_autokill_on_and_off() {
     let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
     let save = std::env::var("NGU_TEST_SAVE").unwrap();
     for enabled in ["false", "true"] {
-        let run = |guarded| {
+        let run = |guarded: bool| {
             let mut vm = late_game(&dll, &assets, &save);
             if !guarded {
                 for method in &mut Rc::get_mut(&mut vm.prog).unwrap().methods {
@@ -169,7 +169,7 @@ fn achievement_scan_preserves_thresholds_and_bonus_points() {
     let dll = std::env::var("NGU_TEST_DLL").unwrap();
     let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
     let save = std::env::var("NGU_TEST_SAVE").unwrap();
-    let run = |guarded| {
+    let run = |guarded: bool| {
         let mut vm = late_game(&dll, &assets, &save);
         let controller = vm.eng.user_comps.iter().find_map(|component| {
             let Value::Obj(component) = component else { return None };
@@ -212,7 +212,7 @@ fn boss_thresholds_and_loadout_shortcuts_match_the_interpreter() {
     let dll = std::env::var("NGU_TEST_DLL").unwrap();
     let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
     let save = std::env::var("NGU_TEST_SAVE").unwrap();
-    let run = |guarded| {
+    let run = |guarded: bool| {
         let mut vm = late_game(&dll, &assets, &save);
         let component = |name: &str| vm.eng.user_comps.iter().find_map(|value| {
             value.as_obj().filter(|obj| vm.types[obj.ty as usize].name == name).cloned()

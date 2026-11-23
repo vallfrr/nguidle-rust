@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Add local and GitHub check recipes for the workspace and synthetic save fixtures.
+
 ## [0.1.0]
 
 - Establish the first versioned engine source for the desktop, web and Vita checkouts.
