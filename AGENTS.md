@@ -18,7 +18,7 @@ Three sibling repositories (GPL-3.0): **`nguidle-rust`** (this one: engine + con
 - `clr/`: engine (scene, UI, layout, software rendering, focus, dev mode) **and** CIL interpreter that serves as the **oracle**: we compare the generated Rust state with the interpreter's (zero difference tolerated).
 - `tools/nguprep.py` extracts the game data to a local prepared directory. `tools/inventory.py` produces the screen inventory locally.
 - Docs: `docs/CONSOLE-MODE.md` (console mode: status, how it works, limits), `docs/NEXT.md` (to do), `docs/STATUS.md` (proof), `docs/VISION.md`, `docs/DEV.md` (dev mode), `docs/ARCHITECTURE.md`, `docs/AUDIT-ILGEN.md` (generator conformance), `docs/COMPARISON.md` (vs the original), `docs/CONTROLLER-PROPOSAL.md`, `docs/API-SURFACE.md`.
-- Skills (`.claude/skills/README.md`): `ngu-verify` (follow after every change), `ngu-devmode`, `rust-patterns`, `rust-testing`, ponytail (minimal code); Vita skills in `nguidle-vita/.claude/skills/`; web testing in `nguidle-web/.claude/skills/`.
+- Skills (`.claude/skills/README.md`): `ngu-verify`, `ngu-devmode`, `rust-patterns`, `rust-testing` and the shared Ponytail guides. Each platform keeps its own platform-specific skills.
 
 ## Absolute rules
 - **Language**: everything in the repositories is English (code, comments, program messages, scripts, docs, READMEs, commit messages). Only the chat with the maintainer is French.

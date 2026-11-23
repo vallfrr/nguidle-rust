@@ -24,8 +24,3 @@ class Workspace:
         windows = os.name == "nt"
         self.prep = self.home / "venvs" / ("prep-win" if windows else "prep-linux")
         self.python = self.prep / ("Scripts/python.exe" if windows else "bin/python")
-        self.vita = Path(os.getenv("NGU_VITA_REPO") or self.home / "repos" / "nguidle-vita").resolve()
-        if not self.vita.is_dir():
-            self.vita = REPO / "nguidle-vita"
-        local_sdk = self.home / "toolchains" / "vitasdk"
-        self.sdk = Path(os.getenv("VITASDK") or (local_sdk if local_sdk.is_dir() else Path.home() / "vitasdk")).resolve()

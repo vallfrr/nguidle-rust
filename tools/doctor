@@ -12,13 +12,13 @@ import tomllib
 from workspace_env import REPO, Workspace
 
 
-def command(*args, timeout=20, first_line=False, env=None):
+def command(*args, timeout=20):
     try:
-        run = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+        run = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return False, ""
     output = run.stdout.strip().splitlines()
-    return run.returncode == 0, output[0 if first_line else -1] if output else ""
+    return run.returncode == 0, output[-1] if output else ""
 
 
 def memory_bytes():
@@ -38,8 +38,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home")
     parser.add_argument("--game-dir")
-    parser.add_argument("--vita", action="store_true")
-    parser.add_argument("--probe-console", action="store_true", help="Ask the paired Vita which app is running.")
     args = parser.parse_args()
     workspace = Workspace(args.home, args.game_dir)
     failures = 0
@@ -73,22 +71,6 @@ def main():
     ram = memory_bytes() / 1024**3
     report(free >= 15, "Build drive", f"{free:.1f} GiB free")
     report(ram >= 12, "Memory", f"{ram:.1f} GiB total")
-    if args.vita or args.probe_console:
-        toolchain = rust(workspace.vita / "rust-toolchain.toml")
-        if toolchain:
-            ok, source = command("rustup", "run", toolchain, "rustc", "--print", "sysroot")
-            report(ok and (Path(source) / "lib/rustlib/src/rust/library").is_dir(),
-                "Vita rust-src", "Required to cross-compile")
-        sdk_ok, version = command(str(workspace.sdk / "bin/arm-vita-eabi-gcc"), "--version", first_line=True)
-        report(sdk_ok, "VitaSDK", version or "Set VITASDK")
-        lib = workspace.build / "vita" / "vitagl" / "libvitaGL.a"
-        receipt = lib.with_suffix(".receipt")
-        env = dict(os.environ, NGUIDLE_HOME=str(workspace.home), NGU_BUILD=str(workspace.build), VITASDK=str(workspace.sdk))
-        ok, receipt_result = command("bash", str(workspace.vita / "setup-tools.sh"), "--verify", timeout=50, env=env)
-        report(ok and lib.is_file() and receipt.is_file(), "Patched vitaGL and Vita agent", receipt_result or "Run tools/setup --vita in WSL")
-        if args.probe_console:
-            ok, _ = command("bash", str(workspace.home / "vita-agent/agent.sh"), "app", "running")
-            report(ok, "Vita connection", "Read-only query" if ok else "Pairing or device unavailable")
     print("DOCTOR: OK" if not failures else f"DOCTOR: {failures} issue(s)")
     return bool(failures)
 

@@ -26,12 +26,8 @@ def install_rust(manifest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home")
-    parser.add_argument("--game-dir")
-    parser.add_argument("--vita", action="store_true", help="Also prepare the Vita tools in WSL/Linux.")
     args = parser.parse_args()
-    workspace = Workspace(args.home, args.game_dir)
-    if args.vita and os.name == "nt":
-        parser.error("Run the Vita setup from WSL/Linux.")
+    workspace = Workspace(args.home)
     for relative in ("notes", "prepared", "saves", "traces", "captures", "session", "decomp"):
         (workspace.work / relative).mkdir(parents=True, exist_ok=True)
     for relative in ("wsl", "win", "wasm", "vita"):
@@ -46,12 +42,6 @@ def main():
         run(uv, "pip", "install", "--python", str(workspace.python), "-r", requirements)
     else:
         run(str(workspace.python), "-m", "pip", "install", "--disable-pip-version-check", "-r", requirements)
-    if args.vita:
-        if not (workspace.sdk / "bin/arm-vita-eabi-gcc").is_file():
-            parser.error("Install VitaSDK or set VITASDK to an existing SDK, then run setup again.")
-        install_rust(workspace.vita / "rust-toolchain.toml")
-        env = dict(os.environ, NGUIDLE_HOME=str(workspace.home), NGU_BUILD=str(workspace.build), VITASDK=str(workspace.sdk))
-        run("bash", str(workspace.vita / "setup-tools.sh"), env=env)
     print(f"Setup complete for {workspace.home}")
 
 

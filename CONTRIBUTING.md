@@ -43,21 +43,13 @@ Build the generated game under the existing memory cap.
 
 Use Rustup, Python 3.11 or later with venv support (or `uv`), and a native
 compiler. Run `python3 -B tools/setup` and `python3 -B tools/doctor` from the
-engine checkout. For Vita, install VitaSDK, CMake and Make, set `VITASDK` if
-needed, then run:
+engine checkout. The setup can be rerun.
 
-```sh
-python3 -B tools/setup --vita
-python3 -B tools/doctor --vita
-cd ../nguidle-vita
-bash build.sh
-```
-
-`setup` can be rerun. The Vita setup prepares the pinned Rust nightly,
-builds the pinned and patched vitaGL library, and installs a separate Vita
-agent. A paired, awake console can be checked with
-`python3 -B tools/doctor --vita --probe-console` in the engine checkout.
-See the web checkout's README for the browser build.
+Install [just](https://github.com/casey/just) and run `just check` in the
+engine checkout. It checks the workspace and the game-data verifier without
+requiring any game files. Use the [web](https://github.com/vallfrr/nguidle-web)
+and [Vita](https://github.com/vallfrr/nguidle-vita) repositories for their
+build, setup and troubleshooting commands.
 
 ## Local changes and verification
 

@@ -5,10 +5,7 @@ target/
 *.vpk
 *.assets
 *.resS
-*.vpk
 .venv/
-clr/target/
-out/
 crates/ngu-gen/src/gen.rs
 crates/ngu-gen/src/ext_stubs.rs
 crates/ngu-gen/src/entry.rs
@@ -20,8 +17,5 @@ venvs/
 toolchains/
 vita-agent/
 tools/__pycache__/
-# sibling repositories developed in this folder
-nguidle-vita/
-nguidle-web/
 tools/apiscan/obj/
 tools/apiscan/bin/
