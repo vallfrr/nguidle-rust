@@ -26,7 +26,8 @@ Install the Rust MSVC toolchain, the Visual Studio C++ build tools and Python
 3.11 or later. Run these commands in PowerShell from the repository root.
 
 ```powershell
-python -m pip install -r tools/requirements-prep.txt
+python -B tools/setup
+python -B tools/doctor --game-dir 'D:\Steam\steamapps\common\NGU IDLE\NGUIdle_Data'
 .\tools\prepare-pc.ps1 -GameData 'D:\Steam\steamapps\common\NGU IDLE\NGUIdle_Data'
 ```
 
@@ -35,7 +36,9 @@ manifest before unpacking assets or building. It prints the command that
 opens the game when the build succeeds. The first build runs the converter
 and can require more than 10 GB of RAM. Use `-ExtractOnly` to validate and
 extract data without building. The default data and build folders are
-`out/pc` and `build/pc`. Local saves live under `out/pc/save`.
+`work/prepared/pc` and `build/win` in the workspace. Local saves live under
+`work/prepared/pc/save`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+workspace layout and alternate locations.
 
 The Windows home screen offers **Load Game** for numbered saves,
 **Load Autosave** to resume directly and **Create New Game** to pick an empty
@@ -48,7 +51,7 @@ Open **Info 'n Stuff → Achievements** to see the two original BP tabs and
 the **Steam Achievements** tab. The Steam tab has two pages of milestones
 with details and unlock status. The preparer caches their icons from Steam
 Community in the local data directory. Refresh a prepared profile with
-`python tools/fetch-achievement-icons.py out/pc`. The game reads the cache
+`python tools/fetch-achievement-icons.py <prepared-data-directory>`. The game reads the cache
 offline and shows achievement names when an icon is unavailable.
 
 ## Web host

@@ -15,6 +15,11 @@ crates/ngu-gen/src/entry.rs
 crates/ngu-gen/src/coverage.txt
 # local notes, not published (history, console connection, game-derived data)
 local/
+work/
+venvs/
+toolchains/
+vita-agent/
+tools/__pycache__/
 # sibling repositories developed in this folder
 nguidle-vita/
 nguidle-web/

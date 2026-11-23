@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Prepare an NGU Idle development workspace without modifying game files."""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tomllib
+
+from workspace_env import REPO, Workspace
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def install_rust(manifest):
+    with manifest.open("rb") as file:
+        toolchain = tomllib.load(file)["toolchain"]
+    args = ["rustup", "toolchain", "install", toolchain["channel"], "--profile", toolchain["profile"]]
+    for component in toolchain.get("components", []):
+        args.extend(("--component", component))
+    run(*args)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--home")
+    parser.add_argument("--game-dir")
+    parser.add_argument("--vita", action="store_true", help="Also prepare the Vita tools in WSL/Linux.")
+    args = parser.parse_args()
+    workspace = Workspace(args.home, args.game_dir)
+    if args.vita and os.name == "nt":
+        parser.error("Run the Vita setup from WSL/Linux.")
+    for relative in ("notes", "prepared", "saves", "traces", "captures", "session", "decomp"):
+        (workspace.work / relative).mkdir(parents=True, exist_ok=True)
+    for relative in ("wsl", "win", "wasm", "vita"):
+        (workspace.build / relative).mkdir(parents=True, exist_ok=True)
+    install_rust(REPO / "rust-toolchain.toml")
+    uv = shutil.which("uv") if os.name != "nt" else None
+    requirements = str(REPO / "tools/requirements-prep.txt")
+    if not workspace.python.is_file():
+        flags = ["--without-pip"] if uv else []
+        run(sys.executable, "-m", "venv", *flags, str(workspace.prep))
+    if uv:
+        run(uv, "pip", "install", "--python", str(workspace.python), "-r", requirements)
+    else:
+        run(str(workspace.python), "-m", "pip", "install", "--disable-pip-version-check", "-r", requirements)
+    if args.vita:
+        if not (workspace.sdk / "bin/arm-vita-eabi-gcc").is_file():
+            parser.error("Install VitaSDK or set VITASDK to an existing SDK, then run setup again.")
+        install_rust(workspace.vita / "rust-toolchain.toml")
+        env = dict(os.environ, NGUIDLE_HOME=str(workspace.home), NGU_BUILD=str(workspace.build), VITASDK=str(workspace.sdk))
+        run("bash", str(workspace.vita / "setup-tools.sh"), env=env)
+    print(f"Setup complete for {workspace.home}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise SystemExit(f"Setup failed: {error}")

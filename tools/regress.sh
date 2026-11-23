@@ -1,6 +1,10 @@
 #!/bin/bash
+. "$(dirname -- "${BASH_SOURCE[0]}")/environment.sh"
 # regress.sh : non-regression battery (oracle vs native). Prerequisite: `tools/iter.sh 1` (generation + build).
-cd /mnt/j/NGUvita/nguvita
+cd "$NGU_RUST_REPO"
+NGU_STATE_DIR=$(ngu_new_state_run regress) || exit 1
+NGU_PREPARED=$(ngu_fixture_view) || exit 1
+export NGU_PREPARED NGU_STATE_DIR
 ok=1
 chk() { if echo "$2" | grep -q "$3"; then echo "OK    $1"; else echo "FAIL $1 : $2"; ok=0; fi; }
 chk "NumberOutput (84 cases)" "$(bash tools/ildiff-number.sh 2>&1 | tail -1)" "diffs=0"
@@ -21,10 +25,10 @@ chk "complete save identical" "$(bash tools/savediff.sh 30 2>&1 | tail -1)" "IDE
 unset NGU_STEPS
 chk "load + re-save identical" "$(bash tools/loaddiff.sh 3 2>&1 | grep -E 'IDENTICAL|DIFFERENT' | head -1)" "IDENTICAL"
 # a real PC save (local, never versioned): oracle and native must agree after loading it
-REAL=local/save-backup/NGUSaveSteam.txt
+REAL="$NGU_WORK/saves/imported-backup/NGUSaveSteam.txt"
 if [ -f "$REAL" ]; then
-  export NGU_STEPS="l,$PWD/$REAL;w,100"
+  export NGU_STEPS="l,$REAL;w,100"
   chk "state after loading a real PC save" "$(bash tools/statediff.sh 40 5 2>&1 | tail -1)" "differing lines: 0"
   unset NGU_STEPS
 fi
-[ $ok = 1 ] && echo "REGRESSION: ALL OK" || echo "REGRESSION: FAILURES"
+[ $ok = 1 ] && echo "REGRESSION: ALL OK" || { echo "REGRESSION: FAILURES"; exit 1; }
