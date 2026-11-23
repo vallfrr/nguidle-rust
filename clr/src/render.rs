@@ -138,8 +138,8 @@ pub struct Renderer {
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
     tooltip: Option<Value>,
-    /// console mode scrollbars: the game's own scrollbar images (track, handle), taken from the Augments menu
-    console_bar: Option<Option<(ImageSnap, ImageSnap)>>,
+    /// Authored scrollbar components and sprites. Their current styling is read when drawing.
+    console_bar: Option<ConsoleBarArt>,
     drawing_overlay: bool,
     subframe_seconds: f64,
     /// screen profile regions (`crate::profile`); empty = the whole game space with the `emit` transform
@@ -426,33 +426,22 @@ impl Renderer {
 
     /// Console mode: scrollbars of the parts that scroll, drawn with the game's own scrollbar images (Augments menu).
     fn draw_console_bars(&mut self, vm: &mut Vm, clip: Clip) {
-        if self.console_bar.is_none() {
-            let image = |go: &Value| with_go(go, |g| g.comps.clone()).unwrap_or_default().iter().find_map(|c| {
-                with_comp(c, |k| match &k.k { CK::Image(i) => Some(ImageSnap::from(i)), _ => None }).flatten()
-            });
-            let bar = vm.eng.gos.iter().find(|go| {
-                with_go(go, |g| g.name == "Scrollbar").unwrap_or(false) && {
-                    let parent = with_go(go, |g| with_tr(&g.transform, |t| t.parent.clone())).flatten().unwrap_or_default();
-                    !parent.is_null() && with_go(&go_of(&parent), |g| g.name == "Augments Menu").unwrap_or(false)
-                }
-            }).cloned();
-            let handle = bar.as_ref().and_then(|b| {
-                let area = with_tr(&with_go(b, |g| g.transform.clone()).unwrap_or_default(), |t| t.children.clone()).unwrap_or_default();
-                area.iter().flat_map(|a| with_tr(a, |t| t.children.clone()).unwrap_or_default()).next().map(|h| go_of(&h))
-            });
-            self.console_bar = Some(bar.as_ref().and_then(image).zip(handle.as_ref().and_then(image)));
+        if vm.eng.desktop_layout.regions.is_empty() {
+            return;
         }
-        let Some(Some((track, handle))) = self.console_bar.take() else { return };
-        for ([x0, y0, x1, y1], start, len) in vm.eng.desktop_layout.bars.clone() {
+        let style = self.console_bar.get_or_insert_with(|| ConsoleBarArt::from_game(vm));
+        let Some((track, handle)) = style.snapshot(vm) else { return };
+        for i in 0..vm.eng.desktop_layout.regions.len() {
+            let region = &vm.eng.desktop_layout.regions[i];
+            let [x0, y0, x1, y1] = region.track;
+            let pan = vm.eng.desktop_layout.pans.get(&region.key).copied().unwrap_or(0.0);
+            let (hy, hh) = region.grip(pan);
             let vh = self.vh;
             let at = |top: f32, h: f32| Xf { origin: [x0, vh - top], scale: [1.0, 1.0], rot: 0.0, w: x1 - x0, h, pivot: [0.0, 1.0] };
             let h = y1 - y0;
-            let snap = |i: &ImageSnap| ImageSnap { sprite: i.sprite.clone(), ..*i };
-            self.draw_image(vm, &at(y0, h), &snap(&track), clip, false);
-            let (hy, hh) = (y0 + h * start.clamp(0.0, 1.0), (h * len.clamp(0.05, 1.0)).max(x1 - x0));
-            self.draw_image(vm, &at(hy.min(y1 - hh), hh), &snap(&handle), clip, false);
+            self.draw_image(vm, &at(y0, h), &track, clip, false);
+            self.draw_image(vm, &at(hy, hh), &handle, clip, false);
         }
-        self.console_bar = Some(Some((track, handle)));
     }
 
     /// Emission + software rasterization into `fb`.
@@ -575,6 +564,9 @@ impl Renderer {
         if crate::ui::menu_is_parked(vm, &go, &x) {
             return;
         }
+        if vm.eng.desktop_layout.console && crate::desktop_layout::scroll_bar(&go) {
+            return;
+        }
         // containers above bound regions: their subtree mixes transforms that change without the game noticing
         let cacheable = self.regions.is_empty() || depth >= 2;
         let key = [x.origin[0], x.origin[1], x.scale[0], x.scale[1], x.rot, x.w, x.h, x.pivot[0], x.pivot[1], self.scale, self.ox, self.oy, vm.eng.desktop_layout.width(), vm.eng.desktop_layout.pan_stamp()];
@@ -662,7 +654,7 @@ impl Renderer {
                     self.draw_image(vm, &x, &i, graphic_clip, focused)
                 }
                 D::Txt(mut t) => {
-                    if vm.eng.desktop_layout.fit_story_text(tr) {
+                    if vm.eng.desktop_layout.fits_text(tr) {
                         t.best_fit = true;
                         t.min_size = (t.size * 3 / 4).max(1);
                         t.max_size = t.size;
@@ -684,14 +676,6 @@ impl Renderer {
                 D::None => {}
             }
         }
-        if let Some([x0, y0, x1, y1]) = vm.eng.desktop_layout.clip_of(tr) {
-            let a = self.to_dev([x0, self.vh - y0]);
-            let b = self.to_dev([x1, self.vh - y1]);
-            child_clip = Clip {
-                x0: child_clip.x0.max(a[0].floor() as i32), y0: child_clip.y0.max(a[1].floor() as i32),
-                x1: child_clip.x1.min(b[0].ceil() as i32), y1: child_clip.y1.min(b[1].ceil() as i32),
-            };
-        }
         let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
         for ch in children {
             if self.tooltip.as_ref().is_some_and(|tooltip| same(tooltip, &ch)) || crate::motion::is_follower(vm, &ch) {
@@ -706,7 +690,15 @@ impl Renderer {
                 Some(v) => v,
                 None => continue,
             };
-            self.draw_node(vm, &ch, cx, child_clip, depth + 1);
+            let clip = if let Some([x0, y0, x1, y1]) = vm.eng.desktop_layout.clip_scroll_child(tr, &ch) {
+                let a = self.to_dev([x0, self.vh - y0]);
+                let b = self.to_dev([x1, self.vh - y1]);
+                child_clip.intersect(Clip {
+                    x0: a[0].floor() as i32, y0: a[1].floor() as i32,
+                    x1: b[0].ceil() as i32, y1: b[1].ceil() as i32,
+                })
+            } else { child_clip };
+            self.draw_node(vm, &ch, cx, clip, depth + 1);
         }
         if pushed {
             self.tints.pop();
@@ -1252,6 +1244,52 @@ fn text_key(t: &TextSnap, x: &Xf) -> u64 {
         (Rc::as_ptr(o) as usize).hash(&mut h);
     }
     h.finish()
+}
+
+struct ConsoleBarArt {
+    track: Value,
+    handle: Value,
+    sprites: [Value; 3],
+    theme_controller: Value,
+}
+
+impl ConsoleBarArt {
+    fn from_game(vm: &Vm) -> Self {
+        use crate::save_slots::{child, named_go};
+
+        let menu = named_go(vm, "Augments Menu").unwrap_or_default();
+        let track = child(&menu, "Scrollbar");
+        let handle = child(&child(&track, "Sliding Area"), "Handle");
+        let image = |go: &Value| {
+            with_go(go, |g| g.comps.iter().find(|c| {
+                with_comp(c, |c| matches!(c.k, CK::Image(_))).unwrap_or(false)
+            }).cloned()).flatten().unwrap_or_default()
+        };
+        let sprites = ["ScrollBar", "ScrollBarDark", "ScrollBarGold"].map(|name| {
+            vm.eng.keys.values().find(|asset| {
+                with_comp(asset, |c| matches!(&c.k, CK::Sprite(s) if s.name == name)).unwrap_or(false)
+            }).cloned().unwrap_or_default()
+        });
+        let theme_controller = crate::vm::field_ref(vm, "UIThemeController", "curTheme").and_then(|f| {
+            vm.eng.user_comps.iter().find(|c| matches!(c, Value::Obj(obj) if obj.ty == f.0)).cloned()
+        }).unwrap_or_default();
+        Self { track: image(&track), handle: image(&handle), sprites, theme_controller }
+    }
+
+    fn snapshot(&self, vm: &Vm) -> Option<(ImageSnap, ImageSnap)> {
+        let theme = crate::vm::field_ref(vm, "UIThemeController", "curTheme")
+            .and_then(|f| crate::vm::read_field(&self.theme_controller, f)).map_or(0, |id| id.as_i32());
+        let sprite = &self.sprites[match theme { 1 => 1, 2 | 3 => 2, _ => 0 }];
+        let image = |comp: &Value| with_comp(comp, |c| {
+            let CK::Image(i) = &c.k else { return None };
+            let mut snap = ImageSnap::from(i);
+            if !sprite.is_null() {
+                snap.sprite = sprite.clone();
+            }
+            Some(snap)
+        }).flatten();
+        image(&self.track).zip(image(&self.handle))
+    }
 }
 
 struct ImageSnap {

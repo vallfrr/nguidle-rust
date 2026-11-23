@@ -13,43 +13,40 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   (`nguConsoleMode`, `nguConsoleScale`).
 - **Menus without the menu column**: tap L / R for the previous / next menu; hold L and the menu list replaces the player
   column (bigger buttons, it scrolls with the cursor); release L to open the menu under the cursor.
-- **Scale**: 100 % is the PC layout with the menu column removed (no zoom, no added scrollbar). 110 % and 120 % draw everything
+- **Scale**: 100 % is the PC layout with the menu column removed and existing scroll views. 110 % and 120 % draw everything
   bigger; what no longer fits is handled in this order, and only where needed:
   1. empty bands between contents get thinner. If the regular spacing does not fit, the layout tightens internal gaps
      further while retaining space at the frame edges. The settings columns can use their own vertical spacing;
-  2. the game's own scroll views (a skill list, the augment list, a log...) get shorter and keep scrolling;
+  2. the active menu can keep one scrollbar inside an existing list or a designated content block;
   3. the player column and the fight screens (Adventure, Boss) are pressed together instead of scrolling (controls get
      slightly shorter, texts keep their size); other pages are pressed together when the overflow is small (up to 12 %);
-  4. what still does not fit scrolls, only inside the page frame: the bordered frame (and its bolts) stays fixed and the
-     content slides under it, clipped to the inside of the border (`freeze_frame` in `desktop_layout.rs`), with a scrollbar drawn from the game's own scrollbar images (the Augments menu's).
-- **Scrolling**: right stick (the part under the selection, else the page's list), mouse wheel (the part under the pointer),
-  and the selection itself: moving past the last visible row scrolls the part and reaches the next row. A new menu starts at
-  its top.
+  4. any remaining overflow scrolls within the selected block. Its frame, bolts, and fixed heading stay in place.
+     If no block is eligible, the layout fits the controls and adjusts text that would be cut off.
+- **Scrolling**: the right stick, pointer wheel over the block, dragging the thumb, and directional focus all use the same
+  viewport. The authored scrollbar sprites change with the active theme. A new menu resets the extra console offset.
 - **Selection**: the port's yellow fill inside the selected control, as on PC and Vita. Square = the game's right click.
 - The top and bottom sidebar junctions stay on the frame edge at all three scales. The welcome and offline-progress screens
   fit within the chosen viewport, and Save Game and Load Game occupy the right pane. When L is held, controller movement stays
   in the menu list. Turning the mode off clears the console viewport and its clipping rectangles.
 - The new-game and ending screens also fit inside the console viewport. Illustrated endings use separate columns for
   the artwork and text, with Continue under the artwork. Dense ending text uses the game's text fitting within its column.
-- Verified (2026-11-23), scripted captures of the 58 menus at 100 / 110 / 120 % in 1280 x 720, 120 % in 960 x 544 (Vita size)
-  and 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); stick, wheel and d-pad scrolling, hold-L list, L / R; PC mode
-  pixel-identical to before when the console mode is off; `tools/regress.sh` all OK.
-- The mouse wheel was verified in the Windows GPU window on Basic Training at 120 %. A physical gamepad playtest
+- Verified with 696 scripted captures across 58 menu indices and 12 configurations. Normal was checked at all three
+  scales and resolutions (960 x 544, 1280 x 720, 1920 x 1080). Dark, Gold, and Dark Gold were checked at 120 % in
+  960 x 544. Every capture had at most one content scroll region. The 58 PC captures with console mode off matched the
+  previous revision pixel for pixel at 1280 x 720.
+- Wheel input outside the Basic Training and Inventory blocks left their right panes pixel-identical. Dragging the
+  Basic Training thumb and using the wheel both reached the same final row. The right stick was replayed in Wishes.
+  An authored list at 100 % also scrolled inside its viewport and returned to the original pixels when scrolled back.
+  The introduction and all seven endings were replayed at all three scales at 960 x 544.
+  Live theme changes were also checked in the Windows GPU window. A physical gamepad playtest
   (stick speed, the 250 ms hold delay of L and d-pad repeat) and the Vita implementation are pending.
 - **Known limits** (found while verifying, not fixed):
-  - a page that scrolls to its end leaves some empty frame colour under its last content (the scroll range includes the
-    bottom margin that the squeeze removed);
-  - Money Pit, Fight Boss and Inventory use the generic fit only: no per-menu layout yet, so e.g. the Money Pit picture
+  - Money Pit and Fight Boss use the generic fit only: no per-menu layout yet, so e.g. the Money Pit picture
     still stretches with the page width as on PC;
   - menus 1 and 2 are empty (they are empty in the PC mode too: no button leads to them), menu 45 / 46 are the two
     "Choose your prize" screens of the game;
-  - 110 % adds no whole-page scrollbar on the 58 menus, but it can shorten existing scroll views. At 120 %, 18 whole
-    pages scroll (see the table below).
-- **What scrolls at 120 % (1280 x 720, measured with `consolestate` over the 58 menus; menu index = `MenuSwapper` id, `menu,N`)**:
-  - the page itself, inside its fixed frame: menus 4, 11, 12, 14, 18, 20, 24, 30, 39, 41, 42, 44, 48, 49, 52, 53, 54, 55;
-  - only a game list (the page fits, its list scrolls like in the game): menus 3, 5, 10, 13, 15, 21, 22, 32, 33, 34, 35, 38,
-    43, 51 (Basic Training's skill lists are menu 0 and scroll with the page header fixed);
-  - no whole-page scrollbar is added at 100 % or 110 %.
+- **Examples at 120 %**: Basic Training scrolls its Defense skill rows with Attack and the headings fixed. Inventory
+  scrolls its item grid. Settings Page 2 scrolls the Loot Filter block. Wish and card lists use their grid as the viewport.
 - **Not done yet**: per-menu reorganisations beyond the generic fit (the maintainer's notes: Fight Boss bottom part smaller
   and portraits bigger, Money Pit picture proportions, Inventory bigger), amount pad, in-game keyboard, Adventure
   face-button skills, inventory pick-up with buttons, the glyph prompts (the glyph sheet below is design only), touch, the
@@ -64,24 +61,23 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
    `DesktopLayout::console_view_h` receives the rows shown.
 3. `DesktopLayout::rebuild` runs the PC layout (horizontal pass, the page starts where the menu column was) and then
    `console_vertical`: for the player column, the menu list (L held) and the page it computes `runs` (solid content, game
-   scroll views, empty bands) with `rows_of`, shrinks empty bands to `GAP` / `EDGE_GAP`, then scroll views to `LIST_MIN`,
-   then (columns, fights, small overflows) presses everything proportionally, and only then leaves `rem` rows to scroll.
+   scroll views, empty bands) with `rows_of` and shrinks gaps first. The page's `fit` selects at most one scroll block.
+   Prefer a named content block or an authored scroll view, with a bounded subpanel as a fallback.
    Positions come out as `rects` overrides (`view_xf` reads them), so the game scripts never see the change.
-4. A scrolling page keeps its frame: `freeze_frame` pins the bordered panel and registers `clips` (the inside of the
-   border) which `render.rs` applies to the children; the cached quads of a subtree depend on `pan_stamp()`.
-5. `ScrollRegion`s (`DesktopLayout::regions`, rebuilt every layout) describe what scrolls: key (`PAGE`, `COLUMN`, `LIST` or
-   a game ScrollRect's viewport), the view in game rows, how many rows are hidden (`extra`), and for a game scroll view
-   its own range. `console_mode::scroll_region` moves a region (the game's own scroll first when going down, the squeeze
-   offset first when going up) and relayouts.
+4. `clip_scroll_child` limits both rendering and hit tests to the same moving children. Frame corners stay on the
+   block edges. `reserve_scrollbar_gutter` keeps content clear of the thumb, and cached quads depend on `pan_stamp()`.
+5. `ScrollRegion` holds the viewport, track, console offset range, and native scroll range. Its `grip` computes the thumb
+   used by rendering and pointer input. `console_mode::scroll_region` combines the native and console offsets into one
+   range. `COLUMN` and `LIST` are independent sidebar regions.
 6. Input: `Console::input(Pad)` maps pad events; the PC shell (`crates/ngu-desktop/src/gl.rs`) feeds it from `pad.rs`
    (gilrs) and the mouse wheel, and turns returned `Click`s into the two-step synthetic click the PC shell already used.
-7. Scrollbars are drawn last by `Renderer::draw_console_bars` with the Augments menu's own scrollbar images; the bars are
-   `DesktopLayout::bars` (track rectangle, handle start and length).
+7. `Renderer::draw_console_bars` reads `UIThemeController.curTheme` and uses the game's scrollbar sprites. The Normal,
+   Dark, Gold and Dark Gold themes are selected on each draw so theme changes apply immediately.
 8. The settings are real game objects (`prepare`): captions and buttons cloned from the Tooltips setting, kept in sync with
    the theme by `follow_theme`.
 
 Code: `clr/src/console_mode.rs` (settings, scale, controls, scrolling), `clr/src/desktop_layout.rs` (`console_vertical`,
-`fit`, `freeze_frame`: the layout), `clr/src/render.rs` (`draw_console_bars`, clips), `clr/src/focus.rs` (`refresh_rect`,
+`fit`, `scroll_block`: the layout), `clr/src/render.rs` (`draw_console_bars`, clips), `clr/src/focus.rs` (`refresh_rect`,
 `in_scroll_view`), script steps in `clr/src/script.rs`, gamepad timing in `crates/ngu-desktop/src/pad.rs`, PC window in
 `crates/ngu-desktop/src/gl.rs`. Test window without the native build: `ngu-window` (see `docs/DEV.md`).
 

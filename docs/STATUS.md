@@ -1,21 +1,22 @@
 # Status: what is verified and what is not
 
 ## Console mode on PC, 2026-11-23 (details and limits: `docs/CONSOLE-MODE.md`)
-- Tighter spacing and independent settings columns cut whole-page scrolling at 120 % from 24 menus to 18 at all
-  three tested resolutions. At 1280 x 720 the combined scroll range fell from 2,204 to 1,678 layout rows. The new-game
-  introduction and all seven ending screens were also checked with the fitted viewport.
+- Console menus fit their contents with tighter spacing and at most one scrollable block in the right pane. The frame
+  and its corners stay fixed. The scrollbar uses the active game theme. The new-game introduction and all seven ending
+  screens were replayed at all three scales with the fitted viewport at 960 x 544.
 - The console layout keeps the sidebar junctions aligned with the outer frame at every scale. Home, offline progress,
   and the save pickers fit at 960 x 544 and 1280 x 720. Scripted verification captured the 58 menus at all three
-  scales in 960 x 544, 1280 x 720 and 1920 x 1080, plus the Dark and Gold themes at 120 % in 960 x 544.
+  scales in 960 x 544, 1280 x 720 and 1920 x 1080, plus the Dark, Gold, and Dark Gold themes at 120 % in 960 x 544.
+  All 696 captures registered zero or one scrollable content block.
 - Switching the console layout off restores Settings Page 2 pixel for pixel with the same preferences. In the
   Windows harness, a save and reload in Slot 2 at 120 % left the existing Slot 5 byte-for-byte identical.
 - With a late-game save at 1280 x 720 and a 60 Hz Windows output, two short Inventory runs at 110 % averaged
   around 59.9 frames/s after startup. Their longest frame intervals were 23.4 ms and 22.8 ms. The earlier
   150 ms stalls did not recur in these runs.
-- Verified by scripted captures (interpreter, same engine as the window): all 58 menus at 100 / 110 / 120 % in 1280 x 720,
-  120 % in 960 x 544 (Dark theme), 120 % in 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); no panic, frames and
-  bolts clean, scrolling pages keep their frame; d-pad / stick / wheel scrolling, hold-L menu list, L / R, selection
-  following; PC mode unchanged pixel for pixel with the mode off; `tools/regress.sh` REGRESSION: ALL OK.
+- The wheel and thumb reached the same final Basic Training row. The wheel over a fixed area left the right pane
+  pixel-identical in Basic Training and Inventory. The right stick scrolled Wishes. All 58 PC captures at 1280 x 720
+  matched the previous revision pixel for pixel with the console mode off. Eight Rust tests and `tools/regress.sh`
+  passed on the final revision.
 - The mouse wheel reached the final Basic Training row in the Windows GPU window, and the in-game Off button restored
   Settings Page 2. A physical gamepad on this version and the new console mode on the Vita remain to be verified.
 - The maintainer's first playtest of the earlier builds found: stray bolts, wrong selection mark, useless scrollbars, no

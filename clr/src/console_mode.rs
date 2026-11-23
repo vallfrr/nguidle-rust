@@ -7,7 +7,7 @@
 //! rows fit on screen: `desktop_layout` squeezes empty bands, then shortens the game's own scroll views, and scrolls only
 //! what still does not fit (`ScrollRegion`, with the game's scrollbar images). This module drives those scrolls from the
 //! right stick, the mouse wheel and the selection.
-use crate::desktop_layout::{ScrollRegion, COLUMN, LIST, PAGE};
+use crate::desktop_layout::{ScrollRegion, COLUMN, LIST};
 use crate::save_slots::{child, image, label, named_go, new_node, style, text, tr};
 use crate::unity::*;
 use crate::value::Value;
@@ -252,6 +252,7 @@ pub struct Click {
 pub struct Console {
     pub hold: bool,
     focus_before_hold: Value,
+    scrollbar_drag: Option<(usize, f32)>,
     /// the menu column and the player column (root canvases)
     columns: Option<(Value, Value)>,
     /// junction bolts of the root canvas: on the menu column's right edge, and on the player column's sections
@@ -377,8 +378,12 @@ fn scroll_region(vm: &mut Vm, r: &ScrollRegion, delta: f32) -> bool {
 
 /// The innermost region on screen at a point (rows, y down; game x).
 fn region_at(vm: &Vm, x: f32, y: f32) -> Option<ScrollRegion> {
-    vm.eng.desktop_layout.regions.iter().filter(|r| x >= r.view[0] && x < r.view[2] && y >= r.view[1] && y < r.view[3])
+    vm.eng.desktop_layout.regions.iter().filter(|r| contains(r.view, x, y) || contains(r.track, x, y))
         .min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
+}
+
+fn contains([left, top, right, bottom]: [f32; 4], x: f32, y: f32) -> bool {
+    left <= x && x < right && top <= y && y < bottom
 }
 
 fn area(r: &ScrollRegion) -> f32 {
@@ -391,7 +396,7 @@ fn region_of_focus(vm: &Vm) -> Option<ScrollRegion> {
     let f = vm.eng.focus_rect?;
     let cx = (f[0] + f[2]) / 2.0;
     vm.eng.desktop_layout.regions.iter()
-        .filter(|r| cx >= r.view[0] && cx < r.view[2] && f[3] > r.view[1] - 1.0 && f[1] < r.view[3] + r.extra + 1.0)
+        .filter(|r| cx >= r.view[0] && cx < r.view[2] && f[3] > r.view[1] - 1.0 && f[1] < r.view[3] + 1.0)
         .min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
 }
 
@@ -594,12 +599,38 @@ impl Console {
         scroll_region(vm, &r, -notches * STEP);
         true
     }
+
+    /// Capture the pointer on the same scrollbar geometry used by the renderer.
+    pub(crate) fn scrollbar_pointer(&mut self, vm: &mut Vm) -> bool {
+        let (x, y) = (vm.eng.mouse.0, 600.0 - vm.eng.mouse.1);
+        if vm.eng.mouse_down_edge && vm.eng.mouse_button == 0 {
+            if let Some(r) = vm.eng.desktop_layout.regions.iter().find(|r| contains(r.track, x, y)) {
+                let pan = vm.eng.desktop_layout.pans.get(&r.key).copied().unwrap_or_default();
+                let (top, h) = r.grip(pan);
+                let grab = if (top..top + h).contains(&y) { y - top } else { h / 2.0 };
+                self.scrollbar_drag = Some((r.key, grab));
+            }
+        }
+        let Some((key, grab)) = self.scrollbar_drag else { return false };
+        if vm.eng.mouse_up_edge || !vm.eng.mouse_down {
+            self.scrollbar_drag = None;
+        } else if let Some(r) = vm.eng.desktop_layout.regions.iter().find(|r| r.key == key).cloned() {
+            let pan = vm.eng.desktop_layout.pans.get(&key).copied().unwrap_or_default();
+            let (_, h) = r.grip(pan);
+            let travel = (r.track[3] - r.track[1] - h).max(0.01);
+            let fraction = ((y - grab - r.track[1]) / travel).clamp(0.0, 1.0);
+            let delta = (r.native_range + r.extra) * fraction - r.native_off - pan;
+            if delta.abs() > 0.01 {
+                scroll_region(vm, &r, delta);
+            }
+        }
+        true
+    }
 }
 
 /// A new menu starts at its top.
 fn new_page(vm: &mut Vm) {
     vm.eng.desktop_layout.pans.retain(|k, _| *k == COLUMN);
-    let _ = PAGE;
 }
 
 /// Turns the console presentation on or off to match the setting and keeps its scale (the shell calls this every frame

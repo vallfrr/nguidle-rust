@@ -132,6 +132,9 @@ fn raycast_node(
     if crate::ui::menu_is_parked(vm, &go, &x) {
         return;
     }
+    if vm.eng.desktop_layout.console && crate::desktop_layout::scroll_bar(&go) {
+        return;
+    }
     let Some((graphic, mask)) = with_go(&go, |g| {
         (g.active && !g.port_hidden && !(g.name == "Hover Tooltip" && offline_screen_visible(vm))).then(|| {
             let mut graphic = false;
@@ -161,18 +164,6 @@ fn raycast_node(
         }
         masks.push(rect);
     }
-    let child_clip = vm.eng.desktop_layout.clip_of(tr);
-    if let Some([x0, y0, x1, y1]) = child_clip {
-        let height = vm.eng.screen.1 as f32;
-        masks.push(HitRect::new(&Xf {
-            origin: [x0, height - y1],
-            w: x1 - x0,
-            h: y1 - y0,
-            scale: [1.0, 1.0],
-            pivot: [0.0, 0.0],
-            rot: 0.0,
-        }));
-    }
     let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
     for child in children.iter().rev() {
         if *remaining == 0 {
@@ -182,11 +173,19 @@ fn raycast_node(
             continue;
         }
         if let Some(cx) = view_child_xf(vm, &x, child) {
+            let child_clip = vm.eng.desktop_layout.clip_scroll_child(tr, child);
+            if let Some([x0, y0, x1, y1]) = child_clip {
+                masks.push(HitRect::new(&Xf {
+                    origin: [x0, vm.eng.screen.1 as f32 - y1],
+                    w: x1 - x0, h: y1 - y0,
+                    scale: [1.0, 1.0], pivot: [0.0, 0.0], rot: 0.0,
+                }));
+            }
             raycast_node(vm, child, cx, probes, masks, remaining);
+            if child_clip.is_some() {
+                masks.pop();
+            }
         }
-    }
-    if child_clip.is_some() {
-        masks.pop();
     }
     if mask {
         masks.pop();
@@ -525,6 +524,13 @@ impl Vm {
         if self.dropdown_pointer() {
             return;
         }
+        if let Some(mut console) = self.eng.console.take() {
+            let captured = console.scrollbar_pointer(self);
+            self.eng.console = Some(console);
+            if captured {
+                return;
+            }
+        }
         let pos = self.eng.mouse;
         let down = self.eng.mouse_down;
         let (edge_d, edge_u) = (self.eng.mouse_down_edge, self.eng.mouse_up_edge);
@@ -679,6 +685,9 @@ impl Vm {
 impl Vm {
     /// Scrolls the content of a ScrollRect (delta in screen pixels, y up).
     pub fn scroll_by(&mut self, sr: &Value, dx: f32, dy: f32) {
+        if self.eng.desktop_layout.console && !self.eng.desktop_layout.regions.iter().any(|r| same(&r.native, sr)) {
+            return;
+        }
         let (content, viewport, horizontal, vertical, hscroll, vscroll) = match with_comp(sr, |k| match &k.k {
             CK::ScrollRect { content, viewport, horizontal, vertical, hscroll, vscroll, .. } => Some((content.clone(), viewport.clone(), *horizontal, *vertical, hscroll.clone(), vscroll.clone())),
             _ => None,

@@ -4,7 +4,7 @@ use crate::unity::{go_of, with_comp, with_go, with_tr, SelKind, CK};
 use crate::value::Value;
 use crate::vm::FxMap;
 use crate::Vm;
-use std::rc::Rc;
+use std::{collections::HashSet, rc::Rc};
 
 const BASE: f32 = 960.0;
 const CONTENT_LEFT: f32 = 292.0;
@@ -21,20 +21,18 @@ pub struct DesktopLayout {
     /// A welcome, progress or story screen owns the full viewport.
     pub(crate) console_modal: bool,
     /// console mode: what scrolls after the last rebuild (only what did not fit), and every scroll offset (game rows),
-    /// kept across rebuilds by key (`PAGE`, `COLUMN`, `LIST` or a scroll view's transform)
+    /// kept across rebuilds by the scroll block's transform or the left-hand menu list
     pub regions: Vec<ScrollRegion>,
     pub pans: FxMap<usize, f32>,
     /// console mode: nodes whose children are clipped to a rectangle (x0, y0, x1, y1; game rows, y down): a scrolling page's
     /// frame stays put and only its inside slides
-    pub clips: FxMap<usize, [f32; 4]>,
-    /// scrollbars to draw (track x0, y0, x1, y1 with y down; handle start and length as fractions of the track)
-    pub bars: Vec<([f32; 4], f32, f32)>,
+    clips: FxMap<usize, ScrollClip>,
     width: f32,
     /// console mode: how far left the page moved (the menu column's width)
     shift: f32,
     canvas: Value,
     rects: FxMap<usize, Xf>,
-    story_text: Option<usize>,
+    text_fit: HashSet<usize>,
 }
 
 /// Something that scrolls in console mode. `view` is on screen (x0, y0, x1, y1; rows, y down); `extra` rows are hidden
@@ -47,9 +45,40 @@ pub struct ScrollRegion {
     pub native: Value,
     pub native_range: f32,
     pub native_off: f32,
+    pub track: [f32; 4],
+    content: f32,
 }
 
-pub const PAGE: usize = 1;
+#[derive(Clone, Copy)]
+struct ScrollClip {
+    bounds: [f32; 4],
+    rows: Option<&'static str>,
+}
+
+struct ScrollBlock {
+    node: Value,
+    rect: Xf,
+    rows: Option<&'static str>,
+    header: f32,
+}
+
+fn scrolls_with_block(go: &Value, rows: Option<&str>) -> bool {
+    with_go(go, |g| {
+        !g.name.starts_with("Middle Bolt") && rows.is_none_or(|prefix| g.name.starts_with(prefix))
+    }).unwrap_or(false)
+}
+
+impl ScrollRegion {
+    pub(crate) fn grip(&self, pan: f32) -> (f32, f32) {
+        let [x0, top, x1, bottom] = self.track;
+        let h = bottom - top;
+        let length = (h * (self.view[3] - self.view[1]) / self.content).clamp((x1 - x0).min(h), h);
+        let extent = (self.extra + self.native_range).max(0.01);
+        let start = top + (h - length) * ((self.native_off + pan) / extent).clamp(0.0, 1.0);
+        (start, length)
+    }
+}
+
 pub const COLUMN: usize = 2;
 pub const LIST: usize = 3;
 /// rows kept around content, between two contents, at the frame edges, and the shortest a scroll view gets
@@ -62,11 +91,25 @@ const LIST_MIN: f32 = 110.0;
 /// share of a page's rows that may be pressed together rather than scrolled
 const SQUEEZE: f32 = 0.12;
 
-/// Whether `tr` or one of its descendants (shown) has one of these names.
-fn has_named(tr: &Value, names: &[&str]) -> bool {
-    let go = go_of(tr);
-    let Some((name, shown)) = with_go(&go, |g| (g.name.clone(), g.active && !g.port_hidden)) else { return false };
-    shown && (names.contains(&name.as_str()) || children(tr).iter().any(|c| has_named(c, names)))
+fn framed(go: &Value) -> bool {
+    with_go(go, |g| g.comps.iter().any(|c| {
+        with_comp(c, |c| match &c.k {
+            CK::Image(i) if c.enabled && i.typ == 1 => with_comp(&i.sprite, |s| {
+                matches!(&s.k, CK::Sprite(sprite) if sprite.border.iter().any(|edge| *edge > 0.0))
+            }).unwrap_or(false),
+            _ => false,
+        }).unwrap_or(false)
+    })).unwrap_or(false)
+}
+
+pub(crate) fn scroll_bar(go: &Value) -> bool {
+    with_go(go, |g| g.comps.iter().any(|c| {
+        with_comp(c, |c| matches!(&c.k, CK::Sel(s) if s.kind == SelKind::Scrollbar)).unwrap_or(false)
+    })).unwrap_or(false)
+}
+
+fn frame_corner(go: &Value) -> bool {
+    with_go(go, |g| g.name.starts_with("Middle Bolt")).unwrap_or(false)
 }
 
 /// The game's vertical scroll views, by the transform that clips them (viewport, else the ScrollRect itself).
@@ -87,29 +130,22 @@ fn scroll_views(vm: &Vm) -> FxMap<usize, Value> {
 
 /// How far a game scroll view has scrolled by itself (rows).
 pub fn native_offset(vm: &Vm, comp: &Value) -> f32 {
-    native_scroll(vm, &FxMap::default(), comp).1
+    native_scroll(vm, comp).1
 }
 
-/// A game scroll view's own scroll state (range and offset, rows) and its scrollbar's presented rectangle, if it has one.
-fn native_scroll(vm: &Vm, rects: &FxMap<usize, Xf>, comp: &Value) -> (f32, f32, Option<[f32; 4]>) {
-    let Some((content, viewport, bar, go)) = with_comp(comp, |c| match &c.k {
-        CK::ScrollRect { content, viewport, vscroll, .. } => Some((content.clone(), viewport.clone(), vscroll.clone(), c.go.clone())),
+/// A game scroll view's own scroll state (range and offset in rows).
+fn native_scroll(vm: &Vm, comp: &Value) -> (f32, f32) {
+    let Some((content, viewport, go)) = with_comp(comp, |c| match &c.k {
+        CK::ScrollRect { content, viewport, .. } => Some((content.clone(), viewport.clone(), c.go.clone())),
         _ => None,
-    }).flatten() else { return (0.0, 0.0, None) };
+    }).flatten() else { return (0.0, 0.0) };
     let vp = if viewport.is_null() { with_go(&go, |g| g.transform.clone()).unwrap_or_default() } else { viewport };
     let (cx, vx) = (xf(vm, &content), xf(vm, &vp));
     let (ch, vh) = (cx.h * cx.scale[1].abs(), vx.h * vx.scale[1].abs());
     let top = |x: Xf, h: f32| x.origin[1] + (1.0 - x.pivot[1]) * h;
     let range = (ch - vh).max(0.0);
     let off = (top(cx, ch) - top(vx, vh)).clamp(0.0, range);
-    let rect = with_comp(&bar, |c| with_go(&c.go, |g| (g.active && !g.port_hidden).then(|| g.transform.clone())).flatten()).flatten()
-        .and_then(|tr| rects.get(&id(&tr)?).copied())
-        .map(|b| {
-            let bh = b.h * b.scale[1].abs();
-            let bt = 600.0 - (b.origin[1] + (1.0 - b.pivot[1]) * bh);
-            [left(b), bt, left(b) + width(b), bt + bh]
-        });
-    (range, off, rect)
+    (range, off)
 }
 
 #[derive(Clone, Copy)]
@@ -154,19 +190,20 @@ impl DesktopLayout {
 
     /// Changes whenever a console scroll offset changes (cached quads of the subtrees below a fixed frame depend on it).
     pub fn pan_stamp(&self) -> f32 {
-        self.pans.values().sum::<f32>() + self.pans.len() as f32 * 0.001
+        self.pans.values().sum::<f32>() + self.pans.len() as f32 * 0.001 + f32::from(u8::from(self.console))
     }
 
-    pub fn clip_of(&self, tr: &Value) -> Option<[f32; 4]> {
-        self.clips.get(&id(tr)?).copied()
+    pub(crate) fn clip_scroll_child(&self, parent: &Value, child: &Value) -> Option<[f32; 4]> {
+        let clip = self.clips.get(&id(parent)?)?;
+        scrolls_with_block(&go_of(child), clip.rows).then_some(clip.bounds)
     }
 
     pub(crate) fn content_left(&self) -> f32 {
         CONTENT_LEFT - self.shift
     }
 
-    pub(crate) fn fit_story_text(&self, tr: &Value) -> bool {
-        self.story_text.is_some_and(|key| id(tr) == Some(key))
+    pub(crate) fn fits_text(&self, tr: &Value) -> bool {
+        id(tr).is_some_and(|key| self.text_fit.contains(&key))
     }
 
     pub(crate) fn reset_console(&mut self) {
@@ -177,10 +214,9 @@ impl DesktopLayout {
         self.shift = 0.0;
         self.rects.clear();
         self.clips.clear();
-        self.story_text = None;
+        self.text_fit.clear();
         self.pans.clear();
         self.regions.clear();
-        self.bars.clear();
     }
 
     pub fn width(&self) -> f32 {
@@ -194,7 +230,7 @@ impl DesktopLayout {
     fn rebuild(&mut self, vm: &Vm) {
         self.rects.clear();
         self.clips.clear();
-        self.story_text = None;
+        self.text_fit.clear();
         self.shift = 0.0;
         self.console_modal = false;
         let extra = self.width() - BASE;
@@ -276,7 +312,6 @@ impl DesktopLayout {
     /// only what still does not fit scrolls, with a scrollbar. At 100 % nothing moves.
     fn console_vertical(&mut self, vm: &Vm, canvas: Xf, features: Option<(Value, Xf)>, player: Option<(Value, Xf)>) {
         let v = self.console_view_h.min(600.0);
-        self.bars.clear();
         self.regions.clear();
         let views = scroll_views(vm);
         let right = self.width();
@@ -302,7 +337,8 @@ impl DesktopLayout {
             if v < 599.5 {
                 self.prepare_story(&screen, at);
             }
-            self.fit(vm, PAGE, &[(screen, at)], v, [0.0, right], &views, right - 17.0, 1.0);
+            let has_notes = with_go(&go_of(&screen), |g| g.name == "Splash Screen").unwrap_or(false);
+            self.fit(vm, &[(screen, at)], v, &views, has_notes);
             return;
         }
         // the player column, with the bolts on its section joints
@@ -322,8 +358,7 @@ impl DesktopLayout {
                     parts.push((bolt.clone(), *x));
                 }
             }
-            let colw = width(at) + left(at);
-            self.fit(vm, COLUMN, &parts, v, [0.0, colw], &views, colw - 18.0, 1.0);
+            self.fit(vm, &parts, v, &views, false);
         }
         // the menu list (L held): widened to the column and as much taller, scrolled to the cursor
         if let Some((node, f)) = features.filter(|_| self.console_hold) {
@@ -342,10 +377,7 @@ impl DesktopLayout {
             let at = horizontal(xf(vm, &panel), left, right - left);
             let shade_rect = horizontal(xf(vm, &shade), 0.0, left);
             self.rects.insert(id(&shade).unwrap(), vertical(shade_rect, 0.0, v));
-            self.fit(vm, PAGE, &[(panel, at)], v, [left, right], &views, right - 17.0, 1.0);
-            return;
-        }
-        if v >= 599.5 {
+            self.fit(vm, &[(panel, at)], v, &views, false);
             return;
         }
         // the page: every visible root except the columns and the pop-ups
@@ -362,11 +394,8 @@ impl DesktopLayout {
                 page.extend(children(r).into_iter().filter_map(|c| self.now(&c, x).filter(|cx| visible(*cx)).map(|cx| (c, cx))));
             }
         }
-        let page_left = player.map_or(0.0, |(_, p)| left(p) + width(p));
-        // fights must stay whole on screen; elsewhere a small overflow is pressed together, a big one scrolls
-        let fight = page.iter().any(|(tr, _)| has_named(tr, &["Adventure Menu", "Boss Menu"]));
-        if !self.fit_settings_columns(&page, v, &views) {
-            self.fit(vm, PAGE, &page, v, [page_left, right], &views, right - 17.0, if fight { 1.0 } else { SQUEEZE });
+        if v >= 599.5 || !self.fit_settings_columns(&page, v, &views) {
+            self.fit(vm, &page, v, &views, true);
         }
         // pop-ups stay centred on the rows shown
         if let Some((_, root, x)) = boxes {
@@ -408,7 +437,7 @@ impl DesktopLayout {
             self.place(&button, button_rect, horizontal(button_rect, left + inset + (art_width - button_width) / 2.0, button_width), Area::Fixed);
             let text_width = left + width - split - inset;
             self.rects.insert(id(&text).unwrap(), horizontal(text_rect, split, text_width));
-            self.story_text = id(&text);
+            self.text_fit.extend(id(&text));
         }
     }
 
@@ -425,13 +454,12 @@ impl DesktopLayout {
 
     #[allow(clippy::too_many_arguments)]
     fn region(&mut self, key: usize, view: [f32; 4], extra: f32, native: Value, native_range: f32, native_off: f32, bar: [f32; 4], content: f32) {
-        if extra <= 0.0 {
+        if extra + native_range <= 0.01 {
             return;
         }
-        let pan = self.pans.get(&key).copied().unwrap_or(0.0);
-        let total = (content).max(1.0);
-        self.bars.push((bar, (native_off + pan) / total, (view[3] - view[1]) / total));
-        self.regions.push(ScrollRegion { key, view, extra, native, native_range, native_off });
+        if bar[3] > bar[1] {
+            self.regions.push(ScrollRegion { key, view, extra, native, native_range, native_off, track: bar, content: content.max(1.0) });
+        }
     }
 
     /// Settings columns are independent: a button in one column does not occupy a blank row in its neighbours.
@@ -485,108 +513,157 @@ impl DesktopLayout {
                 }
             }
         }
-        self.pans.remove(&PAGE);
         true
     }
 
-    /// Squeezes the rows of `parts` (one column or the page) into `target` rows; see `console_vertical`.
-    #[allow(clippy::too_many_arguments)]
-    /// `squeeze`: the largest share of the rows that may be pressed together (controls get shorter, texts keep their size)
-    /// when the rest still does not fit; past it, the part scrolls. 1 = never scroll (player column, fights).
-    fn fit(&mut self, vm: &Vm, key: usize, parts: &[(Value, Xf)], target: f32, xs: [f32; 2], views: &FxMap<usize, Value>, bar_x: f32, squeeze: f32) {
+    /// Fits the static layout first and hands any scrolling to a single authored block.
+    fn fit(&mut self, vm: &Vm, parts: &[(Value, Xf)], target: f32, views: &FxMap<usize, Value>, allow_scroll: bool) {
+        let block = allow_scroll.then(|| self.scroll_block(parts, views, target)).flatten();
+        let chosen: FxMap<_, _> = block.iter().map(|block| {
+            let key = id(&block.node).unwrap();
+            self.rects.insert(key, block.rect);
+            (key, views.get(&key).cloned().unwrap_or_default())
+        }).collect();
         let (mut solid, mut lists) = (vec![], vec![]);
         for (tr, x) in parts {
-            self.rows_of(tr, *x, views, &mut solid, &mut lists);
+            self.rows_of(tr, *x, &chosen, &mut solid, &mut lists);
         }
         let runs = row_runs([0.0, 600.0], &solid, &lists);
         let mut need = (600.0 - target).max(0.0);
         let mut size: Vec<f32> = runs.iter().map(|r| r.2 - r.1).collect();
         trim_rows(&runs, &mut size, &mut need, [0.0, 600.0], EDGE_GAP);
-        let mut rem = if need > 0.01 { need } else { 0.0 };
         let total: f32 = size.iter().sum();
-        let squeezed = rem > 0.0 && rem <= total * squeeze;
+        let squeezed = need > 0.01;
         if squeezed {
             let k = target / total.max(1.0);
             size.iter_mut().for_each(|s| *s *= k);
-            rem = 0.0;
         }
-        let pan = self.pan(key, rem);
-        let map = row_map(&runs, &size, 0.0, -pan);
+        let map = row_map(&runs, &size, 0.0, 0.0);
         if std::env::var_os("NGU_CONSOLE_DEBUG").is_some() {
-            eprintln!("[fit] key {key} target {target} rem {rem} runs {:?} map {:?}", runs.iter().zip(&size).map(|(r, s)| (r.0, r.1 as i32, r.2 as i32, *s as i32)).collect::<Vec<_>>(), map);
+            eprintln!("[fit] target {target} remaining {need} runs {:?} map {:?}", runs.iter().zip(&size).map(|(r, s)| (r.0, r.1 as i32, r.2 as i32, *s as i32)).collect::<Vec<_>>(), map);
         }
         let f = move |y: f32| piecewise(y, &map);
         // scroll views: shortened, their contents slide under them
         let mut inner = FxMap::default();
+        let rows = block.as_ref().and_then(|block| block.rows);
         for (vp, a, b) in &lists {
             let k = id(vp).unwrap_or(0);
             let shown = f(*b) - f(*a);
             let extra = (b - a - shown).max(0.0);
-            inner.insert(k, self.pan(k, extra));
+            inner.insert(k, (self.pan(k, extra), rows));
         }
         let edges = if squeezed { 0.0 } else { 60.0 };
         for (tr, x) in parts {
             self.remap_fit(tr, *x, &f, &inner, edges);
-            if rem > 0.0 && key == PAGE {
-                self.freeze_frame(tr, *x, &f, pan, target);
-            }
         }
-        for (vp, a, b) in &lists {
-            let k = id(vp).unwrap_or(0);
-            let (t, e) = (f(*a), f(*b));
+        for (vp, a, b) in lists {
+            let k = id(&vp).unwrap_or(0);
+            let (t, e) = (f(a), f(b));
             let extra = (b - a - (e - t)).max(0.0);
-            if extra <= 0.0 {
-                continue;
+            let Some(x) = self.rects.get(&k).copied() else { continue };
+            let (x0, x1) = (left(x), left(x) + width(x));
+            let comp = chosen.get(&k).cloned().unwrap_or_default();
+            let (range, off) = native_scroll(vm, &comp);
+            if extra + range > 0.01 {
+                let inset = if framed(&go_of(&vp)) && comp.is_null() { 5.0 } else { 0.0 };
+                let header = block.as_ref().map_or(0.0, |block| block.header);
+                let start = t + header.max(inset);
+                let gutter = if inset > 0.0 { x1 - 15.0 } else { (x1 + 1.0).min(self.width() - 15.0) };
+                let clip = [x0 + inset, start, (x1 - inset).min(gutter), e - inset];
+                if inset > 0.0 {
+                    self.reserve_scrollbar_gutter(&vp, x, rows, clip[0], clip[2]);
+                }
+                self.clips.insert(k, ScrollClip { bounds: clip, rows });
+                let bar = [gutter, start + 3.0, gutter + 10.0, e - 6.0];
+                self.region(k, clip, extra, comp, range, off, bar, b - a + range - header - inset);
             }
-            let x = self.rects.get(&k).copied();
-            let (x0, x1) = x.map_or((xs[0], xs[1]), |x| (left(x), left(x) + width(x)));
-            let comp = views.get(&k).cloned().unwrap_or_default();
-            let (range, off, bar) = native_scroll(vm, &self.rects, &comp);
-            let bar = bar.unwrap_or([x1 - 17.0, t + 6.0, x1 - 7.0, e - 6.0]);
-            self.region(k, [x0, t, x1, e], extra, comp, range, off, bar, b - a + range);
         }
-        self.region(key, [xs[0], 0.0, xs[1], target], rem, Value::Null, 0.0, 0.0, [bar_x, 10.0, bar_x + 10.0, target - 10.0], target + rem);
     }
 
-    /// A page that scrolls keeps its frame (the bordered panel, or the panel just below the page root) where the unscrolled
-    /// layout puts it, cut at the bottom of the screen; only what is inside the border slides, clipped to the inside.
-    fn freeze_frame(&mut self, tr: &Value, x: Xf, f: &dyn Fn(f32) -> f32, pan: f32, target: f32) {
-        let mut frame = None;
-        let mut stack = vec![(tr.clone(), x)];
-        while let Some((n, nx)) = stack.pop() {
-            let go = go_of(&n);
-            let framed = with_go(&go, |g| g.comps.clone()).unwrap_or_default().iter().any(|c| {
-                with_comp(c, |k| match &k.k {
-                    CK::Image(i) if k.enabled && i.typ == 1 => with_comp(&i.sprite, |s| matches!(&s.k, CK::Sprite(sp) if sp.border.iter().any(|b| *b > 0.0))).unwrap_or(false),
-                    _ => false,
-                }).unwrap_or(false)
-            });
-            let h = nx.h * nx.scale[1].abs();
-            if framed && h >= 300.0 && width(nx) >= 300.0 {
-                frame = Some((n, nx));
-                break;
-            }
-            for ch in children(&n) {
-                if let Some(cx) = self.now(&ch, &nx) {
-                    stack.push((ch, cx));
+    fn reserve_scrollbar_gutter(&mut self, block: &Value, at: Xf, rows: Option<&str>, left_edge: f32, right_edge: f32) {
+        let Some(content) = self.bounds_of_children(block, at, rows) else { return };
+        let content_left = left(content).max(left_edge);
+        let content_right = left(content) + width(content);
+        if content_right <= right_edge || content_left >= right_edge { return; }
+        let scale = (right_edge - content_left) / (content_right - content_left);
+        let map = |rect: Xf| {
+            let l = content_left + (left(rect) - content_left) * scale;
+            horizontal(rect, l, width(rect) * scale)
+        };
+        for child in children(block) {
+            if scrolls_with_block(&go_of(&child), rows) {
+                if let Some(rect) = self.now(&child, &at) {
+                    self.map_rects(&child, rect, &map);
                 }
             }
         }
-        let Some((node, now)) = frame else { return };
-        let h = now.h * now.scale[1].abs();
-        let top_now = 600.0 - (now.origin[1] + (1.0 - now.pivot[1]) * h);
-        let (a, b) = (top_now + pan, top_now + pan + h);
-        let _ = (a, b, f);
-        let top = (top_now + pan).max(0.0);
-        let bottom = (top_now + pan + h).min(target);
-        if bottom - top < 100.0 {
-            return;
+    }
+
+    fn scroll_block(&self, parts: &[(Value, Xf)], views: &FxMap<usize, Value>, target: f32) -> Option<ScrollBlock> {
+        // These grids are plain Unity containers, so identify them by their authored parent and name.
+        const BLOCKS: &[(&str, &str)] = &[
+            ("Inventory", "Inventory"),
+            ("Wishes Menu", "Slots"),
+            ("Cards Menu", "Deck Slots"),
+            ("Achievements Menu", "Slots"),
+            ("Settings Menu", "Settings Panel 3"),
+        ];
+        let mut stack: Vec<_> = parts.iter().map(|(tr, x)| (tr.clone(), *x, String::new())).collect();
+        let mut best = None;
+        while let Some((node, at, parent)) = stack.pop() {
+            let go = go_of(&node);
+            let Some(name) = with_go(&go, |g| (g.active && !g.port_hidden).then(|| g.name.clone())).flatten() else {
+                continue;
+            };
+            if !visible(at) {
+                continue;
+            }
+            let rows = (parent == "Contents" && name == "Defense Panel").then_some("Defense (");
+            let named = rows.is_some() || BLOCKS.contains(&(parent.as_str(), name.as_str()));
+            // The bag holder has a placeholder rectangle. Its slot grid defines the actual viewport.
+            let at = if named && rows.is_none() && name != "Settings Panel 3" {
+                self.bounds_of_children(&node, at, None).unwrap_or(at)
+            } else { at };
+            let (top, bottom) = vertical_bounds(at);
+            let h = bottom - top;
+            let native = views.contains_key(&id(&node).unwrap_or(0));
+            let priority = if named && target < 599.5 { 3 }
+                else if native { 2 }
+                else if target < 599.5 && top >= 125.0 && (180.0..400.0).contains(&h) && width(at) >= 140.0
+                    && framed(&go) { 1 } else { 0 };
+            if priority != 0 && h > LIST_MIN && !children(&node).is_empty() {
+                let score = (priority, h * width(at));
+                if best.as_ref().is_none_or(|(old, _)| score > *old) {
+                    let header = rows.and_then(|prefix| self.bounds_of_children(&node, at, Some(prefix)))
+                        .map_or(0.0, |first| (vertical_bounds(first).0 - top).max(0.0));
+                    best = Some((score, ScrollBlock { node: node.clone(), rect: at, rows, header }));
+                }
+            }
+            if !native || name == "Train Attack Menu + Scripts" {
+                for child in children(&node) {
+                    if let Some(rect) = self.now(&child, &at) {
+                        stack.push((child, rect, name.clone()));
+                    }
+                }
+            }
         }
-        let fixed = vertical(now, top, bottom - top);
-        let Some(key) = id(&node) else { return };
-        self.rects.insert(key, fixed);
-        const INSET: f32 = 14.0;
-        self.clips.insert(key, [left(fixed) + INSET, top + INSET, left(fixed) + width(fixed) - INSET, bottom - INSET]);
+        best.map(|(_, node)| node)
+    }
+
+    fn bounds_of_children(&self, node: &Value, at: Xf, rows: Option<&str>) -> Option<Xf> {
+        let mut rects = children(node).into_iter().filter_map(|child| {
+            let go = go_of(&child);
+            with_go(&go, |g| g.active && !g.port_hidden).filter(|visible| *visible)?;
+            if !scrolls_with_block(&go, rows) { return None; }
+            self.now(&child, &at)
+        });
+        let first = rects.next()?;
+        let (top, bottom) = vertical_bounds(first);
+        let [x0, y0, x1, y1] = rects.fold([left(first), top, left(first) + width(first), bottom], |[l, t, r, b], x| {
+            let (top, bottom) = vertical_bounds(x);
+            [l.min(left(x)), t.min(top), r.max(left(x) + width(x)), b.max(bottom)]
+        });
+        Some(vertical(horizontal(at, x0, x1 - x0), y0, y1 - y0))
     }
 
     /// Rows taken by visible content (texts, controls, pictures) and by the scroll views the game shows, below `tr`.
@@ -636,17 +713,21 @@ impl DesktopLayout {
     }
 
     /// `remap` that keeps scroll views whole: a view gets its new edges, its contents only slide (by its inner pan).
-    fn remap_fit(&mut self, tr: &Value, now: Xf, f: &dyn Fn(f32) -> f32, inner: &FxMap<usize, f32>, edges: f32) {
+    fn remap_fit(&mut self, tr: &Value, now: Xf, f: &dyn Fn(f32) -> f32, inner: &FxMap<usize, (f32, Option<&str>)>, edges: f32) {
         let key = id(tr).unwrap_or(0);
         let h = now.h * now.scale[1].abs();
         let top = 600.0 - (now.origin[1] + (1.0 - now.pivot[1]) * h);
-        if let Some(&pan) = inner.get(&key) {
+        if let Some(&(pan, rows)) = inner.get(&key) {
             let (a, b) = (f(top), f(top + h));
             self.rects.insert(key, vertical(now, a, (b - a).max(0.0)));
             let shift = a - top - pan;
             for child in children(tr) {
                 if let Some(cx) = self.now(&child, &now) {
-                    self.remap(&child, cx, &move |y| y + shift, 0.0);
+                    let go = go_of(&child);
+                    let offset = if frame_corner(&go) {
+                        if 600.0 - cx.origin[1] < top + h / 2.0 { a - top } else { b - top - h }
+                    } else if scrolls_with_block(&go, rows) { shift } else { a - top };
+                    self.remap(&child, cx, &move |y| y + offset, 0.0);
                 }
             }
             return;
@@ -658,6 +739,14 @@ impl DesktopLayout {
             let c = f(top + h / 2.0);
             vertical(now, c - h / 2.0, h)
         };
+        if next.h + 0.5 < now.h && now.h >= 18.0 && with_go(&go_of(tr), |g| {
+            g.comps.iter().any(|c| with_comp(c, |c| {
+                c.enabled && matches!(&c.k, CK::Text(text) if !text.best_fit && text.vov == 0 && !text.text.trim().is_empty())
+            }).unwrap_or(false))
+        }).unwrap_or(false) {
+            // Keep complete multiline labels readable when their section gets shorter.
+            self.text_fit.insert(key);
+        }
         self.rects.insert(key, next);
         for child in children(tr) {
             if let Some(cx) = self.now(&child, &now) {
@@ -669,22 +758,26 @@ impl DesktopLayout {
     /// Moves a subtree vertically through `f` (rows, y down). Nodes at least `edges` tall map both edges (panels stretch
     /// or shrink); smaller ones map their centre and keep their size (buttons and texts are not squashed).
     fn remap(&mut self, tr: &Value, now: Xf, f: &dyn Fn(f32) -> f32, edges: f32) {
-        let h = now.h * now.scale[1].abs();
-        let top = 600.0 - (now.origin[1] + (1.0 - now.pivot[1]) * h);
-        let next = if h >= edges {
-            let (a, b) = (f(top), f(top + h));
-            vertical(now, a, (b - a).max(0.0))
-        } else {
-            let c = f(top + h / 2.0);
-            vertical(now, c - h / 2.0, h)
-        };
+        self.map_rects(tr, now, &|rect| {
+            let (top, bottom) = vertical_bounds(rect);
+            if bottom - top >= edges {
+                let (a, b) = (f(top), f(bottom));
+                vertical(rect, a, (b - a).max(0.0))
+            } else {
+                let h = bottom - top;
+                let center = f(top + h / 2.0);
+                vertical(rect, center - h / 2.0, h)
+            }
+        });
+    }
+
+    fn map_rects(&mut self, tr: &Value, now: Xf, map: &impl Fn(Xf) -> Xf) {
         if let Some(key) = id(tr) {
-            self.rects.insert(key, next);
+            self.rects.insert(key, map(now));
         }
         for child in children(tr) {
-            let cx = self.rects.get(&id(&child).unwrap_or(0)).copied().or_else(|| child_rect(&now, &child));
-            if let Some(cx) = cx {
-                self.remap(&child, cx, f, edges);
+            if let Some(cx) = self.now(&child, &now) {
+                self.map_rects(&child, cx, map);
             }
         }
     }
@@ -883,6 +976,17 @@ fn vertical_bounds(x: Xf) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrollbar_thumb_reaches_both_ends_of_its_own_track() {
+        let block = ScrollRegion {
+            key: 10, view: [0.0, 10.0, 100.0, 110.0],
+            extra: 40.0, native: Value::Null, native_range: 60.0,
+            native_off: 60.0, track: [100.0, 10.0, 110.0, 110.0], content: 200.0,
+        };
+        assert_eq!(block.grip(0.0), (40.0, 50.0));
+        assert_eq!(block.grip(40.0), (60.0, 50.0));
+    }
 
     #[test]
     fn tighten_inner_gaps_before_shortening_lists() {
