@@ -136,3 +136,9 @@ the element vector first (identical output, `tools/regress.sh` ALL OK).
   Simulation work is unchanged (p99 60.8 ms, worst menu switch 641 ms), so input response can still lag while the picture stays smooth.
 - Console cycle pitfalls found: the agent skips an upload whose content it already sent (the scenario gets a unique comment line each time);
   `fs trash` is asynchronous (the scenario file is never trashed); a scripted run never opens the system keyboard (it blocked the console once).
+
+## Boot logo (2026-11-22)
+vitaGL's own splash (its logo during `vglInit`) is skipped: the link wraps `invoke_splashscreen` with an empty function
+(`stubs.c`, `CMakeLists.txt`, nguidle-vita `48ba596`) and the host shows its own one-colour loading frame. Verified in the
+binary (`bl __wrap_invoke_splashscreen`) and by installing and launching the standard VPK on the console (boot reaches
+"Awake"); the first frame was not looked at on the screen.

@@ -22,7 +22,10 @@ Assembly-CSharp.dll (the player's copy)
 | `ngu-ilgen` | the generator. |
 | `ngu-host` | typed <-> dynamic bridge: `ToV/FromV`, `Value::Obj` shells bound to generated instances, calls to engine natives by `Type::Method` key, exceptions, delegates, serialization (`deep`). |
 | `ngu-gen` | binary: generated code + host (`game`, `window`, `fuzz`) + unit bench. |
-| `ngu-desktop` | PC window (minifb): mouse, keyboard, fixed logic step, present. |
+| `ngu-desktop` | PC window (minifb software window, `gl.rs` miniquad GPU window): mouse, keyboard, gamepad (gilrs, `pad.rs`), fixed logic step, present; `ngu-window` binary = interpreter-only GPU window for UI work. |
+
+## Console mode (presentation layer)
+See `docs/CONSOLE-MODE.md`. Engine side: `clr/src/console_mode.rs` (settings, scale, controller input, scrolling), the vertical fit in `clr/src/desktop_layout.rs` (`console_vertical`), clips and scrollbars in `clr/src/render.rs`. It only changes presented rectangles (`view_xf`), never the game's own transforms or logic.
 
 ## Representation
 - Game class: `Option<Gc<Cn>>`; fields `fN` in `clr` slot order; `__h` = handle to the engine shell.

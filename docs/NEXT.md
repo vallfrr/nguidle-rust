@@ -83,4 +83,6 @@ Principles and trade-offs in `docs/VISION.md`.
 ---
 
 ## Log of finished tasks
+- 2026-11-22 Vita: two-core host, 2 h soak (59.9 fps, 4 late frames), boot logo removed; console mode mockups and rules (`docs/CONSOLE-MODE.md`, "Journey").
+- 2026-11-23 Console mode on PC (settings switch + scale, generic fit, scrolling by stick / wheel / selection, fixed frames): `docs/CONSOLE-MODE.md`, commits e9d4870 and 0317a89.
 - 2026-11-20 A10, A11, A12, DEV1-3, A1 first pass.

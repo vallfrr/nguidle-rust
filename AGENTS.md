@@ -17,7 +17,7 @@ Three repositories (GPL-3.0): **`nguidle-rust`** (this one: engine + conversion 
 - `crates/ngu-gen`: the game binary (`game`, `window`, `fuzz`). `crates/ngu-desktop`: PC window (minifb), mouse/keyboard.
 - `clr/`: engine (scene, UI, layout, software rendering, focus, dev mode) **and** CIL interpreter that serves as the **oracle**: we compare the generated Rust state with the interpreter's (zero difference tolerated).
 - `tools/nguprep.py` extracts the game data to `out/ngu/` (not versioned). `tools/inventory.py`: screen inventory (local output, not published).
-- Docs: `docs/NEXT.md` (to do), `docs/STATUS.md` (proof), `docs/VISION.md`, `docs/DEV.md` (dev mode), `docs/ARCHITECTURE.md`, `docs/AUDIT-ILGEN.md` (generator conformance), `docs/COMPARISON.md` (vs the original), `docs/CONTROLLER-PROPOSAL.md`, `docs/API-SURFACE.md`.
+- Docs: `docs/CONSOLE-MODE.md` (console mode: status, how it works, limits), `docs/NEXT.md` (to do), `docs/STATUS.md` (proof), `docs/VISION.md`, `docs/DEV.md` (dev mode), `docs/ARCHITECTURE.md`, `docs/AUDIT-ILGEN.md` (generator conformance), `docs/COMPARISON.md` (vs the original), `docs/CONTROLLER-PROPOSAL.md`, `docs/API-SURFACE.md`.
 - Skills (`.claude/skills/README.md`): `ngu-verify` (follow after every change), `ngu-devmode`, `rust-patterns`, `rust-testing`, ponytail (minimal code); Vita skills in `nguidle-vita/.claude/skills/`; web testing in `nguidle-web/.claude/skills/`.
 
 ## Absolute rules
@@ -38,6 +38,7 @@ WSL (`/mnt/j/NGUvita/nguvita`):
 - `tools/regress.sh`: oracle vs native non-regression (after `tools/iter.sh 1`). Must stay all OK.
 - `tools/statediff.sh N`, `tools/savediff.sh`, `tools/divtrace.sh`, `tools/where.sh <gen.rs line>`: state, save and trace comparison, locating a panic.
 - **Dev mode (for you)**: `docs/DEV.md`: `click,<text>`, `ui` (screen as text), `inspect,x,y`, `get/set/call` on game state, `dev/unlock.steps`, `tools/screens.sh` (the 58 menus as PNG + text). Prefer `ui` to screenshots to know what is displayed (cheaper).
+- Console mode steps (`consolemode,on`, `consolescale,120`, `pad,...`, `consolestate`) and the test window `ngu-window`: `docs/DEV.md`.
 - Input scripts `NGU_STEPS="x,y,wait;w,N;f,u;a;m,1;s,file;l,file"` (see `clr/src/script.rs`). Variables: `NGU_FIXED_NOW`, `NGU_NO_GUARD=1` (oracle), `NGU_DUMP`, `NGU_TRACE*`, `NGU_CULTURE`.
 
 Windows (PowerShell, in `J:\NGUvita\nguvita`): the window does not display through WSLg, use Windows.

@@ -18,3 +18,4 @@ bash tools/clr.sh play /mnt/j/NGUvita/nguvita/out/ngu /tmp/final.png \
 - All menus as PNG + text: `bash tools/screens.sh <name> [steps...]`.
 
 Rules: go through the game's own fields/methods (as a save would); never change the translated logic for a test need. File paths absolute (`clr.sh` changes into `clr/`).
+- Console mode: `consolemode,on|off`, `consolescale,100|110|120`, `pad,d|u|l|r|a|s|b|prev|next|holdstart|holdend|scroll[,rows]`, `consolestate`; capture with `pngl,<png>,desktop,<w>,<h>` after `consolemode,on` (it lays the console screen out). See `docs/CONSOLE-MODE.md`.

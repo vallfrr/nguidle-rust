@@ -1,5 +1,14 @@
 # Status: what is verified and what is not
 
+## Console mode on PC, 2026-11-23 (details and limits: `docs/CONSOLE-MODE.md`)
+- Verified by scripted captures (interpreter, same engine as the window): all 58 menus at 100 / 110 / 120 % in 1280 x 720,
+  120 % in 960 x 544 (Dark theme), 120 % in 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); no panic, frames and
+  bolts clean, scrolling pages keep their frame; d-pad / stick / wheel scrolling, hold-L menu list, L / R, selection
+  following; PC mode unchanged pixel for pixel with the mode off; `tools/regress.sh` REGRESSION: ALL OK.
+- **Not verified**: a physical gamepad on this version, the wheel in the real window, anything on the Vita.
+- The maintainer's first playtest of the earlier builds found: stray bolts, wrong selection mark, useless scrollbars, no
+  scale setting; all fixed in this version, to be re-checked by him.
+
 ## Desktop verification on 2026-11-21
 
 - Windows starts at the three-button home screen. The enlarged autosave action
