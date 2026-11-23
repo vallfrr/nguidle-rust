@@ -1,6 +1,9 @@
 # Status: what is verified and what is not
 
 ## Console mode on PC, 2026-11-23 (details and limits: `docs/CONSOLE-MODE.md`)
+- Tighter spacing and independent settings columns cut whole-page scrolling at 120 % from 24 menus to 18 at all
+  three tested resolutions. At 1280 x 720 the combined scroll range fell from 2,204 to 1,678 layout rows. The new-game
+  introduction and all seven ending screens were also checked with the fitted viewport.
 - The console layout keeps the sidebar junctions aligned with the outer frame at every scale. Home, offline progress,
   and the save pickers fit at 960 x 544 and 1280 x 720. Scripted verification captured the 58 menus at all three
   scales in 960 x 544, 1280 x 720 and 1920 x 1080, plus the Dark and Gold themes at 120 % in 960 x 544.

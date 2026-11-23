@@ -18,6 +18,8 @@ pub struct DesktopLayout {
     pub console_hold: bool,
     /// console mode: game rows shown on screen (the rest of the 600 rows is zoomed out of view)
     pub console_view_h: f32,
+    /// A welcome, progress or story screen owns the full viewport.
+    pub(crate) console_modal: bool,
     /// console mode: what scrolls after the last rebuild (only what did not fit), and every scroll offset (game rows),
     /// kept across rebuilds by key (`PAGE`, `COLUMN`, `LIST` or a scroll view's transform)
     pub regions: Vec<ScrollRegion>,
@@ -32,6 +34,7 @@ pub struct DesktopLayout {
     shift: f32,
     canvas: Value,
     rects: FxMap<usize, Xf>,
+    story_text: Option<usize>,
 }
 
 /// Something that scrolls in console mode. `view` is on screen (x0, y0, x1, y1; rows, y down); `extra` rows are hidden
@@ -50,9 +53,11 @@ pub const PAGE: usize = 1;
 pub const COLUMN: usize = 2;
 pub const LIST: usize = 3;
 /// rows kept around content, between two contents, at the frame edges, and the shortest a scroll view gets
-const PAD: f32 = 2.0;
+const PAD: f32 = 1.0;
 const GAP: f32 = 6.0;
+const TIGHT_GAP: f32 = 2.0;
 const EDGE_GAP: f32 = 14.0;
+const SETTINGS_EDGE_GAP: f32 = 6.0;
 const LIST_MIN: f32 = 110.0;
 /// share of a page's rows that may be pressed together rather than scrolled
 const SQUEEZE: f32 = 0.12;
@@ -160,13 +165,19 @@ impl DesktopLayout {
         CONTENT_LEFT - self.shift
     }
 
+    pub(crate) fn fit_story_text(&self, tr: &Value) -> bool {
+        self.story_text.is_some_and(|key| id(tr) == Some(key))
+    }
+
     pub(crate) fn reset_console(&mut self) {
         self.console = false;
         self.console_hold = false;
         self.console_view_h = 0.0;
+        self.console_modal = false;
         self.shift = 0.0;
         self.rects.clear();
         self.clips.clear();
+        self.story_text = None;
         self.pans.clear();
         self.regions.clear();
         self.bars.clear();
@@ -183,7 +194,9 @@ impl DesktopLayout {
     fn rebuild(&mut self, vm: &Vm) {
         self.rects.clear();
         self.clips.clear();
+        self.story_text = None;
         self.shift = 0.0;
+        self.console_modal = false;
         let extra = self.width() - BASE;
         if extra <= 0.0 && !self.console {
             return;
@@ -273,18 +286,24 @@ impl DesktopLayout {
             Some((name, root, x))
         }).collect();
         let boxes = roots.iter().find(|(n, _, _)| n == "Box Canvas");
-        if crate::input::offline_screen_visible(vm) || vm.at_desktop_start() && !crate::save_slots::covers_game_content(vm) {
-            if let Some((_, root, x)) = boxes {
-                let name = if crate::input::offline_screen_visible(vm) { "Splash Screen" } else { "Main Menu Screen" };
-                if let Some(node) = children(root).into_iter().find(|node| {
-                    with_go(&go_of(node), |g| g.active && g.name == name).unwrap_or(false)
-                }) {
-                    if let Some(at) = self.now(&node, x).filter(|at| visible(*at)) {
-                        self.fit(vm, PAGE, &[(node, at)], v, [0.0, right], &views, right - 17.0, 1.0);
-                        return;
-                    }
-                }
+        let fills_screen = |at: Xf| visible(at) && left(at).abs() < 40.0 &&
+            width(at) >= 800.0 && (vertical_bounds(at).0).abs() < 40.0;
+        let full_screen = boxes.and_then(|(_, root, x)| {
+            children(root).into_iter().find_map(|node| {
+                let is_screen = with_go(&go_of(&node), |g| g.active && !g.port_hidden &&
+                    matches!(g.name.as_str(), "Main Menu Screen" | "Splash Screen" | "Start Panel")).unwrap_or(false);
+                let at = self.now(&node, x)?;
+                (is_screen && fills_screen(at)).then_some((node, at))
+            })
+        }).or_else(|| roots.iter().find(|(name, _, at)| name.starts_with("End Panel") && fills_screen(*at))
+            .map(|(_, node, at)| (node.clone(), *at)));
+        if let Some((screen, at)) = full_screen.filter(|_| !crate::save_slots::covers_game_content(vm)) {
+            self.console_modal = true;
+            if v < 599.5 {
+                self.prepare_story(&screen, at);
             }
+            self.fit(vm, PAGE, &[(screen, at)], v, [0.0, right], &views, right - 17.0, 1.0);
+            return;
         }
         // the player column, with the bolts on its section joints
         if let Some((node, rect)) = player.clone().filter(|_| !self.console_hold) {
@@ -346,11 +365,50 @@ impl DesktopLayout {
         let page_left = player.map_or(0.0, |(_, p)| left(p) + width(p));
         // fights must stay whole on screen; elsewhere a small overflow is pressed together, a big one scrolls
         let fight = page.iter().any(|(tr, _)| has_named(tr, &["Adventure Menu", "Boss Menu"]));
-        self.fit(vm, PAGE, &page, v, [page_left, right], &views, right - 17.0, if fight { 1.0 } else { SQUEEZE });
+        if !self.fit_settings_columns(&page, v, &views) {
+            self.fit(vm, PAGE, &page, v, [page_left, right], &views, right - 17.0, if fight { 1.0 } else { SQUEEZE });
+        }
         // pop-ups stay centred on the rows shown
         if let Some((_, root, x)) = boxes {
             let lift = (600.0 - v) / 2.0;
             self.remap(root, *x, &move |y| y - lift, 0.0);
+        }
+    }
+
+    fn prepare_story(&mut self, screen: &Value, at: Xf) {
+        let screen_go = go_of(screen);
+        let name = with_go(&screen_go, |g| g.name.clone()).unwrap_or_default();
+        let screen_width = width(at);
+        let width = screen_width.min(1060.0);
+        let left = left(at) + (screen_width - width) / 2.0;
+        if name == "Start Panel" {
+            let text = crate::save_slots::tr(&crate::save_slots::child(&screen_go, "Text"));
+            if let Some(x) = self.now(&text, &at) {
+                self.rects.insert(id(&text).unwrap(), horizontal(x, left + width * 0.1, width * 0.8));
+            }
+        } else if name.starts_with("End Panel") {
+            let spot_go = crate::save_slots::child(&screen_go, "Ui Spot");
+            let spot = crate::save_slots::tr(&spot_go);
+            let art = crate::save_slots::tr(&crate::save_slots::child(&spot_go, "Final Boss Frame"));
+            let text = crate::save_slots::tr(&crate::save_slots::child(&spot_go, "Text"));
+            let button = crate::save_slots::tr(&crate::save_slots::child(&screen_go, "Button"));
+            let Some(spot_rect) = self.now(&spot, &at) else { return };
+            let (Some(art_rect), Some(text_rect), Some(button_rect)) =
+                (self.now(&art, &spot_rect), self.now(&text, &spot_rect), self.now(&button, &at))
+            else { return };
+            let inset = 14.0;
+            let art_width = width * 0.34;
+            let split = left + 2.0 * inset + art_width;
+            self.place(&art, art_rect, horizontal(art_rect, left + inset, art_width), Area::Scale);
+            let (art_top, _) = vertical_bounds(art_rect);
+            let scale = art_width / (art_rect.w * art_rect.scale[0].abs());
+            let resized = self.now(&art, &spot_rect).unwrap_or(art_rect);
+            self.remap(&art, resized, &|y| art_top + (y - art_top) * scale, 0.0);
+            let button_width = button_rect.w * button_rect.scale[0].abs();
+            self.place(&button, button_rect, horizontal(button_rect, left + inset + (art_width - button_width) / 2.0, button_width), Area::Fixed);
+            let text_width = left + width - split - inset;
+            self.rects.insert(id(&text).unwrap(), horizontal(text_rect, split, text_width));
+            self.story_text = id(&text);
         }
     }
 
@@ -376,6 +434,61 @@ impl DesktopLayout {
         self.regions.push(ScrollRegion { key, view, extra, native, native_range, native_off });
     }
 
+    /// Settings columns are independent: a button in one column does not occupy a blank row in its neighbours.
+    fn fit_settings_columns(&mut self, page: &[(Value, Xf)], target: f32, views: &FxMap<usize, Value>) -> bool {
+        let Some((menu, x)) = page.iter().find_map(|(root, rect)| {
+            std::iter::once((root.clone(), *rect))
+                .chain(children(root).into_iter().filter_map(|child| self.now(&child, rect).map(|at| (child, at))))
+                .find(|(node, at)| visible(*at) && with_go(&go_of(node), |g| {
+                    g.active && !g.port_hidden && g.name == "Settings Menu"
+                }) == Some(true))
+        }) else { return false };
+        let overflow = 600.0 - target;
+        let mut columns = FxMap::default();
+        for child in children(&menu) {
+            if !with_go(&go_of(&child), |g| g.active && !g.port_hidden &&
+                (g.name.starts_with("Settings Panel ") || g.name == "Augment Settings 1")).unwrap_or(false) {
+                continue;
+            }
+            let Some(at) = self.now(&child, &x) else { return false };
+            let (top, bottom) = vertical_bounds(at);
+            let mut solid = Vec::new();
+            let mut lists = Vec::new();
+            self.rows_of(&child, at, views, &mut solid, &mut lists);
+            if !lists.is_empty() || bottom - top <= overflow {
+                return false;
+            }
+            let runs = row_runs([top, bottom], &solid, &lists);
+            let mut sizes: Vec<_> = runs.iter().map(|(_, a, b)| b - a).collect();
+            let mut remaining = overflow;
+            trim_rows(&runs, &mut sizes, &mut remaining, [top, bottom], SETTINGS_EDGE_GAP);
+            if remaining > 0.01 {
+                let available = bottom - top - overflow + remaining;
+                if remaining > available * SQUEEZE {
+                    return false;
+                }
+                let ratio = (available - remaining) / available;
+                sizes.iter_mut().for_each(|size| *size *= ratio);
+            }
+            let map = row_map(&runs, &sizes, top, top);
+            columns.insert(id(&child).unwrap(), map);
+        }
+        if columns.len() != 4 {
+            return false;
+        }
+        let (top, bottom) = vertical_bounds(x);
+        self.rects.insert(id(&menu).unwrap(), vertical(x, top, bottom - top - overflow));
+        for child in children(&menu) {
+            if let Some(at) = self.now(&child, &x) {
+                if let Some(map) = id(&child).and_then(|key| columns.get(&key)) {
+                    self.remap(&child, at, &|y| piecewise(y, map), 0.0);
+                }
+            }
+        }
+        self.pans.remove(&PAGE);
+        true
+    }
+
     /// Squeezes the rows of `parts` (one column or the page) into `target` rows; see `console_vertical`.
     #[allow(clippy::too_many_arguments)]
     /// `squeeze`: the largest share of the rows that may be pressed together (controls get shorter, texts keep their size)
@@ -385,46 +498,11 @@ impl DesktopLayout {
         for (tr, x) in parts {
             self.rows_of(tr, *x, views, &mut solid, &mut lists);
         }
-        // runs of rows: 0 solid, 1 list (a scroll view), 2 empty
-        let mut cuts: Vec<f32> = vec![0.0, 600.0];
-        for (a, b) in solid.iter().copied().chain(lists.iter().map(|(_, a, b)| (*a, *b))) {
-            cuts.extend([a.clamp(0.0, 600.0), b.clamp(0.0, 600.0)]);
-        }
-        cuts.sort_by(f32::total_cmp);
-        cuts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
-        let mut runs: Vec<(u8, f32, f32)> = vec![];
-        for w in cuts.windows(2) {
-            let (a, b) = (w[0], w[1]);
-            let m = (a + b) / 2.0;
-            let class = if solid.iter().any(|&(s, e)| s <= m && m < e) { 0 }
-                else if lists.iter().any(|&(_, s, e)| s <= m && m < e) { 1 } else { 2 };
-            match runs.last_mut() {
-                Some(r) if r.0 == class => r.2 = b,
-                _ => runs.push((class, a, b)),
-            }
-        }
-        let floor = |c: u8, a: f32, b: f32| -> f32 {
-            let len = b - a;
-            match c {
-                0 => len,
-                1 => len.min(LIST_MIN),
-                _ => len.min(if a <= 0.5 || b >= 599.5 { EDGE_GAP } else { GAP }),
-            }
-        };
+        let runs = row_runs([0.0, 600.0], &solid, &lists);
         let mut need = (600.0 - target).max(0.0);
         let mut size: Vec<f32> = runs.iter().map(|r| r.2 - r.1).collect();
-        for class in [2u8, 1u8] {
-            let room: f32 = runs.iter().zip(&size).filter(|(r, _)| r.0 == class).map(|(r, s)| s - floor(r.0, r.1, r.2)).sum();
-            if room <= 0.0 || need <= 0.0 {
-                continue;
-            }
-            let take = need.min(room);
-            for (r, s) in runs.iter().zip(size.iter_mut()).filter(|(r, _)| r.0 == class) {
-                *s -= (*s - floor(r.0, r.1, r.2)) * take / room;
-            }
-            need -= take;
-        }
-        let mut rem = need;
+        trim_rows(&runs, &mut size, &mut need, [0.0, 600.0], EDGE_GAP);
+        let mut rem = if need > 0.01 { need } else { 0.0 };
         let total: f32 = size.iter().sum();
         let squeezed = rem > 0.0 && rem <= total * squeeze;
         if squeezed {
@@ -433,12 +511,7 @@ impl DesktopLayout {
             rem = 0.0;
         }
         let pan = self.pan(key, rem);
-        let mut map = vec![(0.0f32, -pan)];
-        let mut at = -pan;
-        for (r, s) in runs.iter().zip(&size) {
-            at += s;
-            map.push((r.2, at));
-        }
+        let map = row_map(&runs, &size, 0.0, -pan);
         if std::env::var_os("NGU_CONSOLE_DEBUG").is_some() {
             eprintln!("[fit] key {key} target {target} rem {rem} runs {:?} map {:?}", runs.iter().zip(&size).map(|(r, s)| (r.0, r.1 as i32, r.2 as i32, *s as i32)).collect::<Vec<_>>(), map);
         }
@@ -735,6 +808,97 @@ fn piecewise(y: f32, map: &[(f32, f32)]) -> f32 {
     }
     let (a, b) = map[map.len() - 1];
     y - a + b
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowKind {
+    Content,
+    List,
+    Gap,
+}
+
+fn row_runs(bounds: [f32; 2], solid: &[(f32, f32)], lists: &[(Value, f32, f32)]) -> Vec<(RowKind, f32, f32)> {
+    let [start, end] = bounds;
+    let mut cuts = vec![start, end];
+    for (a, b) in solid.iter().copied().chain(lists.iter().map(|(_, a, b)| (*a, *b))) {
+        cuts.extend([a.clamp(start, end), b.clamp(start, end)]);
+    }
+    cuts.sort_by(f32::total_cmp);
+    cuts.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+    let mut runs: Vec<(RowKind, f32, f32)> = Vec::new();
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let middle = (a + b) / 2.0;
+        let kind = if solid.iter().any(|&(s, e)| s <= middle && middle < e) {
+            RowKind::Content
+        } else if lists.iter().any(|&(_, s, e)| s <= middle && middle < e) {
+            RowKind::List
+        } else {
+            RowKind::Gap
+        };
+        match runs.last_mut() {
+            Some(run) if run.0 == kind => run.2 = b,
+            _ => runs.push((kind, a, b)),
+        }
+    }
+    runs
+}
+
+fn trim_rows(runs: &[(RowKind, f32, f32)], sizes: &mut [f32], need: &mut f32, [start, end]: [f32; 2], edge_gap: f32) {
+    for (kind, minimum) in [(RowKind::Gap, GAP), (RowKind::Gap, TIGHT_GAP), (RowKind::List, LIST_MIN)] {
+        if *need <= 0.01 {
+            break;
+        }
+        let available = |&(k, a, b): &(RowKind, f32, f32), size: f32| {
+            if k != kind { return 0.0; }
+            let edge = k == RowKind::Gap && (a - start <= 0.5 || end - b <= 0.5);
+            (size - if edge { edge_gap } else { minimum }).max(0.0)
+        };
+        let room: f32 = runs.iter().zip(sizes.iter()).map(|(r, &s)| available(r, s)).sum();
+        if room > 0.0 {
+            let take = (*need).min(room);
+            for (run, size) in runs.iter().zip(sizes.iter_mut()) {
+                *size -= available(run, *size) * take / room;
+            }
+            *need -= take;
+        }
+    }
+}
+
+fn row_map(runs: &[(RowKind, f32, f32)], sizes: &[f32], start: f32, mut at: f32) -> Vec<(f32, f32)> {
+    let mut map = vec![(start, at)];
+    for (run, size) in runs.iter().zip(sizes) {
+        at += size;
+        map.push((run.2, at));
+    }
+    map
+}
+
+fn vertical_bounds(x: Xf) -> (f32, f32) {
+    let height = x.h * x.scale[1].abs();
+    let top = 600.0 - (x.origin[1] + (1.0 - x.pivot[1]) * height);
+    (top, top + height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tighten_inner_gaps_before_shortening_lists() {
+        let bounds = [0.0, 240.0];
+        let solid = [(18.0, 30.0), (44.0, 60.0), (210.0, 222.0)];
+        let lists = [(Value::Null, 60.0, 210.0)];
+        let runs = row_runs(bounds, &solid, &lists);
+        let mut sizes: Vec<_> = runs.iter().map(|(_, start, end)| end - start).collect();
+        let mut overflow = 20.0;
+        trim_rows(&runs, &mut sizes, &mut overflow, bounds, EDGE_GAP);
+
+        assert_eq!(overflow, 0.0);
+        assert_eq!(sizes, [14.0, 12.0, 2.0, 16.0, 150.0, 12.0, 14.0]);
+        let map = row_map(&runs, &sizes, 0.0, 0.0);
+        assert_eq!(piecewise(240.0, &map), 220.0);
+    }
 }
 
 /// `x` with its top edge at `top` (rows, y down) and height `h`.

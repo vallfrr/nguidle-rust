@@ -389,9 +389,12 @@ impl Renderer {
         if vm.eng.console.is_some() {
             self.draw_console_bars(vm, full);
         }
-        self.draw_dropdown(vm);
+        if !vm.eng.desktop_layout.console_modal {
+            self.draw_dropdown(vm);
+        }
         if let Some(tooltip) = self.tooltip.clone().filter(|tr| {
-            !crate::save_slots::choosing_save(vm) && !crate::input::offline_screen_visible(vm)
+            !vm.eng.desktop_layout.console_modal && !crate::save_slots::choosing_save(vm)
+                && !crate::input::offline_screen_visible(vm)
                 && active_in_hierarchy(&go_of(tr))
         }) {
             let mut x = view_xf(vm, &tooltip);
@@ -659,6 +662,11 @@ impl Renderer {
                     self.draw_image(vm, &x, &i, graphic_clip, focused)
                 }
                 D::Txt(mut t) => {
+                    if vm.eng.desktop_layout.fit_story_text(tr) {
+                        t.best_fit = true;
+                        t.min_size = (t.size * 3 / 4).max(1);
+                        t.max_size = t.size;
+                    }
                     if vm.eng.desktop_layout.pc_resolutions {
                         if let Some(label) = crate::desktop_layout::pc_resolution_label(&t.text) {
                             t.text = label;

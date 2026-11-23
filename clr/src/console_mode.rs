@@ -516,7 +516,7 @@ impl Console {
             Pad::Back => 'b',
             _ => ' ',
         };
-        if vm.dropdown_navigate(modal) {
+        if !vm.eng.desktop_layout.console_modal && vm.dropdown_navigate(modal) {
             return None;
         }
         let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button });
@@ -550,13 +550,13 @@ impl Console {
                 }
                 None
             }
-            Pad::Prev | Pad::Next if !vm.at_desktop_start() && !crate::input::offline_screen_visible(vm) => {
+            Pad::Prev | Pad::Next if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
                 crate::save_slots::close_console_save_page(vm);
                 self.step_menu(vm, if pad == Pad::Prev { -1 } else { 1 });
                 None
             }
             Pad::Prev | Pad::Next => None,
-            Pad::HoldStart if !vm.at_desktop_start() && !crate::input::offline_screen_visible(vm) => {
+            Pad::HoldStart if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
                 let (menus, _) = self.columns.as_ref()?;
                 let now = current_menu(vm);
                 let list = menu_buttons(vm, menus);
