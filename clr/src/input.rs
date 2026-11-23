@@ -161,6 +161,18 @@ fn raycast_node(
         }
         masks.push(rect);
     }
+    let child_clip = vm.eng.desktop_layout.clip_of(tr);
+    if let Some([x0, y0, x1, y1]) = child_clip {
+        let height = vm.eng.screen.1 as f32;
+        masks.push(HitRect::new(&Xf {
+            origin: [x0, height - y1],
+            w: x1 - x0,
+            h: y1 - y0,
+            scale: [1.0, 1.0],
+            pivot: [0.0, 0.0],
+            rot: 0.0,
+        }));
+    }
     let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
     for child in children.iter().rev() {
         if *remaining == 0 {
@@ -172,6 +184,9 @@ fn raycast_node(
         if let Some(cx) = view_child_xf(vm, &x, child) {
             raycast_node(vm, child, cx, probes, masks, remaining);
         }
+    }
+    if child_clip.is_some() {
+        masks.pop();
     }
     if mask {
         masks.pop();

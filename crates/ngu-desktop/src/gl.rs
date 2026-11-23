@@ -78,6 +78,7 @@ struct Stage {
     synth_phase: u8,
     perf: bool,
     p: [f32; 4],
+    update_ms: f32,
     previous_present: Option<Instant>,
     longest_frame_ms: f32,
     missed_frames: u32,
@@ -157,6 +158,7 @@ impl Stage {
             pending: vec![],
             synth_phase: 0,
             perf: std::env::var("NGU_PERF").is_ok() && o.fps > 0,
+            update_ms: 0.0,
             p: [0.0; 4],
             previous_present: None,
             longest_frame_ms: 0.0,
@@ -445,7 +447,8 @@ impl EventHandler for Stage {
         if steps == 6 {
             self.acc = 0.0;
         }
-        self.p[0] += t_logic.elapsed().as_secs_f32() * 1000.0;
+        self.update_ms = t_logic.elapsed().as_secs_f32() * 1000.0;
+        self.p[0] += self.update_ms;
     }
 
     fn draw(&mut self) {
@@ -508,7 +511,8 @@ impl EventHandler for Stage {
         self.ctx.end_render_pass();
         self.ctx.commit_frame();
         self.p[1] += self.rend.t_emit;
-        self.p[2] += t_draw.elapsed().as_secs_f32() * 1000.0;
+        let draw_ms = t_draw.elapsed().as_secs_f32() * 1000.0;
+        self.p[2] += draw_ms;
         self.frames += 1;
         if self.perf {
             let now = Instant::now();
@@ -517,6 +521,14 @@ impl EventHandler for Stage {
                 self.longest_frame_ms = self.longest_frame_ms.max(ms);
                 self.missed_frames += u32::from(ms > 20.0);
                 self.over_200hz_budget += u32::from(ms > 7.5);
+                if ms > 25.0 {
+                    let emit_ms = self.rend.t_emit;
+                    let other_ms = (ms - self.update_ms - emit_ms - draw_ms).max(0.0);
+                    eprintln!(
+                        "[perf] hitch #{} | interval {:.1} ms, update {:.1}, layout+emit {:.1}, draw+submit {:.1}, outside {:.1}",
+                        self.frames, ms, self.update_ms, emit_ms, draw_ms, other_ms
+                    );
+                }
             }
         }
         if self.perf && self.frames % 120 == 0 {

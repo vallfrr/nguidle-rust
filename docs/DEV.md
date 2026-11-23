@@ -60,4 +60,6 @@ Rules: go through the game's own fields and methods (as a save would); never cha
 ## Test window without the native build
 `ngu-window <Assembly-CSharp.dll> <out/ngu> [fps] [max_frames]` (crate `ngu-desktop`, interpreter only): the same GPU window
 and gamepad handling as `ngu-gen window`, built in seconds; `NGU_SAVE_DIR` picks the save folder, `NGU_STEPS` runs steps first.
+Set `NGU_PERF=1` to log frame intervals. Slow frames over 25 ms report update, layout and quad emission, draw and submission,
+and time outside those measured phases. The last value includes presentation waits and scheduling.
 Build: `$env:CARGO_TARGET_DIR="J:\NGUvita\build-ngu-win"; .\tools\capbuild.ps1 10 cargo build --release -p ngu-desktop --bin ngu-window`.

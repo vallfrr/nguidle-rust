@@ -1,11 +1,20 @@
 # Status: what is verified and what is not
 
 ## Console mode on PC, 2026-11-23 (details and limits: `docs/CONSOLE-MODE.md`)
+- The console layout keeps the sidebar junctions aligned with the outer frame at every scale. Home, offline progress,
+  and the save pickers fit at 960 x 544 and 1280 x 720. Scripted verification captured the 58 menus at all three
+  scales in 960 x 544, 1280 x 720 and 1920 x 1080, plus the Dark and Gold themes at 120 % in 960 x 544.
+- Switching the console layout off restores Settings Page 2 pixel for pixel with the same preferences. In the
+  Windows harness, a save and reload in Slot 2 at 120 % left the existing Slot 5 byte-for-byte identical.
+- With a late-game save at 1280 x 720 and a 60 Hz Windows output, two short Inventory runs at 110 % averaged
+  around 59.9 frames/s after startup. Their longest frame intervals were 23.4 ms and 22.8 ms. The earlier
+  150 ms stalls did not recur in these runs.
 - Verified by scripted captures (interpreter, same engine as the window): all 58 menus at 100 / 110 / 120 % in 1280 x 720,
   120 % in 960 x 544 (Dark theme), 120 % in 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); no panic, frames and
   bolts clean, scrolling pages keep their frame; d-pad / stick / wheel scrolling, hold-L menu list, L / R, selection
   following; PC mode unchanged pixel for pixel with the mode off; `tools/regress.sh` REGRESSION: ALL OK.
-- **Not verified**: a physical gamepad on this version, the wheel in the real window, anything on the Vita.
+- The mouse wheel reached the final Basic Training row in the Windows GPU window, and the in-game Off button restored
+  Settings Page 2. A physical gamepad on this version and the new console mode on the Vita remain to be verified.
 - The maintainer's first playtest of the earlier builds found: stray bolts, wrong selection mark, useless scrollbars, no
   scale setting; all fixed in this version, to be re-checked by him.
 

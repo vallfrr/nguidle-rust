@@ -25,28 +25,29 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   and the selection itself: moving past the last visible row scrolls the part and reaches the next row. A new menu starts at
   its top.
 - **Selection**: the port's yellow fill inside the selected control, as on PC and Vita. Square = the game's right click.
+- The top and bottom sidebar junctions stay on the frame edge at all three scales. The welcome and offline-progress screens
+  fit within the chosen viewport, and Save Game and Load Game occupy the right pane. When L is held, controller movement stays
+  in the menu list. Turning the mode off clears the console viewport and its clipping rectangles.
 - Verified (2026-11-23), scripted captures of the 58 menus at 100 / 110 / 120 % in 1280 x 720, 120 % in 960 x 544 (Vita size)
   and 1920 x 1080 (Dark theme), 100 % in 960 x 544 (Gold theme); stick, wheel and d-pad scrolling, hold-L list, L / R; PC mode
   pixel-identical to before when the console mode is off; `tools/regress.sh` all OK.
-- **Not verified**: a physical gamepad with this version (the maintainer's playtest is pending; stick speed, the 250 ms hold
-  delay of L and the d-pad repeat are the first things to tune), the mouse wheel in the real window (verified with the
-  `wheel` script step only), the Vita itself (nothing of the console mode runs there yet).
+- The mouse wheel was verified in the Windows GPU window on Basic Training at 120 %. A physical gamepad playtest
+  (stick speed, the 250 ms hold delay of L and d-pad repeat) and the Vita implementation are pending.
 - **Known limits** (found while verifying, not fixed):
   - a page that scrolls to its end leaves some empty frame colour under its last content (the scroll range includes the
     bottom margin that the squeeze removed);
-  - a control that sits for a moment under the bottom border can still be selected with the pad (the clip only hides it);
-  - the focus rectangle of a control inside a clipped region is not clipped (it is drawn as the game draws it);
   - Money Pit, Fight Boss and Inventory use the generic fit only: no per-menu layout yet, so e.g. the Money Pit picture
     still stretches with the page width as on PC;
   - menus 1 and 2 are empty (they are empty in the PC mode too: no button leads to them), menu 45 / 46 are the two
     "Choose your prize" screens of the game;
-  - 110 % never needs a scrollbar on the 58 menus; 120 % scrolls 24 of them (see the table below).
+  - 110 % adds no whole-page scrollbar on the 58 menus, but it can shorten existing scroll views. At 120 %, 24 whole
+    pages scroll (see the table below).
 - **What scrolls at 120 % (1280 x 720, measured with `consolestate` over the 58 menus; menu index = `MenuSwapper` id, `menu,N`)**:
   - the page itself, inside its fixed frame: menus 4, 11, 12, 14, 18, 19, 20, 24, 25, 28, 30, 31, 39, 40, 41, 42, 44, 48,
     49, 50, 52, 53, 54, 55;
   - only a game list (the page fits, its list scrolls like in the game): menus 3, 5, 10, 13, 15, 21, 22, 32, 33, 34, 35, 38,
     43, 51 (Basic Training's skill lists are menu 0 and scroll with the page header fixed);
-  - nothing scrolls: the others, and none at 100 % and 110 %.
+  - no whole-page scrollbar is added at 100 % or 110 %.
 - **Not done yet**: per-menu reorganisations beyond the generic fit (the maintainer's notes: Fight Boss bottom part smaller
   and portraits bigger, Money Pit picture proportions, Inventory bigger), amount pad, in-game keyboard, Adventure
   face-button skills, inventory pick-up with buttons, the glyph prompts (the glyph sheet below is design only), touch, the

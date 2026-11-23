@@ -251,6 +251,7 @@ pub struct Click {
 #[derive(Default)]
 pub struct Console {
     pub hold: bool,
+    focus_before_hold: Value,
     /// the menu column and the player column (root canvases)
     columns: Option<(Value, Value)>,
     /// junction bolts of the root canvas: on the menu column's right edge, and on the player column's sections
@@ -430,11 +431,8 @@ impl Console {
         for b in self.bolts.take().map(|(a, b)| [a, b].concat()).unwrap_or_default() {
             set_hidden(&b, false);
         }
-        let d = &mut vm.eng.desktop_layout;
-        (d.console, d.console_hold, d.console_view_h) = (false, false, 0.0);
-        d.pans.clear();
-        d.regions.clear();
-        d.bars.clear();
+        vm.eng.desktop_layout.reset_console();
+        relayout(vm);
     }
 
     fn step_menu(&mut self, vm: &mut Vm, delta: i32) {
@@ -467,6 +465,50 @@ impl Console {
 
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
+        if self.hold {
+            match pad {
+                Pad::Dir(d @ ('u' | 'd')) => {
+                    if let Some((menus, _)) = &self.columns {
+                        let list = menu_buttons(vm, menus);
+                        if let Some(index) = list.iter().position(|(go, _)| same(go, &vm.eng.focus)) {
+                            let next = if d == 'u' { index.checked_sub(1) } else { Some(index + 1) };
+                            if let Some((go, _)) = next.and_then(|n| list.get(n)) {
+                                crate::focus::select_control(vm, go);
+                                self.follow(vm);
+                            }
+                        }
+                    }
+                }
+                Pad::Scroll(_, dy) => {
+                    if let Some(region) = vm.eng.desktop_layout.regions.iter().find(|r| r.key == LIST).cloned() {
+                        scroll_region(vm, &region, dy);
+                    }
+                }
+                Pad::HoldEnd | Pad::Back => {
+                    let chosen = (pad == Pad::HoldEnd).then(|| {
+                        self.columns.as_ref().and_then(|(menus, _)| {
+                            menu_buttons(vm, menus).into_iter().find(|(go, _)| same(go, &vm.eng.focus))
+                        })
+                    }).flatten();
+                    self.hold = false;
+                    self.apply(vm);
+                    crate::focus::clear(vm);
+                    let previous = std::mem::take(&mut self.focus_before_hold);
+                    let next = chosen.filter(|(_, id)| *id != current_menu(vm));
+                    if let Some((go, _)) = &next {
+                        crate::save_slots::close_console_save_page(vm);
+                        open(vm, go);
+                        new_page(vm);
+                    }
+                    relayout(vm);
+                    if next.is_none() && active_in_hierarchy(&previous) {
+                        crate::focus::select_control(vm, &previous);
+                    }
+                }
+                _ => {}
+            }
+            return None;
+        }
         let modal = match pad {
             Pad::Dir('u') => 'u',
             Pad::Dir('d') => 'd',
@@ -503,46 +545,32 @@ impl Console {
             Pad::Activate => click(vm, 0),
             Pad::Secondary => click(vm, 1),
             Pad::Back => {
-                if self.hold {
-                    return None;
-                }
                 if !vm.back_from_desktop_picker() {
                     crate::focus::clear(vm);
                 }
                 None
             }
-            Pad::Prev | Pad::Next if !self.hold => {
+            Pad::Prev | Pad::Next if !vm.at_desktop_start() && !crate::input::offline_screen_visible(vm) => {
+                crate::save_slots::close_console_save_page(vm);
                 self.step_menu(vm, if pad == Pad::Prev { -1 } else { 1 });
                 None
             }
             Pad::Prev | Pad::Next => None,
-            Pad::HoldStart => {
+            Pad::HoldStart if !vm.at_desktop_start() && !crate::input::offline_screen_visible(vm) => {
+                let (menus, _) = self.columns.as_ref()?;
+                let now = current_menu(vm);
+                let list = menu_buttons(vm, menus);
+                let (go, _) = list.iter().find(|(_, id)| *id == now).or(list.first())?;
+                self.focus_before_hold = vm.eng.focus.clone();
                 self.hold = true;
                 vm.eng.desktop_layout.pans.remove(&LIST);
                 self.apply(vm);
                 relayout(vm);
-                let Some((menus, _)) = self.columns.clone() else { return None };
-                let now = current_menu(vm);
-                if let Some((go, _)) = menu_buttons(vm, &menus).into_iter().find(|(_, id)| *id == now) {
-                    crate::focus::select_control(vm, &go);
-                    self.follow(vm);
-                }
+                crate::focus::select_control(vm, go);
+                self.follow(vm);
                 None
             }
-            Pad::HoldEnd => {
-                let chosen = self.columns.clone().and_then(|(menus, _)| {
-                    menu_buttons(vm, &menus).into_iter().find(|(go, _)| same(go, &vm.eng.focus))
-                });
-                self.hold = false;
-                self.apply(vm);
-                crate::focus::clear(vm);
-                if let Some((go, _)) = chosen {
-                    open(vm, &go);
-                    new_page(vm);
-                }
-                relayout(vm);
-                None
-            }
+            Pad::HoldStart | Pad::HoldEnd => None,
             Pad::Scroll(dx, dy) => {
                 // the region under the selection, else the one in the middle of the page
                 let r = region_of_focus(vm).or_else(|| {

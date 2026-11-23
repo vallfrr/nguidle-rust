@@ -166,7 +166,7 @@ struct Screen {
     next: (Value, Value),
     main_menu: (Value, Value),
     achievements: AchievementGrid,
-    frame_junctions: [Value; 2],
+    frame_junctions: [[Value; 2]; 2],
     actions: Vec<(Value, Action)>,
     themed: Vec<(Value, Value)>,
 }
@@ -1088,7 +1088,8 @@ fn build(vm: &mut Vm) -> Screen {
     let state_node = new_node(vm, "Unlock State", &details_parent, [0.09, 0.91], 301.0, 30.0);
     let state = text(vm, &state_node, subtitle_style.as_ref(), Some(15), 4);
     let canvas = named_go(vm, "Canvas").unwrap_or_default();
-    let frame_junctions = ["Middle Bolt", "Middle Bolt (3)"].map(|name| tr(&child(&canvas, name)));
+    let frame_junctions = [["Middle Bolt", "Middle Bolt (3)"], ["Middle Bolt (1)", "Middle Bolt (2)"]]
+        .map(|names| names.map(|name| tr(&child(&canvas, name))));
     Screen {
         root,
         panel,
@@ -1578,8 +1579,24 @@ pub(crate) fn covers_game_content(vm: &Vm) -> bool {
     matches!(vm.eng.save_slots.mode, Some(Mode::Create | Mode::Save | Mode::Load))
 }
 
+pub(crate) fn content_panels(vm: &Vm) -> Option<(Value, Value)> {
+    if !covers_game_content(vm) {
+        return None;
+    }
+    vm.eng.save_slots.ui.as_ref().map(|ui| (tr(&ui.panel), tr(&ui.locked_sidebar)))
+}
+
 pub(crate) fn frame_junctions(vm: &Vm) -> Option<[Value; 2]> {
-    vm.eng.save_slots.ui.as_ref().map(|ui| ui.frame_junctions.clone())
+    let console = vm.eng.desktop_layout.console;
+    vm.eng.save_slots.ui.as_ref().map(|ui| ui.frame_junctions[usize::from(console)].clone())
+}
+
+pub(crate) fn close_console_save_page(vm: &mut Vm) {
+    if covers_game_content(vm) && !choosing_save(vm) {
+        let mut state = std::mem::take(&mut vm.eng.save_slots);
+        close(vm, &mut state);
+        vm.eng.save_slots = state;
+    }
 }
 
 pub(crate) fn choosing_save(vm: &Vm) -> bool {
@@ -2527,7 +2544,8 @@ pub(crate) fn click(vm: &mut Vm, go: &Value, x: f32) -> bool {
         let leaves_steam = state.mode == Some(Mode::Achievements) && with_go(go, |g| {
             matches!(g.name.as_str(), "Page 1" | "Page 2" | "Back to Info n Stuff")
         }).unwrap_or(false);
-        if leaves_steam || x < CONTENT_LEFT && vm.has_handler(go, crate::input::Ev::Click) {
+        let content_left = vm.eng.desktop_layout.content_left();
+        if leaves_steam || x < content_left && vm.has_handler(go, crate::input::Ev::Click) {
             close(vm, &mut state);
         }
         false

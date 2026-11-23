@@ -156,6 +156,22 @@ impl DesktopLayout {
         self.clips.get(&id(tr)?).copied()
     }
 
+    pub(crate) fn content_left(&self) -> f32 {
+        CONTENT_LEFT - self.shift
+    }
+
+    pub(crate) fn reset_console(&mut self) {
+        self.console = false;
+        self.console_hold = false;
+        self.console_view_h = 0.0;
+        self.shift = 0.0;
+        self.rects.clear();
+        self.clips.clear();
+        self.pans.clear();
+        self.regions.clear();
+        self.bars.clear();
+    }
+
     pub fn width(&self) -> f32 {
         if self.console && self.width > 0.0 { self.width } else { self.width.max(BASE) }
     }
@@ -166,6 +182,8 @@ impl DesktopLayout {
 
     fn rebuild(&mut self, vm: &Vm) {
         self.rects.clear();
+        self.clips.clear();
+        self.shift = 0.0;
         let extra = self.width() - BASE;
         if extra <= 0.0 && !self.console {
             return;
@@ -247,7 +265,6 @@ impl DesktopLayout {
         let v = self.console_view_h.min(600.0);
         self.bars.clear();
         self.regions.clear();
-        self.clips.clear();
         let views = scroll_views(vm);
         let right = self.width();
         let roots: Vec<(String, Value, Xf)> = children(&self.canvas).into_iter().filter_map(|root| {
@@ -255,11 +272,37 @@ impl DesktopLayout {
             let x = self.now(&root, &canvas)?;
             Some((name, root, x))
         }).collect();
+        let boxes = roots.iter().find(|(n, _, _)| n == "Box Canvas");
+        if crate::input::offline_screen_visible(vm) || vm.at_desktop_start() && !crate::save_slots::covers_game_content(vm) {
+            if let Some((_, root, x)) = boxes {
+                let name = if crate::input::offline_screen_visible(vm) { "Splash Screen" } else { "Main Menu Screen" };
+                if let Some(node) = children(root).into_iter().find(|node| {
+                    with_go(&go_of(node), |g| g.active && g.name == name).unwrap_or(false)
+                }) {
+                    if let Some(at) = self.now(&node, x).filter(|at| visible(*at)) {
+                        self.fit(vm, PAGE, &[(node, at)], v, [0.0, right], &views, right - 17.0, 1.0);
+                        return;
+                    }
+                }
+            }
+        }
         // the player column, with the bolts on its section joints
         if let Some((node, rect)) = player.clone().filter(|_| !self.console_hold) {
             let at = id(&node).and_then(|k| self.rects.get(&k).copied()).unwrap_or(rect);
             let mut parts = vec![(node, at)];
-            parts.extend(roots.iter().filter(|(n, _, x)| n.starts_with("Middle Bolt") && left(*x) < 200.0).map(|(_, r, x)| (r.clone(), *x)));
+            for (_, bolt, x) in roots.iter().filter(|(n, _, x)| n.starts_with("Middle Bolt") && left(*x) < 200.0) {
+                let y = 600.0 - x.origin[1];
+                if y < 30.0 || y > 570.0 {
+                    // The fixed corner follows the frame edge, even when the column's contents squeeze.
+                    let mut fixed = *x;
+                    if y > 570.0 {
+                        fixed.origin[1] += 600.0 - v;
+                    }
+                    self.rects.insert(id(bolt).unwrap(), fixed);
+                } else {
+                    parts.push((bolt.clone(), *x));
+                }
+            }
             let colw = width(at) + left(at);
             self.fit(vm, COLUMN, &parts, v, [0.0, colw], &views, colw - 18.0, 1.0);
         }
@@ -274,6 +317,14 @@ impl DesktopLayout {
             self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
             let x1 = left(at) + width(at);
             self.region(LIST, [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0, [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
+        }
+        if let Some((panel, shade)) = crate::save_slots::content_panels(vm) {
+            let left = self.content_left();
+            let at = horizontal(xf(vm, &panel), left, right - left);
+            let shade_rect = horizontal(xf(vm, &shade), 0.0, left);
+            self.rects.insert(id(&shade).unwrap(), vertical(shade_rect, 0.0, v));
+            self.fit(vm, PAGE, &[(panel, at)], v, [left, right], &views, right - 17.0, 1.0);
+            return;
         }
         if v >= 599.5 {
             return;
@@ -297,7 +348,7 @@ impl DesktopLayout {
         let fight = page.iter().any(|(tr, _)| has_named(tr, &["Adventure Menu", "Boss Menu"]));
         self.fit(vm, PAGE, &page, v, [page_left, right], &views, right - 17.0, if fight { 1.0 } else { SQUEEZE });
         // pop-ups stay centred on the rows shown
-        if let Some((_, root, x)) = roots.iter().find(|(n, _, _)| n == "Box Canvas") {
+        if let Some((_, root, x)) = boxes {
             let lift = (600.0 - v) / 2.0;
             self.remap(root, *x, &move |y| y - lift, 0.0);
         }
