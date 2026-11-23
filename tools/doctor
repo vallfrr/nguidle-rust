@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Check the workstation and the supported read-only game installation."""
+import argparse
+import ctypes
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tomllib
+
+from workspace_env import REPO, Workspace
+
+
+def command(*args, timeout=20):
+    try:
+        run = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, ""
+    output = run.stdout.strip().splitlines()
+    return run.returncode == 0, output[-1] if output else ""
+
+
+def memory_bytes():
+    if os.name == "nt":
+        data = (ctypes.c_ulonglong * 8)()
+        data[0] = ctypes.sizeof(data)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(data)):
+            return data[1]
+        return 0
+    memory = Path("/proc/meminfo")
+    if memory.is_file():
+        return int(memory.read_text().splitlines()[0].split()[1]) * 1024
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--home")
+    parser.add_argument("--game-dir")
+    args = parser.parse_args()
+    workspace = Workspace(args.home, args.game_dir)
+    failures = 0
+
+    def report(ok, label, detail):
+        nonlocal failures
+        print(f"{'OK' if ok else 'FAIL'}  {label} — {detail}")
+        failures += not ok
+
+    def rust(manifest):
+        if not manifest.is_file():
+            report(False, "Rust toolchain", f"Missing {manifest.name}")
+            return
+        with manifest.open("rb") as file:
+            name = tomllib.load(file)["toolchain"]["channel"]
+        ok, version = command("rustup", "run", name, "rustc", "--version")
+        report(ok, f"Rust {name}", version or "Run tools/setup")
+        return name
+
+    rust(REPO / "rust-toolchain.toml")
+    report(sys.version_info >= (3, 11), "Python", sys.version.split()[0])
+    ok, packages = command(str(workspace.python), "-c",
+        "from importlib.metadata import version; import UnityPy; "
+        "print('UnityPy=' + version('UnityPy') + '; TypeTreeGeneratorAPI=' + version('TypeTreeGeneratorAPI'))")
+    report(ok and packages == "UnityPy=1.25.4; TypeTreeGeneratorAPI=0.0.10",
+        "Asset preparation", packages or "Run tools/setup")
+    ok, manifest = command(sys.executable, str(REPO / "tools/verify_game_data.py"), str(workspace.game), timeout=90)
+    report(ok, "Steam Windows 1.260 manifest", manifest or "Set NGU_GAME_DIR to NGUIdle_Data")
+    existing = next((path for path in (workspace.build, workspace.home, *workspace.home.parents) if path.exists()))
+    free = shutil.disk_usage(existing).free / 1024**3
+    ram = memory_bytes() / 1024**3
+    report(free >= 15, "Build drive", f"{free:.1f} GiB free")
+    report(ram >= 12, "Memory", f"{ram:.1f} GiB total")
+    print("DOCTOR: OK" if not failures else f"DOCTOR: {failures} issue(s)")
+    return bool(failures)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

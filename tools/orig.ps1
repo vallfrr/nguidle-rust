@@ -1,7 +1,11 @@
 # orig.ps1 : drives the original game (Windows) for comparison.
 #   . .\tools\orig.ps1 ; Start-Orig ; Save-OrigShot out\compare\orig\titre.png ; Send-OrigClick 480 505 ; Stop-Orig
 # Coordinates: client-area pixels (960x600 by default), top-left origin (like our script steps).
-param([string]$Exe = "J:\NGUvita\NGU IDLE\NGUIdle.exe")
+param([string]$Exe)
+if (!$Exe) {
+    . (Join-Path $PSScriptRoot 'environment.ps1')
+    $Exe = Join-Path (Split-Path -Parent (Get-NguPaths).Game) 'NGUIdle.exe'
+}
 Add-Type -ReferencedAssemblies System.Drawing @"
 using System; using System.Runtime.InteropServices; using System.Drawing;
 public static class W {

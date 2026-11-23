@@ -1040,15 +1040,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ngu-browser"
-version = "0.1.0"
-dependencies = [
- "clr",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "ngu-desktop"
 version = "0.1.0"
 dependencies = [

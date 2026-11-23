@@ -5,6 +5,11 @@ Method: replay the same real play session automatically, record every frame, let
 Nothing here needs a person (or a model) in the loop: one command per measurement, one short report per run.
 
 ## Pieces
+
+The host, scenarios and benchmark tools live in the
+[Vita checkout](https://github.com/vallfrr/nguidle-vita). Run the commands below
+from that checkout.
+
 | Piece | What it does |
 | --- | --- |
 | `clr/src/autoplay.rs` | Scenario reader. Injects the console's own inputs (`ngu_pad`, touch through `ngu_frame`, `ngu_scroll`) at given **simulation ticks** (30 per game second, independent of the frame rate, so a slow frame never reorders the session). Also the PC runner `clr <dll> autoplay <assets> <scenario> <trace.csv>`. |
@@ -29,13 +34,13 @@ One event per line: `<tick> pad <chars>` (`u d l r` focus, `a` confirm, `b` back
 ## Commands
 ```sh
 # PC, hardware independent (WSL): where the interpreted work goes
-tools/ngu-profile.sh nguidle-vita/scenarios/tour.txt 20
+bash tools/ngu-profile.sh scenarios/tour.txt 20
 # console, one run (needs VITA_AGENT, the Vita SDK, the data pack on the console)
-tools/vita-cycle.sh session baseline          # then: cp out/vita-60/baseline/summary.json out/vita-60/baseline.json
+bash tools/vita-cycle.sh session baseline
 # console, several variants unattended
-tools/vita-batch.sh base:session fast:session:NGU_VITA_FAST_CLOCKS=ON monkey:monkey
+bash tools/vita-batch.sh base:session fast:session:NGU_VITA_FAST_CLOCKS=ON monkey:monkey
 ```
-A late-game measurement needs the late-game save: `FIXTURE=/path/NGUSaveSteam.txt tools/vita-cycle.sh tour late-tour`
+A late-game measurement needs the late-game save: `FIXTURE=/path/NGUSaveSteam.txt bash tools/vita-cycle.sh tour late-tour`
 (the benchmark build uses `bench/save` as its save folder).
 
 ## Rules for the optimization loop

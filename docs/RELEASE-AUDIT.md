@@ -22,7 +22,8 @@ requires evidence from the target runtime.
   output and saves use separate volumes. The default published port is local.
 - **nguidle-vita** owns the VitaSDK host, packaging, touch, buttons and console deployment. Both runtime variants booted on a console. The interpreter preview completed the 30-minute advanced-save run at 960 × 544. The 60 Hz gameplay target, two-refresh focus response, sleep/resume and remaining small-screen interactions are open. See the [Vita hardware audit](VITA.md).
 
-The layout and draw list are shared. Platform entry points own display pacing,
+See [the engine porting contract](PORTING.md) for revision pins and interface
+ownership. The layout and draw list are shared. Platform entry points own display pacing,
 input and save storage integration. The shared `clr` crate contains the save
 interface, layout transformations and runtime hooks.
 

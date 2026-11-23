@@ -1,16 +1,21 @@
 param(
-    [Parameter(Mandatory=$true)][string]$GameData,
-    [string]$Python = 'python',
+    [string]$GameData,
+    [string]$Python,
     [string]$Output,
     [string]$TargetDir,
-    [switch]$ExtractOnly
+    [switch]$ExtractOnly,
+    [switch]$SkipMilestoneIcons
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'environment.ps1')
+$paths = Get-NguPaths
+$repo = $paths.Repo
+if (!$GameData) { $GameData = $paths.Game }
+if (!$Python) { $Python = if (Test-Path -LiteralPath $paths.PrepPython) { $paths.PrepPython } else { 'python' } }
 $game = (Resolve-Path -LiteralPath $GameData).Path
-$out = [IO.Path]::GetFullPath($(if ($Output) { $Output } else { Join-Path $repo 'out/pc' }))
-$target = [IO.Path]::GetFullPath($(if ($TargetDir) { $TargetDir } else { Join-Path $repo 'build/pc' }))
+$out = [IO.Path]::GetFullPath($(if ($Output) { $Output } else { Join-Path $paths.Work 'prepared/pc' }))
+$target = [IO.Path]::GetFullPath($(if ($TargetDir) { $TargetDir } else { Join-Path $paths.Build 'win' }))
 $gamePrefix = $game.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 foreach ($destination in $out, $target) {
     if ($destination -eq $game -or $destination.StartsWith($gamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -22,8 +27,10 @@ foreach ($destination in $out, $target) {
 if ($LASTEXITCODE -ne 0) { throw 'Game data verification failed.' }
 & $Python (Join-Path $PSScriptRoot 'nguprep.py') --game-data $game --out $out
 if ($LASTEXITCODE -ne 0) { throw 'Game data extraction failed.' }
-& $Python (Join-Path $PSScriptRoot 'fetch-achievement-icons.py') $out
-if ($LASTEXITCODE -ne 0) { Write-Warning 'Steam achievement icons are temporarily unavailable. The game will show text in their place.' }
+if (!$SkipMilestoneIcons) {
+    & $Python (Join-Path $PSScriptRoot 'fetch-achievement-icons.py') $out
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'Steam achievement icons are temporarily unavailable. The game will show text in their place.' }
+}
 if ($ExtractOnly) { return }
 
 $env:CARGO_TARGET_DIR = $target
