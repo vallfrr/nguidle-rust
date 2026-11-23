@@ -1,6 +1,13 @@
-"""Inventory of the game's screens / interactive elements, generated from out/ngu/scene.json. Output: local/docs/SCREEN-INVENTORY.md (not published: game texts)"""
+"""Inventory of the game's screens and controls. Keep the output local."""
+import argparse
 import json, collections, re
-d = json.load(open(r"J:\NGUvita\nguvita\out\ngu\scene.json", encoding="utf-8")); O = d["objects"]
+from pathlib import Path
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("scene", type=Path, help="prepared scene.json path")
+parser.add_argument("output", type=Path, help="local Markdown report path")
+args = parser.parse_args()
+O = json.loads(args.scene.read_text(encoding="utf-8"))["objects"]
 rt = {k: v for k, v in O.items() if v["t"] == "RectTransform"}
 def go(k): return O[O[k]["d"]["m_GameObject"]]
 def comps(g):
@@ -45,14 +52,14 @@ for k in rt[cv]["d"]["m_Children"]:
     acc = {"btn": [], "trig": [], "sld": [], "inp": [], "scr": [], "tog": [], "scripts": collections.Counter()}
     walk(k, acc)
     a = rt[k]["d"]; sx = a["m_SizeDelta"]
-    lines.append(f"\n## {name}  ({sx['x']:.0f}x{sx['y']:.0f}, ancrage {a['m_AnchorMin']['x']:.0f},{a['m_AnchorMin']['y']:.0f}-{a['m_AnchorMax']['x']:.0f},{a['m_AnchorMax']['y']:.0f})")
+    lines.append(f"\n## {name}  ({sx['x']:.0f}x{sx['y']:.0f}, anchors {a['m_AnchorMin']['x']:.0f},{a['m_AnchorMin']['y']:.0f}-{a['m_AnchorMax']['x']:.0f},{a['m_AnchorMax']['y']:.0f})")
     lines.append(f"btn {len(acc['btn'])} | trig {len(acc['trig'])} | sld {len(acc['sld'])} | inp {len(acc['inp'])} | scr {len(acc['scr'])} | tog {len(acc['tog'])}")
     for n in ("btn", "trig", "sld", "inp", "scr", "tog"): tot[n] += len(acc[n])
     if acc["btn"]: lines.append("- buttons: " + "; ".join(f"{l} -> {m}" for l, m in acc["btn"][:14]) + (" ..." if len(acc["btn"]) > 14 else ""))
     if acc["inp"]: lines.append("- inputs: " + ", ".join(acc["inp"][:8]))
     if acc["scr"]: lines.append("- scrolling: " + ", ".join(acc["scr"][:6]))
     if acc["scripts"]: lines.append("- game scripts: " + ", ".join(f"{c}x{n}" for c, n in acc["scripts"].most_common(10)))
-lines.insert(2, f"Totaux : {dict(tot)}\n")
-__import__("os").makedirs("local/docs", exist_ok=True)
-open("local/docs/SCREEN-INVENTORY.md", "w", encoding="utf-8").write("\n".join(lines))
+lines.insert(2, f"Totals: {dict(tot)}\n")
+args.output.parent.mkdir(parents=True, exist_ok=True)
+args.output.write_text("\n".join(lines), encoding="utf-8")
 print("ok", dict(tot), len(lines))

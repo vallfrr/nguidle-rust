@@ -1,3 +1,4 @@
+#[cfg(feature = "legacy-vita-save")]
 use clr::bcl_core::{b64_dec, b64_enc};
 use clr::nrbf::{parse, N};
 use clr::value::Value;
@@ -37,6 +38,55 @@ fn rejects_truncated_string_records() {
     for size in 0..bytes.len() {
         assert!(parse(&bytes[..size]).is_err(), "prefix of {size} bytes");
     }
+}
+
+#[test]
+fn checks_null_runs_against_the_remaining_slots() {
+    let mut bytes = header();
+    bytes.extend([16, 1, 0, 0, 0, 2, 0, 0, 0, 10, 14, 1, 0, 0, 0, 11]);
+    assert!(parse(&bytes).is_ok());
+
+    let run_length = bytes.len() - 5;
+    bytes[run_length] = 2;
+    assert_eq!(
+        parse(&bytes).err().as_deref(),
+        Some("invalid null run length")
+    );
+}
+
+#[test]
+fn reads_library_records_without_nesting_the_parser() {
+    let mut bytes = header();
+    for id in 1_i32..=1024 {
+        bytes.push(12);
+        bytes.extend(id.to_le_bytes());
+        bytes.extend([1, b'L']);
+    }
+    bytes.extend([10, 11]);
+    let stream = parse(&bytes).expect("synthetic records");
+    assert_eq!(stream.libs.len(), 1024);
+}
+
+#[test]
+fn caps_nested_arrays_and_rejects_invalid_length_prefixes() {
+    let mut nested = header();
+    for id in 1_i32..=130 {
+        nested.push(16);
+        nested.extend(id.to_le_bytes());
+        nested.extend(1_i32.to_le_bytes());
+    }
+    nested.extend([10, 11]);
+    assert_eq!(
+        parse(&nested).err().as_deref(),
+        Some("save has too many nested records")
+    );
+
+    let mut invalid_string = header();
+    invalid_string.extend([6, 1, 0, 0, 0, 0x80, 0x80, 0x80, 0x80, 0x08]);
+    assert_eq!(
+        parse(&invalid_string).err().as_deref(),
+        Some("bad length prefix")
+    );
 }
 
 fn fixture_vm() -> Vm {
@@ -80,6 +130,7 @@ fn round_trips_an_object_field() {
     assert!(matches!(first_field(&decoded), Value::I32(-42)));
 }
 
+#[cfg(feature = "legacy-vita-save")]
 fn legacy_object(name: &str, fields: &[(&str, Vec<u8>)]) -> Vec<u8> {
     fn sized(bytes: &mut Vec<u8>, value: &[u8]) {
         bytes.extend(u32::try_from(value.len()).unwrap().to_le_bytes());
@@ -97,6 +148,7 @@ fn legacy_object(name: &str, fields: &[(&str, Vec<u8>)]) -> Vec<u8> {
     bytes
 }
 
+#[cfg(feature = "legacy-vita-save")]
 fn legacy_string(text: &str) -> Vec<u8> {
     let mut bytes = vec![6];
     bytes.extend(u32::try_from(text.len()).unwrap().to_le_bytes());
@@ -105,6 +157,7 @@ fn legacy_string(text: &str) -> Vec<u8> {
 }
 
 #[test]
+#[cfg(feature = "legacy-vita-save")]
 fn legacy_conversion_checks_the_digest_and_preserves_the_payload() {
     use md5::{Digest, Md5};
 

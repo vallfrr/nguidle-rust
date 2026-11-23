@@ -29,7 +29,9 @@ One event per line: `<tick> pad <chars>` (`u d l r` focus, `a` confirm, `b` back
 ## Trace record (16 little-endian u32)
 `frame, t_us, work_us (no vsync wait), logic, layout, emit, draw, swap, upload, tick, steps, instr, menu, action, marks, flags`
 (flags: 1 = scanout repeat seen, 2 = texture/atlas upload in the frame, 4 = scenario finished). Header `NGUT` + a count the host does not rewrite
-(readers use the file size). `t_us` differences give the real presentation cadence: a gap above ~25 ms is a missed refresh.
+(readers use the file size). `work_us` is the larger of the render work excluding swap wait and the longest logic iteration collected since the previous trace record. `t_us` differences describe render-loop cadence. The scanout sampler measures whether the display takes a new buffer.
+
+Benchmark averages of input, logic, layout and emit use the number of completed logic iterations (`logic_samples`). Draw, upload and swap averages use the number of render iterations. Historical logs predating this separation are unsuitable for comparing stage averages. The trace keeps the same binary field order and disk logs report the cumulative number of dropped lines.
 
 ## Commands
 ```sh
@@ -70,7 +72,7 @@ Changes (each one checked: `tools/regress.sh` ALL OK, and the save digests of th
    interpreter on anything unexpected. A menu switch now costs 93 k instructions instead of 400 k.
 2. **Time-sliced steps** (`Vm::frame_start` / `frame_run`, `clr/src/capi.rs`): a step runs over one or two display frames, cut between two
    `Update` components, with the same callback order. The budget is planned from the measured cost of a step and of a redraw
-   (`NGU_FRAME_MS`, default 12 ms; `NGU_SLICE_MS`, default 12 on the Vita, 0 = off elsewhere). Discrete input (press, release, pad action, stick)
+   (the historical benchmark used a 12 ms slice). Discrete input (press, release, pad action, stick)
    completes the step first, and the layout only runs between steps, so the game state does not depend on where a step was cut
    (verified at a 0.05 ms budget, which cuts every step into hundreds of slices).
 3. **No redraw on unchanged frames**: when no step completed and nothing was touched, the host draws the previous list again.
@@ -91,7 +93,7 @@ stage delayed the refresh. The host now runs two threads:
   presents with vsync, whatever L is doing. A long simulation step no longer delays a refresh; it only delays the next new list.
 - Textures and the glyph atlas are copied by L (the engine's RAM copy is freed at once) and uploaded by R; a sprite still in flight is skipped for a frame or two.
 - The keyboard dialog lives on R; requests and results go through a small mailbox. Log lines go to a worker thread.
-- Time slicing is off by default on the Vita now (`NGU_SLICE_MS=0`): the simulation has a core of its own.
+- Normal builds use complete simulation steps. The C host reads experimental settings once at initialization. `NGU_SLICE_MS` defaults to 0, and a positive value enables the experiment. `NGU_FRAME_MS` defaults to 12 ms and is used only by that path. `NGU_NO_SKIP` disables reuse of a completed draw list when no new list is needed. The standard Vita menus expose none of these settings.
 Findings that only the per-frame trace could show (each fixed after one measurement):
 1. A synchronous log append every 5 s took ~80 ms (now asynchronous).
 2. `glTexSubImage2D` on a texture in use costs ~65 ms per call whatever the size (strips made it worse); every atlas update now goes into a fresh

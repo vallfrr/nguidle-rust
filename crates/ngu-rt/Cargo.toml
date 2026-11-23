@@ -2,4 +2,4 @@
 name = "ngu-rt"
 version = "0.1.0"
 edition = "2021"
-description = "Runtime ouvert pour le code Rust genere depuis NGU Idle (types .NET, BCL)"
+description = "Runtime and .NET base classes for translated NGU Idle code"

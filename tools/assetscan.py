@@ -1,8 +1,12 @@
-"""Inventory of the game's Unity objects (read-only). Usage: python assetscan.py"""
-import collections, sys, UnityPy
+"""Inventory of the game's Unity objects (read-only)."""
+import argparse
+import collections
+import UnityPy
 
-D = r"J:\NGUvita\NGU IDLE\NGUIdle_Data"
-env = UnityPy.load(D)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("game_data", help="path to the installation's NGUIdle_Data directory")
+args = parser.parse_args()
+env = UnityPy.load(args.game_data)
 cnt = collections.Counter()
 size = collections.Counter()
 for o in env.objects:

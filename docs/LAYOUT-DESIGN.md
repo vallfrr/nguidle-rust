@@ -1,6 +1,6 @@
 # Responsive layout: design (tasks R2-R5)
 
-Status: implemented 2026-11-20 as `clr/src/profile.rs` + `layouts/` (simpler than below: plain text lines, regions bound by node name at depth 1-2 under the root `Canvas`, which holds every menu as a child canvas; the reference is `layouts/README.md`). Original design: Written 2026-11-20 after the UI map (`docs/UI-MAP.md`).
+The implementation uses plain-text [PC](../layouts/pc.txt) and [Vita](../layouts/vita.txt) profiles. Regions bind by node name beneath the root `Canvas`. See the [profile syntax](../layouts/README.md). The proposals below were written on 2026-11-20, after the UI map.
 
 ## Starting point
 - The game draws into a virtual 960x600 space and believes it always does (absolute coordinates, `Screen.width/height`, menus hidden by moving them off-screen, tooltips clamped to 960x600).
@@ -8,7 +8,7 @@ Status: implemented 2026-11-20 as `clr/src/profile.rs` + `layouts/` (simpler tha
 - 2/3 of the images are 9-sliced and only 5 menus contain a large drawn image (`docs/UI-MAP.md`): panels can be resized; menu contents are best scaled as a block.
 
 ## Mechanism: regions
-A **layout profile** is a list of regions, read from a small text file per target (`layouts/pc.toml`, `layouts/vita.toml`, `layouts/web.toml`):
+The original proposal used a list of regions written in TOML. This sketch illustrates the design before the plain-text profiles were implemented.
 ```
 [[region]]
 name = "player"            # what the profile calls it
