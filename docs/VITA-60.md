@@ -94,6 +94,7 @@ stage delayed the refresh. The host now runs two threads:
 - Textures and the glyph atlas are copied by L (the engine's RAM copy is freed at once) and uploaded by R; a sprite still in flight is skipped for a frame or two.
 - The keyboard dialog lives on R; requests and results go through a small mailbox. Log lines go to a worker thread.
 - Normal builds use complete simulation steps. The C host reads experimental settings once at initialization. `NGU_SLICE_MS` defaults to 0, and a positive value enables the experiment. `NGU_FRAME_MS` defaults to 12 ms and is used only by that path. `NGU_NO_SKIP` disables reuse of a completed draw list when no new list is needed. The standard Vita menus expose none of these settings.
+- In the host test of a late-game save and seven menus at 960 × 544, the default setting and a 3 ms slice passed. At 0.05 ms the test was still on Basic Training when it expected Augmentation. The earlier fixed-scenario identity test used a different sequence and does not establish that these settings produce equivalent interface timing.
 Findings that only the per-frame trace could show (each fixed after one measurement):
 1. A synchronous log append every 5 s took ~80 ms (now asynchronous).
 2. `glTexSubImage2D` on a texture in use costs ~65 ms per call whatever the size (strips made it worse); every atlas update now goes into a fresh
