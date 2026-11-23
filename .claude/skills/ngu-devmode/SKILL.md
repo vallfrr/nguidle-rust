@@ -7,9 +7,10 @@ description: Drive NGU Idle by script without manual clicks: start a game, unloc
 
 Full reference: `docs/DEV.md`. Code: `clr/src/dev.rs`, steps in `clr/src/script.rs`. Interpreter only (same engine and rendering as native).
 
-```
-bash tools/clr.sh play /mnt/j/NGUvita/nguvita/out/ngu /tmp/final.png \
-  "click,Start New Game" "click,PLAY" "do,/mnt/j/NGUvita/nguvita/dev/unlock.steps" "menu,15" "ui"
+```sh
+source tools/environment.sh
+bash tools/clr.sh play "$NGU_PREPARED" "${TMPDIR:-/tmp}/final.png" \
+  "click,Start New Game" "click,PLAY" "do,$NGU_RUST_REPO/dev/unlock.steps" "menu,15" "ui"
 ```
 - `click,<text>`: clicks a visible element by its text. `ui[,file]`: screen as text (clickable elements + texts, 960x600 rectangles). `inspect,x,y`: nodes and components under a point.
 - `get,Character.bossID` / `set,Character.settings.beardsOn,true` / `call,ButtonShower.updateButtons`: game state and methods by path (`Type` = game class attached to the scene; fields in `re/decomp/Assembly-CSharp/<Class>.cs`).
