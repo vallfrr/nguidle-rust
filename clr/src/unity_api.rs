@@ -62,7 +62,6 @@ fn target_tyop(vm: &mut Vm, a: &[Value]) -> Option<crate::code::TyOp> {
         if let Ext::Native(b) = &*o.x.borrow() {
             if let Some(n) = b.downcast_ref::<String>() {
                 let n = n.clone();
-                drop(b);
                 let id = vm.type_id(&n);
                 return Some(crate::code::TyOp::Class(id));
             }

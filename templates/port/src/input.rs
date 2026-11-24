@@ -1,6 +1,6 @@
 //! The input side of the port. PORT: implement [`Source`] for your platform (window events, a gamepad, touch).
 
-use clr::platform_api::{Action, Engine, Pointer};
+use clr::platform_api::{Action, Engine, MouseButton, Pointer};
 
 /// One input event, already translated to the engine's vocabulary.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -11,6 +11,28 @@ pub enum Event {
     Action(Action),
     /// A scroll of the focused list, in game pixels.
     Scroll(f32, f32),
+    /// A key changed (Unity `KeyCode`, see `clr::platform_api::keys`).
+    Key {
+        /// Unity key code.
+        key: i32,
+        /// Down or up.
+        down: bool,
+        /// Auto-repeat of a held key.
+        repeat: bool,
+    },
+    /// A non-primary mouse button changed at `(x, y)` device pixels.
+    Button {
+        /// Device-pixel x.
+        x: f32,
+        /// Device-pixel y.
+        y: f32,
+        /// Which button.
+        button: MouseButton,
+        /// Down or up.
+        down: bool,
+    },
+    /// The mouse wheel turned over `(x, y)` device pixels, by notches (positive = up).
+    Wheel(f32, f32, f32),
 }
 
 /// Where a port's input comes from.
@@ -28,6 +50,9 @@ pub fn deliver<E: Engine>(engine: &mut E, event: Event) {
         Event::Pointer(pointer) => engine.set_pointer(pointer),
         Event::Action(action) => engine.action(action),
         Event::Scroll(dx, dy) => engine.scroll(dx, dy),
+        Event::Key { key, down, repeat } => engine.key(key, down, repeat),
+        Event::Button { x, y, button, down } => engine.press(x, y, button, down),
+        Event::Wheel(x, y, notches) => engine.wheel(x, y, notches),
     }
 }
 

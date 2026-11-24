@@ -143,7 +143,6 @@ pub(super) fn lookup(key: &str) -> Option<NativeFn> {
                     if let Some(v) = d.get(&k) {
                         return Ok(v.clone());
                     }
-                    drop(d);
                 }
             }
             vm.throw("System.Collections.Generic.KeyNotFoundException", "The given key was not present in the dictionary.")

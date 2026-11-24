@@ -20,7 +20,7 @@ no one outside the project could build a fourth port without reading the engine'
 * The public surface and the version policy are listed in `docs/ENGINE-API.md`; anything else is internal.
 
 ## Consequences
-* Existing ports keep working unchanged. Moving the desktop, web and Vita hosts onto `Session` is optional follow-up work,
+* Existing ports keep working unchanged. The web port now runs on `Session` and the desktop host uses `FixedStep`; the Vita stays on the C ABI because it depends on its timing behaviour. Moving the rest is optional follow-up work,
   to do when each is next changed and its behaviour can be re-verified.
 * `Session` handles pointer and navigation input like the browser adapter; console-mode input and the Vita's time slicing
   remain host features until they are moved behind the interface.

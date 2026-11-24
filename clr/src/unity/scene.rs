@@ -107,6 +107,7 @@ impl Vm {
         #[derive(serde::Deserialize, Default)]
         struct HeadD {
             #[serde(default)]
+            #[allow(non_snake_case)]
             m_GameObject: Option<String>,
         }
         #[derive(serde::Deserialize)]

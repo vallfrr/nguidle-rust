@@ -61,7 +61,7 @@ struct Stage {
     size: (f32, f32),
     // real-time loop
     last: Instant,
-    acc: f32,
+    clock: clr::platform_api::FixedStep,
     // input
     nav_mode: bool,
     keyboard_shoulder: MenuShoulder,
@@ -146,7 +146,7 @@ impl Stage {
             texs: HashMap::new(),
             size: (w, h),
             last: Instant::now(),
-            acc: 0.0,
+            clock: Default::default(),
             nav_mode: false,
             #[cfg(windows)]
             audio: rodio::OutputStream::try_default().ok(),
@@ -437,10 +437,9 @@ impl EventHandler for Stage {
         self.update_hover();
         // fixed logic steps caught up on real time
         let now = Instant::now();
-        self.acc += (now - self.last).as_secs_f32().min(0.25);
+        let steps = self.clock.advance((now - self.last).as_secs_f32());
         self.last = now;
-        let mut steps = 0;
-        while self.acc >= LOGIC_DT && steps < 6 {
+        for _ in 0..steps {
             if let Some(&(x, y, button)) = self.pending.first() {
                 if self.synth_phase == 0 {
                     self.vm.eng.mouse = (x, y);
@@ -459,11 +458,6 @@ impl EventHandler for Stage {
                 }
             }
             self.vm.frame(LOGIC_DT);
-            self.acc -= LOGIC_DT;
-            steps += 1;
-        }
-        if steps == 6 {
-            self.acc = 0.0;
         }
         self.update_ms = t_logic.elapsed().as_secs_f32() * 1000.0;
         self.p[0] += self.update_ms;
@@ -487,7 +481,7 @@ impl EventHandler for Stage {
         if self.profile.is_none() {
             self.map_pointer();
         }
-        self.rend.set_subframe_time(self.acc);
+        self.rend.set_subframe_time(self.clock.remainder());
         self.rend.emit_frame(self.vm, scale, ox, oy);
         let t_draw = Instant::now();
         if self.rend.atlas_take_dirty() {

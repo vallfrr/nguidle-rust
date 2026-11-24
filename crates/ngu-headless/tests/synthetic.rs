@@ -30,6 +30,15 @@ fn a_run_is_reproducible_and_sensitive_to_input() {
 }
 
 #[test]
+fn keys_and_wheel_reach_the_engine() {
+    let mut host = Host::new(ScriptedEngine::new(320, 200));
+    host.run(&Script::parse("key 32\nwheel 10 20 1\ndraw").unwrap());
+    assert_eq!(host.engine.keys, [(32, true, false), (32, false, false)]);
+    assert_eq!(host.engine.wheels, [(10.0, 20.0, 1.0)]);
+    assert!(Script::parse("key").unwrap_err().contains("one number"));
+}
+
+#[test]
 fn text_can_be_cancelled() {
     let mut host = Host::new(ScriptedEngine::new(320, 200));
     host.run(&Script::parse("action activate\ntext -\ndraw").unwrap());

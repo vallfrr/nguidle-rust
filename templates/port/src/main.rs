@@ -35,7 +35,7 @@ fn main() {
         last = run_frame(&mut session, &mut input, &mut display, 1.0 / 60.0);
     }
     println!(
-        "{frames} frames; last frame: {} quads; {} textures uploaded",
-        last.quads, display.uploads
+        "{frames} frames; last frame: {} quads; {} textures uploaded; fingerprint {:016x}",
+        last.quads, display.uploads, display.fingerprint
     );
 }

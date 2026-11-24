@@ -24,8 +24,8 @@
 use crate::render::{Renderer, Tex, ATLAS_SIZE};
 use crate::{focus, unity_api, Vm};
 use platform_api::{
-    Action, DrawTarget, Engine, FixedStep, Pointer, TextRequest, Texture, GAME_HEIGHT, GAME_WIDTH,
-    STEP_SECONDS, TEXTURE_ATLAS,
+    Action, DrawTarget, Engine, FixedStep, MouseButton, Pointer, TextRequest, Texture, GAME_HEIGHT,
+    GAME_WIDTH, STEP_SECONDS, TEXTURE_ATLAS,
 };
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -43,6 +43,9 @@ pub struct SessionConfig {
     pub width: u32,
     /// Output height in device pixels.
     pub height: u32,
+    /// Runs on the engine after it is created and before the home screen opens, for platform features that must be
+    /// enabled first (the browser port turns on its save mode here). `None` for most ports.
+    pub before_home: Option<fn(&mut Vm)>,
 }
 
 impl SessionConfig {
@@ -58,6 +61,7 @@ impl SessionConfig {
             save_dir: save_dir.into(),
             width,
             height,
+            before_home: None,
         }
     }
 }
@@ -98,6 +102,8 @@ struct Press {
     at: (f32, f32),
     from_device: bool,
     down: bool,
+    /// Unity mouse button: 0 left, 1 right, 2 middle.
+    button: i32,
 }
 
 /// The running game. See the [module documentation](self).
@@ -131,6 +137,9 @@ impl Session {
         vm.load_scene(&dir).map_err(SessionError::Scene)?;
         vm.awake_all();
         vm.enable_visual_motion();
+        if let Some(hook) = config.before_home {
+            hook(&mut vm);
+        }
         vm.start_desktop_save_picker()
             .map_err(SessionError::SaveMenu)?;
         let mut session = Session {
@@ -199,7 +208,7 @@ impl Session {
                 } else {
                     press.at
                 };
-                self.vm.eng.mouse_button = 0;
+                self.vm.eng.mouse_button = press.button;
                 self.vm.eng.mouse_down = press.down;
                 self.vm.eng.mouse_down_edge = press.down;
                 self.vm.eng.mouse_up_edge = !press.down;
@@ -239,9 +248,50 @@ impl Engine for Session {
                 at: (pointer.x, pointer.y),
                 from_device: true,
                 down: pointer.down,
+                button: 0,
             });
         }
         self.pointer = pointer;
+    }
+
+    fn press(&mut self, x: f32, y: f32, button: MouseButton, down: bool) {
+        if self.using_focus {
+            focus::clear(&mut self.vm);
+        }
+        self.using_focus = false;
+        self.pointer.x = x;
+        self.pointer.y = y;
+        if self.presses.len() < 128 {
+            let button = match button {
+                MouseButton::Primary => 0,
+                MouseButton::Secondary => 1,
+                MouseButton::Middle => 2,
+            };
+            self.presses.push_back(Press {
+                at: (x, y),
+                from_device: true,
+                down,
+                button,
+            });
+        }
+    }
+
+    fn reset_input(&mut self) {
+        self.presses.clear();
+        self.using_focus = false;
+        focus::clear(&mut self.vm);
+        self.pointer = Pointer::NONE;
+        self.vm.eng.keys_down.clear();
+        self.vm.eng.keys_edge.clear();
+        if self.vm.eng.mouse_down {
+            let button = self.vm.eng.mouse_button;
+            self.presses.push_back(Press {
+                at: (-1.0, -1.0),
+                from_device: true,
+                down: false,
+                button,
+            });
+        }
     }
 
     fn action(&mut self, action: Action) {
@@ -255,13 +305,25 @@ impl Engine for Session {
                 at,
                 from_device: false,
                 down: true,
+                button: 0,
             });
             self.presses.push_back(Press {
                 at,
                 from_device: false,
                 down: false,
+                button: 0,
             });
         }
+    }
+
+    fn key(&mut self, key: i32, down: bool, repeat: bool) {
+        let text_open = self.vm.eng.text_req.is_some();
+        crate::input::update_key(&mut self.vm.eng, key, down, repeat, text_open);
+    }
+
+    fn wheel(&mut self, x: f32, y: f32, notches: f32) {
+        self.vm.eng.mouse = self.to_game(x, y);
+        self.vm.scroll_wheel(notches.clamp(-30.0, 30.0));
     }
 
     fn scroll(&mut self, dx: f32, dy: f32) {

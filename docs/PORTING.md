@@ -35,25 +35,37 @@ Existing ports are examples: the desktop window (`crates/ngu-desktop`, in this r
 You need Rust (rustup), Python 3.11+, [just](https://github.com/casey/just) 1.43 and Git, on any OS.
 
 ```text
-git clone https://github.com/vallfrr/nguidle-rust.git
+git clone <the engine repository URL> nguidle-rust        # while the engine is unpublished, use the copy you were given
 cd nguidle-rust
-just new-port nguidle-switch "Nintendo Switch"      # use your own name and platform
+just new-port nguidle-switch "Nintendo Switch"            # your own name and platform
 cd ../nguidle-switch
 just check
 ```
 
-`just new-port` (`tools/new_port.py`, which also takes `--out`, `--tag`) copies `templates/port/` next to the engine checkout, pins the engine's newest
-`v0.x.y` tag, and adds CI, the hygiene check, `AGENTS.md` and a contract test. `just check` must pass at once: the
-generated port compiles and its loop is tested against a synthetic engine. If it does not, that is a bug in the template:
-report it. To build against your local engine checkout while you work on both, add it as a third argument: `just new-port nguidle-switch "Nintendo Switch" ../nguidle-rust`.
+`just new-port <name> [platform] [engine-checkout]` (`tools/new_port.py`, which also takes `--out` and `--tag`) copies
+`templates/port/` next to the engine checkout, pins the engine's newest `v0.x.y` tag, runs `git init`, and adds CI, the hygiene
+check, `AGENTS.md` and a contract test. `just check` (hygiene, `cargo fmt --check`, Clippy as errors, the contract test) must pass
+at once; run `cargo fmt` after editing. If it does not, that is a bug in the template: report it.
+
+**Developing against a local engine checkout.** Pass the checkout as the third argument:
+`just new-port nguidle-switch "Nintendo Switch" ../nguidle-rust`. `Cargo.toml` then points at that folder
+(`clr = { path = ".../clr" }`) instead of a tag. That is for development only: before you publish, change it to
+`clr = { git = "<engine URL>", tag = "<engine.tag>" }`, run `cargo update -p clr` and commit `Cargo.lock`, so that the repository
+holds no local path and pins a tag and revision (checklist, section 7).
+
+A worked first run: after step 1, prepare the data (step 3), then
+`just run <prepared folder> <throw-away profile folder>` opens the real game headless, runs 120 virtual frames and prints
+`120 frames; last frame: N quads; M textures uploaded; fingerprint ...`. (The game prints a few `SteamAPI_Init() failed` lines on
+start-up; they are expected and harmless.) Make the stand-in click by giving `Scripted::new` events (see `tests/contract.rs`),
+or use the reference host's script format: `cargo run --release -p ngu-headless -- --script file` in the engine checkout.
 
 ## 2. Understand the contract (10 minutes)
 
 Everything is in the `platform-api` crate (re-exported as `clr::platform_api`), documented in the code:
 `cargo doc --no-deps -p platform-api --open`.
 
-* `Engine`: what you drive. `resize`, `advance(seconds)`, `set_pointer`, `action`, `scroll`, `draw`, `texture`,
-  `atlas_changed`, `release_texture`, `take_text_request`, `submit_text`, `take_sounds`. The implementation is
+* `Engine`: what you drive. `resize`, `advance(seconds)`, `set_pointer`, `press` (right and middle buttons), `action`,
+  `scroll`, `key`, `wheel`, `reset_input` (focus lost), `draw`, `texture`, `atlas_changed`, `release_texture`, `take_text_request`, `submit_text`, `take_sounds`. The implementation is
   `clr::session::Session`.
 * `DrawTarget`: what you provide to receive a frame (`draw_quads`). `TriangleList` converts quads to vertex and batch arrays.
 * `Action`: `Up Down Left Right Activate Back Prev Next`. `Pointer`: device pixels, top-left origin.
@@ -62,7 +74,7 @@ Everything is in the `platform-api` crate (re-exported as `clr::platform_api`), 
 A frame of your main loop, in this order (this is `run_frame` in the template and `Host::frame_at` in `ngu-headless`):
 
 ```text
-for each input event:  set_pointer / action / scroll
+for each input event:  set_pointer / press / action / scroll / key / wheel (reset_input when the host loses focus)
 advance(elapsed seconds)          // logic runs in whole 1/30 s steps; long gaps are clamped
 draw(&mut your DrawTarget)        // ordered quads: draw them in order, each over the last, clipped to quad.clip
 for each texture id the frame uses and you have not uploaded: texture(id) -> upload -> release_texture(id)
@@ -138,6 +150,7 @@ and `just check`, and re-prepare your data.
 ## Troubleshooting
 | message or symptom | meaning and fix |
 |---|---|
+| `cargo fmt --check` fails in `just check` | format with `cargo fmt`: the format check is part of the port's checks |
 | `Assembly-CSharp.dll not found in ...` | the prepared folder lacks the DLL: copy it in or use `pack.py` (step 3) |
 | `the game scene could not be loaded` | data prepared by another engine revision: prepare again with this revision's tools |
 | `the save menu could not start` | the save folder is missing or read-only |

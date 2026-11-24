@@ -13,7 +13,9 @@
 
 #![deny(missing_docs)]
 
-use platform_api::{Action, Engine, Pointer, TriangleList, TEXTURE_ATLAS};
+use platform_api::{
+    Action, Engine, MouseButton, Pointer, TriangleList, FINGERPRINT_SEED, TEXTURE_ATLAS,
+};
 use std::collections::HashSet;
 use std::fmt;
 
@@ -34,6 +36,12 @@ pub enum Step {
     Action(Action),
     /// Scroll the focused list by `(dx, dy)` game pixels.
     Scroll(f32, f32),
+    /// Right-click at `(x, y)`: press, one frame, release.
+    RightClick(f32, f32),
+    /// Tap a key (Unity `KeyCode`, see `platform_api::keys`): down, one frame, up.
+    Key(i32),
+    /// Turn the mouse wheel by `notches` (positive = up) over the point `(x, y)`.
+    Wheel(f32, f32, f32),
     /// Answer the pending text request with this text, or cancel it with `None`.
     Text(Option<String>),
     /// Draw one frame now.
@@ -68,6 +76,9 @@ impl Script {
     /// action activate
     /// text Bob          # or "text -" to cancel
     /// scroll 0 40
+    /// rclick 480 300
+    /// key 32            # tap Space (Unity KeyCode)
+    /// wheel 480 300 1
     /// ```
     ///
     /// The error names the line and lists the valid verbs.
@@ -110,6 +121,18 @@ impl Script {
                     let (x, y) = pair(numbers()?)?;
                     Step::Scroll(x, y)
                 }
+                "rclick" => {
+                    let (x, y) = pair(numbers()?)?;
+                    Step::RightClick(x, y)
+                }
+                "wheel" => match numbers()?[..] {
+                    [x, y, notches] => Step::Wheel(x, y, notches),
+                    _ => return Err(format!("line {}: `wheel` takes three numbers (x y notches)", number + 1)),
+                },
+                "key" => match numbers()?[..] {
+                    [code] => Step::Key(code as i32),
+                    _ => return Err(format!("line {}: `key` takes one number (a Unity KeyCode)", number + 1)),
+                },
                 "press" => Step::Press,
                 "release" => Step::Release,
                 "draw" => Step::Draw,
@@ -122,7 +145,7 @@ impl Script {
                 }),
                 other => {
                     return Err(format!(
-                        "line {}: unknown step `{other}` (wait, move, press, release, click, action, scroll, text, draw)",
+                        "line {}: unknown step `{other}` (wait, move, press, release, click, rclick, action, scroll, key, wheel, text, draw)",
                         number + 1
                     ))
                 }
@@ -188,7 +211,7 @@ impl<E: Engine> Host<E> {
             pointer: Pointer::NONE,
             uploaded: HashSet::new(),
             report: Report {
-                hash: 0xcbf2_9ce4_8422_2325,
+                hash: FINGERPRINT_SEED,
                 ..Report::default()
             },
             pending_text: None,
@@ -231,6 +254,18 @@ impl<E: Engine> Host<E> {
                 }
                 Step::Action(action) => self.engine.action(*action),
                 Step::Scroll(dx, dy) => self.engine.scroll(*dx, *dy),
+                Step::Wheel(x, y, notches) => self.engine.wheel(*x, *y, *notches),
+                Step::RightClick(x, y) => {
+                    self.engine.press(*x, *y, MouseButton::Secondary, true);
+                    self.frame_at(FRAME);
+                    self.engine.press(*x, *y, MouseButton::Secondary, false);
+                    self.frame_at(FRAME);
+                }
+                Step::Key(code) => {
+                    self.engine.key(*code, true, false);
+                    self.frame_at(FRAME);
+                    self.engine.key(*code, false, false);
+                }
                 Step::Text(text) => self.pending_text = text.clone(),
                 Step::Draw => self.frame_at(0.0),
             }
@@ -253,20 +288,7 @@ impl<E: Engine> Host<E> {
         self.report.last_quads = quads;
         self.report.last_vertices = self.frame.vertices.len();
         self.report.last_batches = self.frame.batches.len();
-        for vertex in &self.frame.vertices {
-            for word in [
-                vertex.x.to_bits(),
-                vertex.y.to_bits(),
-                vertex.u.to_bits(),
-                vertex.v.to_bits(),
-                vertex.rgba,
-            ] {
-                for byte in word.to_le_bytes() {
-                    self.report.hash =
-                        (self.report.hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
-                }
-            }
-        }
+        self.report.hash = self.frame.fingerprint(self.report.hash);
         // 4. Upload what the frame needs: textures once, the atlas whenever it changed.
         let wanted: Vec<u32> = self
             .frame

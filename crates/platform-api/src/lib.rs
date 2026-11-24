@@ -130,10 +130,69 @@ pub struct TriangleList {
     pub batches: Vec<Batch>,
 }
 
+/// Starting value of [`TriangleList::fingerprint`].
+pub const FINGERPRINT_SEED: u64 = 0xcbf2_9ce4_8422_2325;
+
+impl TriangleList {
+    /// Fold every vertex of the current frame into `hash` (FNV-1a over the little-endian bytes of the fields) and return it.
+    /// Start from [`FINGERPRINT_SEED`] and feed each frame in turn: two runs that draw the same frames give the same value,
+    /// so a port can compare its draw list with the reference host's.
+    pub fn fingerprint(&self, mut hash: u64) -> u64 {
+        for vertex in &self.vertices {
+            let words = [
+                vertex.x.to_bits(),
+                vertex.y.to_bits(),
+                vertex.u.to_bits(),
+                vertex.v.to_bits(),
+                vertex.rgba,
+            ];
+            for byte in words.iter().flat_map(|word| word.to_le_bytes()) {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+}
+
 impl DrawTarget for TriangleList {
     fn draw_quads(&mut self, quads: &[Quad]) {
         tessellate(quads, &mut self.vertices, &mut self.batches);
     }
+}
+
+/// Unity `KeyCode` values for [`Engine::key`]. Letters are the lower-case ASCII codes (`97` is `a`) and digits their ASCII codes
+/// (`48` is `0`); only the keys the game reads are listed here.
+pub mod keys {
+    /// Backspace.
+    pub const BACKSPACE: i32 = 8;
+    /// Tab.
+    pub const TAB: i32 = 9;
+    /// Enter.
+    pub const ENTER: i32 = 13;
+    /// Escape.
+    pub const ESCAPE: i32 = 27;
+    /// Space.
+    pub const SPACE: i32 = 32;
+    /// Up arrow.
+    pub const UP: i32 = 273;
+    /// Down arrow.
+    pub const DOWN: i32 = 274;
+    /// Right arrow.
+    pub const RIGHT: i32 = 275;
+    /// Left arrow.
+    pub const LEFT: i32 = 276;
+    /// Right Shift.
+    pub const RIGHT_SHIFT: i32 = 303;
+    /// Left Shift.
+    pub const LEFT_SHIFT: i32 = 304;
+    /// Right Control.
+    pub const RIGHT_CTRL: i32 = 305;
+    /// Left Control.
+    pub const LEFT_CTRL: i32 = 306;
+    /// Right Alt.
+    pub const RIGHT_ALT: i32 = 307;
+    /// Left Alt.
+    pub const LEFT_ALT: i32 = 308;
 }
 
 /// A navigation command from a keyboard, gamepad or remote. The engine moves a focus between controls
@@ -189,6 +248,17 @@ impl Action {
             _ => return None,
         })
     }
+}
+
+/// A mouse button, for [`Engine::press`]. The primary button is also what [`Pointer::down`] means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    /// Left button or a finger.
+    Primary,
+    /// Right button: the game's alternative action (for example equip or move an item).
+    Secondary,
+    /// Middle button.
+    Middle,
 }
 
 /// Pointer state in device pixels, top-left origin. Use negative coordinates for "no pointer".
@@ -252,11 +322,26 @@ pub trait Engine {
     /// Set the pointer (mouse or finger). A change of `down` between calls is a press or a release.
     fn set_pointer(&mut self, pointer: Pointer);
 
+    /// A button other than the primary one went down or up with the pointer at `(x, y)` device pixels. Use this for right and
+    /// middle clicks; for the primary button and for moving, use [`set_pointer`](Engine::set_pointer).
+    fn press(&mut self, x: f32, y: f32, button: MouseButton, down: bool);
+
+    /// Release everything held: the pointer button, keys, the focus and queued presses. Call it when the host loses focus
+    /// (a hidden browser tab, a suspended console) so nothing stays stuck.
+    fn reset_input(&mut self);
+
     /// Apply a navigation command. Ignored while a text field is being edited.
     fn action(&mut self, action: Action);
 
     /// Scroll the focused list, in game pixels (positive `dy` scrolls down).
     fn scroll(&mut self, dx: f32, dy: f32);
+
+    /// A key went down (`down`, with `repeat` for auto-repeat) or up. `key` is a Unity `KeyCode`, see [`keys`]; the game
+    /// reads some letters, digits, arrows and modifiers for its own shortcuts. Ignored while a text field is edited.
+    fn key(&mut self, key: i32, down: bool, repeat: bool);
+
+    /// A mouse wheel turned by `notches` (positive = up) with the pointer at `(x, y)` device pixels.
+    fn wheel(&mut self, x: f32, y: f32, notches: f32);
 
     /// Build the frame and give it to `target`. Returns the number of quads.
     fn draw(&mut self, target: &mut dyn DrawTarget) -> usize;

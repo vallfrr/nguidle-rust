@@ -682,6 +682,7 @@ impl Vm {
 
     /// `InventoryController.equipSpecBonus(type, equip)` without interpreting it (same f32 arithmetic and order as the IL).
     /// Returns None (the interpreter runs the method) for anything unexpected, including null arguments.
+    #[allow(dead_code)]
     fn pop(&mut self) -> Value {
         self.slots.pop().unwrap()
     }

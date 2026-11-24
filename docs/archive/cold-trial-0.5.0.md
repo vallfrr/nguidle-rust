@@ -14,8 +14,15 @@ The generated port was also run against the real game on the author's machine (`
 4. The generated source was formatted for the template's placeholder length, so `cargo fmt --check` failed for some port names. Imports are now one per line, the usage text no longer embeds the name, names must start with `nguidle-` (import order), and `just check` formats a short and a long generated name.
 5. The template check did not run the port's hygiene step, which hid blocker 2 from CI. `just cold-trial` covers the whole sequence.
 
-## Part 2 - not done: a fresh agent
-The trial's real criterion is a fresh AI agent that receives only a clone of the engine and the request "create a headless port `nguidle-test`", and succeeds without help or engine changes. This was **not run**: the person who wrote the guide cannot play the part of a reader who has never seen it. Run it as follows and record the blockers here or in the pull request:
-1. Create an empty folder; clone the engine into it; give the agent the folder and the request, and nothing else (no chat history, no workspace notes, no game files path except the prepared data folder if it is to test against the real game).
-2. The agent may read only the clone. Note every question it would have had to ask and every command that failed.
-3. Fix the guide, the template or the interface for each; repeat until it needs no help.
+## Part 2 - a fresh agent: succeeded
+A fresh AI agent received only a clone of the engine (the `v0.5.0` candidate) and the request "create a headless port `nguidle-test`". It read the README, AGENTS.md, `docs/PORTING.md`, the porting skill, `ngu-headless` and the head of `docs/ENGINE-API.md`, ran `just new-port nguidle-test "Headless test" ../nguidle-rust`, then `just check` (passed first time, about 30 s), scripted a click in the port's `main.rs`, and ran it on the prepared game data: 123 frames, 1249 quads, 13 textures, home screen drawn. No blocker, no engine change, no question to the author.
+
+Friction it reported, and what was done:
+- A path engine (third argument) leaves a local path in `Cargo.toml`, which the guide forbids in a repository: the guide now says how to switch to a tag and that the local form is for trials only.
+- The guide's clone URL is not live until the engine is published: the guide's first command says to use the copy you were given meanwhile.
+- The argument order of `just new-port` was only in prose: the guide now shows the full command with its three arguments.
+- `just check` printed engine warnings: all removed from the engine (`clr` builds without warnings).
+- Nothing explained how to script input in the port itself: the interface gained `key`, `wheel`, `press` and `reset_input` so a port can forward all input, and the template's `Event` type in `src/input.rs` covers them. Not yet re-run by a fresh agent.
+- Data preparation (section 3) was not exercised by the agent, which was given a prepared folder.
+
+Both parts passed. A port generated from the current template and the reference host print the same draw fingerprint for the same 120 frames of the real game (`31e37013f05534a5`).

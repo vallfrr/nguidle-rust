@@ -7,7 +7,8 @@
 //! steps time, uploads textures and handles text requests, in CI, with nothing to download.
 
 use crate::{
-    Action, DrawTarget, Engine, FixedStep, Pointer, Quad, TextRequest, Texture, TEXTURE_ATLAS,
+    Action, DrawTarget, Engine, FixedStep, MouseButton, Pointer, Quad, TextRequest, Texture,
+    TEXTURE_ATLAS,
 };
 
 /// Id of the one non-atlas texture the scripted scene uses (a 2 x 2 checker).
@@ -33,6 +34,14 @@ pub struct ScriptedEngine {
     pub submitted: Vec<Option<String>>,
     /// Scroll deltas received, in order.
     pub scrolls: Vec<(f32, f32)>,
+    /// Keys received as `(key, down, repeat)`, in order.
+    pub keys: Vec<(i32, bool, bool)>,
+    /// Wheel turns received as `(x, y, notches)`, in order.
+    pub wheels: Vec<(f32, f32, f32)>,
+    /// Non-primary button changes received as `(button, down)`, in order.
+    pub presses: Vec<(MouseButton, bool)>,
+    /// Times [`Engine::reset_input`] was called.
+    pub resets: u32,
     text_pending: bool,
     sounds: Vec<String>,
     atlas: Vec<u8>,
@@ -52,6 +61,10 @@ impl ScriptedEngine {
             actions: Vec::new(),
             submitted: Vec::new(),
             scrolls: Vec::new(),
+            keys: Vec::new(),
+            wheels: Vec::new(),
+            presses: Vec::new(),
+            resets: 0,
             text_pending: false,
             sounds: Vec::new(),
             atlas: vec![255; 4],
@@ -100,6 +113,15 @@ impl Engine for ScriptedEngine {
         self.pointer = pointer;
     }
 
+    fn press(&mut self, _x: f32, _y: f32, button: MouseButton, down: bool) {
+        self.presses.push((button, down));
+    }
+
+    fn reset_input(&mut self) {
+        self.resets += 1;
+        self.pointer.down = false;
+    }
+
     fn action(&mut self, action: Action) {
         if self.text_pending {
             return;
@@ -112,6 +134,16 @@ impl Engine for ScriptedEngine {
 
     fn scroll(&mut self, dx: f32, dy: f32) {
         self.scrolls.push((dx, dy));
+    }
+
+    fn key(&mut self, key: i32, down: bool, repeat: bool) {
+        if !self.text_pending {
+            self.keys.push((key, down, repeat));
+        }
+    }
+
+    fn wheel(&mut self, x: f32, y: f32, notches: f32) {
+        self.wheels.push((x, y, notches));
     }
 
     fn draw(&mut self, target: &mut dyn DrawTarget) -> usize {
@@ -209,6 +241,21 @@ mod tests {
         assert_eq!(list.batches.len(), 3);
         assert!(engine.texture(CHECKER_TEXTURE).is_some());
         assert!(engine.texture(99).is_none());
+    }
+
+    #[test]
+    fn keys_and_wheel_are_recorded_and_keys_are_ignored_while_editing() {
+        let mut engine = ScriptedEngine::new(320, 200);
+        engine.key(crate::keys::SPACE, true, false);
+        engine.wheel(10.0, 20.0, 1.0);
+        engine.press(5.0, 6.0, MouseButton::Secondary, true);
+        engine.reset_input();
+        engine.action(Action::Activate);
+        engine.key(crate::keys::ENTER, true, false);
+        assert_eq!(engine.keys, [(32, true, false)]);
+        assert_eq!(engine.wheels, [(10.0, 20.0, 1.0)]);
+        assert_eq!(engine.presses, [(MouseButton::Secondary, true)]);
+        assert_eq!(engine.resets, 1);
     }
 
     #[test]

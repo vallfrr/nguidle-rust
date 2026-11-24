@@ -1,6 +1,5 @@
 //! Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
 use crate::code::Code;
-use crate::value::*;
 use dotnetdll::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;

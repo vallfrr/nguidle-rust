@@ -1,17 +1,29 @@
 //! The drawing side of the port. PORT: replace the body of [`Display::draw_quads`] and
 //! [`Display::upload_missing`] with calls to your graphics API.
 
-use clr::platform_api::{DrawTarget, Engine, Quad, TriangleList, TEXTURE_ATLAS};
+use clr::platform_api::{DrawTarget, Engine, Quad, TriangleList, FINGERPRINT_SEED, TEXTURE_ATLAS};
 use std::collections::HashSet;
 
 /// Receives each frame and keeps track of the textures it has seen.
-#[derive(Default)]
 pub struct Display {
     /// The last frame as vertex and batch arrays, the layout most graphics APIs want.
     pub frame: TriangleList,
     uploaded: HashSet<u32>,
     /// Textures uploaded so far.
     pub uploads: usize,
+    /// Fingerprint of every frame drawn so far; equals the `hash` the reference host (`ngu-headless`) reports for the same input.
+    pub fingerprint: u64,
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self {
+            frame: TriangleList::default(),
+            uploaded: HashSet::new(),
+            uploads: 0,
+            fingerprint: FINGERPRINT_SEED,
+        }
+    }
 }
 
 impl DrawTarget for Display {
@@ -19,6 +31,7 @@ impl DrawTarget for Display {
         // PORT: draw `quads` in order, each over the previous ones, clipped to `quad.clip`.
         // Here they are only converted; a real port submits `self.frame.vertices` by `self.frame.batches`.
         self.frame.draw_quads(quads);
+        self.fingerprint = self.frame.fingerprint(self.fingerprint);
     }
 }
 

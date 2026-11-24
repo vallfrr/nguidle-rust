@@ -896,3 +896,32 @@ impl Vm {
         }
     }
 }
+
+/// Apply one key event to the engine's key state: a release always clears the key, a press is ignored while a text field is
+/// edited (typing must not trigger the game's shortcuts), and an auto-repeat does not raise the "pressed this frame" edge.
+pub fn update_key(engine: &mut crate::unity::Engine, code: i32, down: bool, repeat: bool, text_open: bool) {
+    if !down {
+        engine.keys_down.remove(&code);
+    } else if code != 0 && !text_open {
+        engine.keys_down.insert(code);
+        if !repeat {
+            engine.keys_edge.insert(code);
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::update_key;
+
+    #[test]
+    fn key_release_is_delivered_while_typing() {
+        let mut engine = crate::unity::Engine::default();
+        update_key(&mut engine, 275, true, false, false);
+        assert!(engine.keys_down.contains(&275));
+        update_key(&mut engine, 275, false, false, true);
+        update_key(&mut engine, 276, true, false, true);
+        assert!(engine.keys_down.is_empty());
+        assert!(!engine.keys_edge.contains(&276));
+    }
+}
