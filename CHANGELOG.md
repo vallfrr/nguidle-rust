@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.5.0]
+
+- Add the documented platform interface (`platform-api::Engine`, `Action`, `Pointer`, `FixedStep`) and `clr::session::Session`, a safe implementation that hosts the whole game.
+- Document the C ABI function by function with its threading, units and memory contract; both the C ABI and the interface enforce `missing_docs`.
+- Add `ngu-headless`, a reference port that runs in CI against a synthetic engine (`platform-api::testing::ScriptedEngine`) and locally against the real game.
+- Add the port template (`templates/port`), `just new-port` and `just doc`; the template is built, linted and tested by `just check`.
+- Replace the porting notes with a step-by-step guide and publish the public surface and migration notes in `docs/ENGINE-API.md`.
+- Migration: none required; hosts built on `0.4.0` keep working.
+
 ## [0.3.0]
 
 - Match Unity 2019's floating-point random range interpolation for the tested reference vectors.

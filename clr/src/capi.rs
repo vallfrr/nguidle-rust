@@ -1,4 +1,16 @@
-//! C API for the Vita backend (vitaGL): init, input, frame, triangle list, textures.
+//! The engine's C ABI: what a native host (the Vita, or any C or C++ program) calls. `engine_api.h` in a port declares
+//! the same functions.
+//!
+//! **Threading.** Call `ngu_init` once, then every `ngu_*` function, from that one thread, one call at a time and never
+//! from inside the engine's own callbacks. All state is process-wide, so there is one engine per process. A host that
+//! presents on another thread copies the draw list and texture pixels first (they are borrowed).
+//!
+//! **Units.** Time in seconds (`ngu_frame`) or microseconds (`ngu_clock_us`); positions in device pixels, top-left
+//! origin; game coordinates are 960 x 600 and the engine maps them. **Memory.** Pointers returned by the engine are
+//! borrowed and valid until the next call; pointers passed in belong to the caller. Strings are NUL-terminated UTF-8.
+//!
+//! The same service for Rust hosts, without globals, is [`crate::session::Session`].
+#![deny(missing_docs)]
 use crate::render::{Renderer, ATLAS_SIZE};
 use crate::Vm;
 use std::ffi::CStr;
@@ -102,13 +114,22 @@ fn st() -> Option<&'static mut State> {
 }
 
 
-/// data_dir: folder containing ngu.pak (or the files). dev_w/dev_h: screen size in pixels.
+/// Load the game and open its home screen. Call once, first, on the thread that will make every other call.
+///
+/// * `data_dir`: NUL-terminated path of the folder prepared with `tools/nguprep.py` (or holding `ngu.pak`). It must
+///   hold `Assembly-CSharp.dll`. Saves go to `<data_dir>/save` unless `NGU_VITA_SAVE_DIR` names another folder.
+/// * `dev_w`, `dev_h`: output size in device pixels; the game keeps its 960 x 600 proportions, centred, and reflows
+///   to extra width.
+///
+/// Returns `0` on success, `1` if `Assembly-CSharp.dll` is missing, `2` if the scene cannot be loaded (data prepared
+/// by another engine revision), `3` if the save menu cannot start. The reason is also written to `<data_dir>/log.txt`.
 #[no_mangle]
 pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i32 {
     init_vita(data_dir, dev_w, dev_h, |_| {})
 }
 
-/// Initialize the Vita host, optionally attaching translated game methods.
+/// [`ngu_init`] with a hook that runs after the engine is created and before the scene loads. The translated-game
+/// build uses it to attach generated methods. Same contract and return codes as [`ngu_init`].
 pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(&mut Vm)) -> i32 {
     let dir = unsafe { CStr::from_ptr(data_dir) }.to_string_lossy().to_string();
     crate::assets::set_log(&format!("{}/log.txt", dir));
@@ -176,7 +197,13 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     0
 }
 
-/// x,y in screen pixels (top-left origin), down = finger down.
+/// Advance the game and apply the pointer, once per display frame.
+///
+/// * `dt`: seconds since the previous call; logic runs in whole 1/30 s steps and the remainder carries over.
+/// * `x`, `y`: pointer or finger in device pixels, top-left origin; negative when there is none.
+/// * `down`: non-zero while the primary button or a finger is down. A change between calls is a press or a release.
+///
+/// Does nothing before a successful [`ngu_init`].
 #[no_mangle]
 pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     let s = match st() {
@@ -291,7 +318,10 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     }
 }
 
-/// Shared focus, dropdown and menu navigation. The host sends ASCII actions.
+/// Apply a navigation command from a pad or keyboard. `action` is one ASCII code: `u` up, `d` down, `l` left, `r` right,
+/// `a` activate (press the focused control), `b` back, `p` previous menu, `n` next menu (`platform_api::Action`).
+///
+/// Returns `1` when the focus moved, `0` otherwise (including when a finger is down or a text field is open).
 #[no_mangle]
 pub extern "C" fn ngu_pad(action: u32) -> i32 {
     let Some(s) = st() else { return 0 };
@@ -309,6 +339,8 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
     i32::from(moved)
 }
 
+/// Scroll the focused list by `dx`, `dy` game pixels (positive `dy` scrolls down). Ignored while a finger is down or a
+/// text field is open.
 #[no_mangle]
 pub extern "C" fn ngu_scroll(dx: f32, dy: f32) {
     let Some(s) = st() else { return };
@@ -324,7 +356,9 @@ fn scroll_action(s: &mut State, dx: f32, dy: f32) {
     }
 }
 
-/// Builds the frame's triangle list; returns the number of batches.
+/// Build the frame's triangle list and return its number of batches. Read it with [`ngu_batches`] and
+/// [`ngu_vertices`] before the next call to any `ngu_*` function that can rebuild it; copy it first if another
+/// thread will draw it. When nothing changed since the last call the previous list is kept (see [`ngu_emit_seq`]).
 #[no_mangle]
 pub extern "C" fn ngu_emit() -> i32 {
     let s = match st() {
@@ -344,27 +378,34 @@ pub extern "C" fn ngu_emit() -> i32 {
     s.draw.batches.len() as i32
 }
 
+/// Number of draw lists built so far. A host that draws on another thread publishes a list only when this changes.
 #[no_mangle]
 pub extern "C" fn ngu_emit_seq() -> u32 {
     st().map_or(0, |s| s.emit_seq)
 }
 
+/// The batches of the last [`ngu_emit`] (`NguBatch`, 32 bytes each), valid until the next engine call. NULL before init.
 #[no_mangle]
 pub extern "C" fn ngu_batches() -> *const NguBatch {
     st().map(|s| s.draw.batches.as_ptr()).unwrap_or(std::ptr::null())
 }
 
+/// The vertices of the last [`ngu_emit`] (`NguVertex`, 20 bytes each, six per quad), valid until the next engine call.
+/// NULL before init.
 #[no_mangle]
 pub extern "C" fn ngu_vertices() -> *const NguVertex {
     st().map(|s| s.draw.vertices.as_ptr()).unwrap_or(std::ptr::null())
 }
 
+/// Microseconds the last [`ngu_emit`] spent laying out the scene (Vita builds only, for the host's trace).
 #[cfg(target_os = "vita")]
 #[no_mangle]
 pub extern "C" fn ngu_layout_us() -> u32 {
     st().map_or(0, |s| s.rend.layout_us)
 }
 
+/// Game time in microseconds. `debt_us` receives the real time already received but not yet simulated (less than one
+/// step). Both are for the host's timing trace.
 #[no_mangle]
 pub extern "C" fn ngu_clock_us(debt_us: *mut u64) -> u64 {
     let Some(s) = st() else { return 0 };
@@ -372,7 +413,9 @@ pub extern "C" fn ngu_clock_us(debt_us: *mut u64) -> u64 {
     (s.vm.eng.time * 1_000_000.0) as u64
 }
 
-/// RGBA8 pixels of a texture (id >= 2). Returns NULL if unknown.
+/// RGBA8 pixels of texture `id` (an id above 1, as in `NguBatch::tex`), row by row from the top. `w` and `h` receive its
+/// size. Returns NULL if the id is unknown. The pixels are borrowed until the next engine call; upload them, then call
+/// [`ngu_tex_release`].
 #[no_mangle]
 pub extern "C" fn ngu_tex(id: u32, w: *mut u32, h: *mut u32) -> *const u8 {
     let s = match st() {
@@ -390,7 +433,9 @@ pub extern "C" fn ngu_tex(id: u32, w: *mut u32, h: *mut u32) -> *const u8 {
     }
 }
 
-/// Glyph atlas (RGBA8, ATLAS_SIZE^2). `dirty` = 1 if modified since the last call.
+/// The glyph atlas (texture id 1): RGBA8, `ATLAS_SIZE` x `ATLAS_SIZE` pixels, size written to `size`. `dirty` receives
+/// `1` if its pixels changed since the previous call (upload it again), `0` otherwise. The pixels belong to the renderer
+/// and may change at the next frame.
 #[no_mangle]
 pub extern "C" fn ngu_atlas(dirty: *mut i32, size: *mut u32) -> *const u8 {
     let s = match st() {
@@ -404,7 +449,10 @@ pub extern "C" fn ngu_atlas(dirty: *mut i32, size: *mut u32) -> *const u8 {
     s.rend.atlas_pixels().as_ptr()
 }
 
-/// Pending text entry request? Copies the initial text into `buf`.
+/// Poll for a text field the game wants edited. Returns `1` once per request and then copies the field's current UTF-8
+/// content into `buf` (at most `cap - 1` bytes plus a NUL), `max` receives the maximum length (0 = none) and `numeric`
+/// is `1` for a number-only field. Show a keyboard, then answer with [`ngu_text_submit`]. Returns `0` when there is no
+/// new request.
 #[no_mangle]
 pub extern "C" fn ngu_text_request(buf: *mut c_char, cap: i32, max: *mut i32, numeric: *mut i32) -> i32 {
     let s = match st() {
@@ -433,7 +481,8 @@ pub extern "C" fn ngu_text_request(buf: *mut c_char, cap: i32, max: *mut i32, nu
     0
 }
 
-/// Result of the entry (`ok` = 0 if cancelled).
+/// Answer a text request: `ok` non-zero commits the NUL-terminated UTF-8 `text`, zero cancels (`text` may then be
+/// NULL).
 #[no_mangle]
 pub extern "C" fn ngu_text_submit(text: *const c_char, ok: i32) {
     let s = match st() {
@@ -448,7 +497,7 @@ pub extern "C" fn ngu_text_submit(text: *const c_char, ok: i32) {
     }
 }
 
-/// The GPU received the texture: free the RAM copy.
+/// Tell the engine that texture `id` has been uploaded to the GPU, so it can free its RAM copy.
 #[no_mangle]
 pub extern "C" fn ngu_tex_release(id: u32) {
     if let Some(s) = st() {
@@ -523,7 +572,8 @@ fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
     }
 }
 
-/// Loads a scenario file (`clr/src/autoplay.rs`); returns 0 on success.
+/// Load a scripted-player scenario (`clr/src/autoplay.rs`) for unattended measurements. `path` is a NUL-terminated file
+/// path. Returns `0` on success.
 #[no_mangle]
 pub extern "C" fn ngu_autoplay_load(path: *const c_char) -> i32 {
     let (Some(s), path) = (st(), unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string()) else { return 1 };
@@ -540,8 +590,9 @@ pub extern "C" fn ngu_autoplay_load(path: *const c_char) -> i32 {
     }
 }
 
-/// What the last `ngu_frame` did, for the host's per-frame trace: out = [ticks, simulation steps, instructions (saturated),
-/// menu id, last action number, mark number (+1, 0 = none), finished flag].
+/// What the last [`ngu_frame`] did, for the host's per-frame trace. `out` must point to eight `u32`: ticks, simulation
+/// steps, instructions (saturated), menu id, last scripted action number, number of marks, finished flag, screenshots
+/// taken by the scenario.
 #[no_mangle]
 pub extern "C" fn ngu_frame_info(out: *mut u32) {
     let Some(s) = st() else { return };
@@ -554,7 +605,7 @@ pub extern "C" fn ngu_frame_info(out: *mut u32) {
     unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
 }
 
-/// `CLR_PROF` report: the `top` methods by exclusive interpreted instructions (hardware-independent cost), one per line:
+/// `CLR_PROF` report: the `top` methods by exclusive interpreted instructions, one per line:
 /// `exclusive inclusive calls Type::Method`. Used by `tools/ngu-profile.sh` to choose what to translate to Rust.
 pub fn profile_report(top: usize) -> String {
     let Some(s) = st() else { return String::new() };

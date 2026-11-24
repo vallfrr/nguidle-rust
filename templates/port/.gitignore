@@ -1,0 +1,9 @@
+target/
+build/
+out/
+work/
+profile/
+*.dll
+*.pak
+*.sav
+.env

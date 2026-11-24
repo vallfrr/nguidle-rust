@@ -69,3 +69,7 @@ build, setup and troubleshooting commands.
   migration with `tools/migrate-workspace.ps1 -Workspace <workspace>`.
   Pass `-Apply` after reviewing the moves and closing local consumers of
   the source folders. Existing launchers can still use historical aliases.
+
+## Porting to a new platform
+Do not start here: follow [the porting guide](docs/PORTING.md). To work on the port tooling itself, `just new-port`,
+`just doc` and `tools/check_template.py` are the commands; `just check` runs all of them.

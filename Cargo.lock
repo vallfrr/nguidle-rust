@@ -1067,6 +1067,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ngu-headless"
+version = "0.1.0"
+dependencies = [
+ "clr",
+ "platform-api",
+]
+
+[[package]]
 name = "ngu-host"
 version = "0.1.0"
 dependencies = [

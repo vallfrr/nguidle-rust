@@ -152,7 +152,7 @@ impl Program {
         }
     }
 
-    /// Element type of a 1-parameter generic field (List<T>) or array.
+    /// Element type of a 1-parameter generic field (`List<T>`) or array.
     pub fn elem_of_member(&self, t: &MemberType) -> Option<Ty> {
         if let MemberType::Base(b) = t {
             match &**b {

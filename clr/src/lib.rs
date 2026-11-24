@@ -27,6 +27,7 @@ pub mod program;
 pub mod render;
 mod save_slots;
 pub mod script;
+pub mod session;
 pub mod ui;
 pub mod unity;
 pub mod unity_api;

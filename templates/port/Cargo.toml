@@ -1,0 +1,14 @@
+[package]
+name = "__PORT_NAME__"
+version = "0.1.0"
+edition = "2021"
+description = "NGU Idle port for __PORT_PLATFORM__, built on the nguidle-rust engine"
+license = "GPL-3.0-only"
+publish = false
+
+[dependencies]
+# The engine, pinned to a tag and an exact revision (see engine.tag). `clr::platform_api` re-exports the interface.
+clr = __ENGINE_DEPENDENCY__
+
+[lints.rust]
+missing_docs = "warn"
