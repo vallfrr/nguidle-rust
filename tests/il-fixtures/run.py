@@ -37,7 +37,7 @@ def main():
         subprocess.run([str(generator), str(candidates[0]), str(src), "Fixture", "Fixture::Branch"], cwd=ROOT, check=True)
         source = (src / "gen.rs").read_text(encoding="utf-8")
         names = {}
-        for method in ("Branch", "Loop", "Choice", "SeededRandom", "ByRef", "Exception", "StringSwitch"):
+        for method in ("Branch", "Loop", "Choice", "SeededRandom", "ByRef", "Exception", "StringSwitch", "DelegateLambda", "DelegateBool"):
             matches = re.findall(r"pub fn (m\d+_Fixture_" + method + r")\(", source)
             if len(matches) != 1:
                 raise RuntimeError(f"Expected one generated {method}, found {matches}")
@@ -51,7 +51,7 @@ def main():
         (src / "main.rs").write_text(
             '#![allow(non_camel_case_types,non_snake_case,dead_code,unused_imports,unused_variables,unused_mut,unreachable_code,unused_parens,unused_assignments,static_mut_refs)]\n'
             'mod ext { pub use ngu_rt::ext::*; include!("ext_stubs.rs"); }\nmod gen;\n'
-            'fn main() { let dll=std::env::var("NGU_DLL").unwrap(); let vm=Box::leak(Box::new(ngu_host::clr::Vm::new(&dll))); vm.native_mode=true; ngu_host::set_vm(vm as *mut _); let a:Vec<String>=std::env::args().collect(); let value:i32=a[2].parse().unwrap(); '
+            'fn main() { let dll=std::env::var("NGU_DLL").unwrap(); let vm=Box::leak(Box::new(ngu_host::clr::Vm::new(&dll))); vm.native_mode=true; vm.native_inv=Some(gen::hook); ngu_host::set_vm(vm as *mut _); let a:Vec<String>=std::env::args().collect(); let value:i32=a[2].parse().unwrap(); '
             f'let result=match a[1].as_str() {{ {arms} _ => panic!("unknown fixture") }}; '
             'println!("=> {}",result); }\n', encoding="utf-8")
         subprocess.run([CARGO, "build", "--manifest-path", str(generated / "Cargo.toml"),

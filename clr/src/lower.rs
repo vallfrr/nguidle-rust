@@ -116,11 +116,24 @@ impl Vm {
                                 _ => Ty::Object,
                             };
                             let ptys: Vec<Ty> = r.signature.parameters.iter().map(pt).collect();
+                            let tname = ty_name(&other, self);
                             let rty = r.signature.return_type.1.as_ref().and_then(|x| match x {
-                                dotnetdll::resolved::signature::ParameterType::Value(t) | dotnetdll::resolved::signature::ParameterType::Ref(t) => Some(prog.ty_of(t)),
+                                dotnetdll::resolved::signature::ParameterType::Value(t) | dotnetdll::resolved::signature::ParameterType::Ref(t) => {
+                                    if name == "Invoke" && crate::bcl::is_delegate_type(&tname) {
+                                        // A closed delegate's return type can refer to a parameter of the receiver type.
+                                        if let (MethodType::TypeGeneric(index), MethodType::Base(receiver)) = (t, mt) {
+                                            if let BaseType::Type { source: TypeSource::Generic { parameters, .. }, .. } = &**receiver {
+                                                if let Some(parameter) = parameters.get(*index) {
+                                                    return Some(prog.ty_of(parameter));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Some(prog.ty_of(t))
+                                }
                                 _ => None,
                             });
-                            Target::Ext { tname: ty_name(&other, self), name, argc, ret, instance: r.signature.instance, ptys, rty }
+                            Target::Ext { tname, name, argc, ret, instance: r.signature.instance, ptys, rty }
                         }
                     },
                     _ => Target::Missing(format!("<module>::{}", name)),

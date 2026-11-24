@@ -22,6 +22,8 @@ def main():
         "ByRef": [-3, 0, 7],
         "Exception": [-1, 0, 1, 2],
         "StringSwitch": [-1, 0, 5, 11, 12],
+        "DelegateLambda": [-4, 0, 7],
+        "DelegateBool": [-1, 0, 1],
     }
     failures = []
     for method, arguments in cases.items():

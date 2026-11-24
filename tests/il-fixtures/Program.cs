@@ -2,6 +2,19 @@ using System;
 
 public static class Fixture
 {
+    public static int DelegateLambda(int value)
+    {
+        int offset = value % 3;
+        Func<int, int> callback = n => n + offset + 2;
+        return callback(value);
+    }
+
+    public static int DelegateBool(int value)
+    {
+        Func<int, bool> isPositive = n => n > 0;
+        return isPositive(value) ? 1 : 0;
+    }
+
     public static int StringSwitch(int value)
     {
         string key = value.ToString();
@@ -74,6 +87,8 @@ public static class Fixture
             case "ByRef": value = ByRef(argument); break;
             case "Exception": value = Exception(argument); break;
             case "StringSwitch": value = StringSwitch(argument); break;
+            case "DelegateLambda": value = DelegateLambda(argument); break;
+            case "DelegateBool": value = DelegateBool(argument); break;
             default: return 2;
         }
         Console.WriteLine(value);
