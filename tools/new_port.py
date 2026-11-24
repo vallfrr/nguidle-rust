@@ -59,6 +59,8 @@ def create(name, out, platform, engine_path, tag, revision, url):
     }
     for source in sorted(p for p in TEMPLATE.rglob("*") if p.is_file()):
         target = out / source.relative_to(TEMPLATE)
+        if target.suffix == ".in":  # placeholders make some files invalid on their own (Cargo.toml.in)
+            target = target.with_suffix("")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render(source.read_text(encoding="utf-8"), values), encoding="utf-8", newline="\n")
     for name_ in SHARED:
