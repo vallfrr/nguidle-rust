@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add the PC window budgets (`budgets.json`) and `tools/pc_budget.py` / `just pc-perf` to check them (manual: needs a display and game data).
 ## [0.5.0]
 
 - Add the documented platform interface (`platform-api::Engine`, `Action`, `Pointer`, `MouseButton`, `FixedStep`), including keys, the mouse wheel, secondary buttons and `reset_input` and `clr::session::Session`, a safe implementation that hosts the whole game.

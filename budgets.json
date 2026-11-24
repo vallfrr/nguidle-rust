@@ -1,0 +1,10 @@
+{
+  "comment": "Performance budgets of the PC window, checked by tools/pc_budget.py against `ngu-window` output (NGU_PERF=1). Change a value only with a new measurement, in the same commit as the documentation that quotes it. The Vita budgets are in nguidle-vita.",
+  "pc_window": {
+    "scenario": "title",
+    "size": "1280x720",
+    "min_img_per_s": 60,
+    "max_frames_over_20ms": 0,
+    "max_interval_ms": 33
+  }
+}

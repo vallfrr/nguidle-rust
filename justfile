@@ -15,6 +15,7 @@ check:
     {{python}} -B -m unittest discover -s tools -p test_verify_game_data.py
     {{python}} -B -m unittest discover -s tools/oracle -p test_compare_scenario.py
     {{python}} -B -m unittest discover -s tools -p test_new_port.py
+    {{python}} -B -m unittest discover -s tools -p test_pc_budget.py
     {{python}} -B tools/check_template.py
     just doc
 
@@ -50,3 +51,8 @@ prepare-data directory output: (verify-data directory)
 
 pack-data directory assembly output:
     {{python}} -B tools/pack.py "{{directory}}" "{{assembly}}" "{{output}}"
+
+# Manual: the PC window against the budgets in budgets.json. Needs a display and prepared game data; build ngu-window first
+# (cargo build --release -p ngu-desktop --bin ngu-window).
+pc-perf window dll data:
+    {{python}} -B tools/pc_budget.py "{{window}}" "{{dll}}" "{{data}}"
