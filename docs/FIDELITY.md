@@ -4,6 +4,8 @@ The engine's automated comparison covers selected input sequences, saves and gam
 
 Open work includes broader measurements of progression against the original, additional random-number cases, and comparison of reproducible original-game traces to the port. The interpreter's game-specific shortcuts also require individual evidence.
 
+The first original-game scenario recorder supports menu changes and state snapshots, but not pointer/controller inputs, fixed clock, or automatic cross-runtime trace comparison. See its [scope and instructions](../tools/oracle/README.md).
+
 ## Recorded comparisons
 
 - The isolated Windows 1.260 copy reported Unity 2019.4.22f1. Its measured random vectors cover six seeds and 16 draws per seed for Unity values, integer and floating ranges, saved and restored states, and seeded Mono random methods. Run `cargo test -p clr --lib unity_random_tests` and `cargo test -p clr --lib dotnet_random::tests`. See [the probe](../tools/oracle/README.md). Further bounds, default seeding and gameplay uses remain open.
