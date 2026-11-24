@@ -6,4 +6,4 @@ Remove the Cooking UI skip that produced a measured discrepancy. Retain the othe
 
 ## Consequences
 
-The four guarded/unguarded locale replays passed after removing the skip. Both paths share infrastructure, so these runs do not independently prove parity with Unity. The Vita impact of removing the Cooking skip has not been measured. Item bonus shortcuts still lack their own targeted test.
+The four guarded/unguarded locale replays passed after removing the skip. Both paths share infrastructure, so these runs do not independently prove parity with Unity. The Vita impact of removing the Cooking skip has not been measured. Item bonus shortcuts now have a targeted late-game-save test, but other equipment and challenge states remain untested.

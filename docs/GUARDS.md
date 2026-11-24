@@ -23,9 +23,9 @@ The interpreter identifies the following game methods in `clr/src/program.rs` an
 | 17 | Character.totalMagicBar | Cache repeated achievement-condition calculations. Covered by the achievement scan test. |
 | 18 | Character.effectiveBossID | Native fast path with fallback. Covered by `boss_thresholds_and_loadout_shortcuts_match_the_interpreter`. |
 | 19 | LoadoutController.Update | Skip shortcut processing when the relevant keys are absent. Covered by the boss and loadout test. |
-| 20 | InventoryController.equipSpecBonus | Native fast path with fallback. |
-| 21 | InventoryController.specBonus | Native fast path with fallback. |
+| 20 | InventoryController.equipSpecBonus | Native fast path with fallback. Covered for the saved weapon and all 52 bonus types, enabled and disabled inventory, by `inventory_bonus_shortcuts_match_interpreter_for_all_types`. |
+| 21 | InventoryController.specBonus | Native fast path with fallback. Covered for equipped items and all 52 bonus types, enabled and disabled inventory, by the same test. |
 
-The named tests use prepared game data and a suitable save. They compare specific scenarios and do not prove that all possible inputs behave identically. Guards without named tests in this table need targeted coverage. Guard 1 was removed because the skipped updates changed the stored UI state. The remaining guards need individual evidence.
+The named tests use prepared game data and a suitable save. They compare specific scenarios and do not prove that all possible inputs behave identically. Guard 1 was removed because the skipped updates changed the stored UI state. The remaining guards need broader evidence.
 
 Unity RNG vectors captured from the original Unity 2019.4.22f1 runtime are checked in `clr/tests/fixtures/unity2019_rng.csv`. See [the probe](../tools/oracle/README.md) for the collection method and coverage.
