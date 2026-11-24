@@ -1347,26 +1347,41 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
         // ---------------------------------------------------------- System.Random
         "System.Random::.ctor" => |_vm, a| {
             if let Value::Obj(o) = &a[0] {
-                let seed = a.get(1).map(|v| v.as_i32() as u64).unwrap_or(12345);
-                *o.x.borrow_mut() = Ext::Native(Box::new(seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)));
+                let seed = a.get(1).map(|v| v.as_i32()).unwrap_or(12345);
+                *o.x.borrow_mut() = Ext::Native(Box::new(crate::dotnet_random::DotNetRandom::new(seed)));
             }
             Ok(Value::Null)
         },
-        "System.Random::Next" => |_vm, a| {
+        "System.Random::Next" => |vm, a| {
+            let bounds = match a.len() {
+                2 => Some((0, a[1].as_i32())),
+                3 => Some((a[1].as_i32(), a[2].as_i32())),
+                _ => None,
+            };
+            if bounds.is_some_and(|(min, max)| min > max) {
+                return vm.throw("System.ArgumentOutOfRangeException", "minValue must not exceed maxValue");
+            }
             if let Value::Obj(o) = &a[0] {
                 if let Ext::Native(b) = &mut *o.x.borrow_mut() {
-                    if let Some(s) = b.downcast_mut::<u64>() {
-                        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                        let r = (*s >> 33) as i64;
-                        return Ok(Value::I32(match a.len() {
-                            2 => (r % a[1].as_i32().max(1) as i64) as i32,
-                            3 => a[1].as_i32() + (r % (a[2].as_i32() - a[1].as_i32()).max(1) as i64) as i32,
-                            _ => r as i32,
+                    if let Some(random) = b.downcast_mut::<crate::dotnet_random::DotNetRandom>() {
+                        return Ok(Value::I32(match bounds {
+                            Some((min, max)) => random.range(min, max),
+                            None => random.next(),
                         }));
                     }
                 }
             }
             Ok(Value::I32(0))
+        },
+        "System.Random::NextDouble" => |_vm, a| {
+            if let Value::Obj(o) = &a[0] {
+                if let Ext::Native(b) = &mut *o.x.borrow_mut() {
+                    if let Some(random) = b.downcast_mut::<crate::dotnet_random::DotNetRandom>() {
+                        return Ok(Value::F64(random.sample()));
+                    }
+                }
+            }
+            Ok(Value::F64(0.0))
         },
         // ---------------------------------------------------------- IO
         "System.IO.File::Exists" => |vm, a| {

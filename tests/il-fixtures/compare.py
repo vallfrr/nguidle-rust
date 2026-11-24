@@ -16,6 +16,7 @@ def main():
         "Branch": [-3, 0, 7],
         "Loop": [0, 1, 10],
         "Choice": [-1, 0, 1, 2, 3],
+        "SeededRandom": [-1, 0, 1, 123456789],
     }
     failures = []
     for method, arguments in cases.items():

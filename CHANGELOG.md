@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Match Unity 2019's floating-point random range interpolation for the tested reference vectors.
+- Match the tested seeded Mono `System.Random` sequences and bounded ranges.
 - Add local and GitHub check recipes for the workspace and synthetic save fixtures.
 
 ## [0.2.0]

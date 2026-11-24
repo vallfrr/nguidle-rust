@@ -6,7 +6,9 @@ For the recorded vectors, copy a verified Windows 1.260 installation to an isola
 
 The original executable may ask Steam to start the installed game even when launched from a copy. In the recorded run this started a background Steam game process. It was closed and the backed-up save files matched afterward. Check for and account for this behavior before running additional scenarios.
 
-The file `clr/tests/fixtures/unity2019_rng.csv` contains the numeric output captured from Unity 2019.4.22f1 using seeds 0, 1, -1 and 123456789. For each seed, the probe resets the state before collecting 16 values from each of `value`, integer `Range(-100, 100)` and float `Range(-10, 30)`. The Rust unit test checks these exact vectors. Additional ranges, state serialization, System.Random and game-specific behavior require separate comparisons.
+The file `clr/tests/fixtures/unity2019_rng.csv` contains numeric output captured from Unity 2019.4.22f1 using seeds 0, 1, -1 and 123456789. For each seed, the probe resets the state before collecting 16 values from each of `value`, integer `Range(-100, 100)` and float `Range(-10, 30)`. The Mono fixture records seeded `System.Random` values, bounded values, wide ranges and doubles. The Rust unit tests check these exact vectors. Additional ranges, Unity state serialization and game-specific behavior require separate comparisons.
+
+The parameterless `System.Random` constructor currently retains the port's fixed seed of 12345. Original time-based seeding has not been reproduced or compared. The seeded generator follows the Mono reference algorithm and the recorded vectors. See [Mono's reference implementation](https://github.com/mono/mono/blob/2019-12/mcs/class/referencesource/mscorlib/system/random.cs).
 
 Run `just verify-game` with `NGU_GUARDS=on` and `NGU_GUARDS=off` to compare the interpreter paths with the generated game. The default is `off`. These comparisons use the shared compatibility layer.
 
