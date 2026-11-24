@@ -17,7 +17,7 @@ translated-Rust build also boots on hardware. See [Build experiments](#build-exp
 for the performance and memory results of that alternative.
 
 The standard preview returned to the title after verification. Three idle-title
-submission counts taken after a fresh launch were 59.8–60.0 FPS. The persistent
+submission counts taken after a fresh launch were 59.8–60.0 FPS (historical; see the reproducible measurements below). The persistent
 D-pad freeze is fixed. Late-game menus still miss refreshes, and the focus
 feedback test exceeded the two-refresh target.
 
@@ -67,6 +67,24 @@ and serialization. The game interface remains English. With the same save,
 WASM runtime.
 
 ## Measurements and remaining stalls
+
+### Reproducible measurements (lot 8)
+
+Two runs of the scripted `tour` scenario (the whole menu tour on a new game), standard interpreter VPK, 444/222 MHz clocks,
+Vita host `c65a5ab`, engine `d92a347`, package `669eae535dd415e6`. Command: `bash tools/vita-cycle.sh tour <label>` in
+[nguidle-vita](https://github.com/vallfrr/nguidle-vita), then `python3 tools/vita-budget.py <folder>`.
+
+| Measure | Run 1 | Run 2 |
+| --- | --- | --- |
+| Render loop | 59.9 FPS, 1 interval over 25 ms | 59.9 FPS, 3 intervals over 25 ms |
+| Work per frame, p50 / p95 / p99 | 8.1 / 24.0 / 50.9 ms | 8.3 / 22.4 / 48.6 ms |
+| Frames over 16.7 ms | 26.0 % | 25.9 % |
+| Largest spike | 2905 ms at boot, then 427 ms in a menu | 2881 ms at boot |
+
+The refresh rate holds, but the p99 of the work per frame is three times the 16.7 ms goal: the dense menus (a p99 of 140 to 170 ms in
+the worst ones) cause the missed refreshes. The goal and the regression limit are in `budgets.json`; the reference is
+`perf/tour-baseline.json`. The counters behind these figures were repaired in lot 4. Every figure below this table was
+taken earlier, with earlier counters and revisions, and is **historical**: it is kept for the record and is not a current claim.
 
 The early readings were application render-loop rates. Later readings count
 framebuffer changes at hardware VBlank. A submission counter records another
