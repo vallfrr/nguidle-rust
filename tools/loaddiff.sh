@@ -2,7 +2,8 @@
 . "$(dirname -- "${BASH_SOURCE[0]}")/environment.sh"
 # loaddiff.sh : 1) the oracle plays the click grid and saves; 2) oracle and native load THAT save, play 100 frames, then compare visible state + new save.
 . ~/.cargo/env
-export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000} NGU_NO_GUARD=1
+export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000}
+if [ "${NGU_GUARDS:-off}" = on ]; then unset NGU_NO_GUARD; else export NGU_NO_GUARD=1; fi
 DLL="$NGU_GAME_DIR/Managed/Assembly-CSharp.dll"
 cd "$NGU_RUST_REPO"
 (cd clr && CARGO_TARGET_DIR="$NGU_CLR_TARGET" cargo build --release -q 2>&1 | grep -E "^error" -A6)
