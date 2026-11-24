@@ -42,6 +42,14 @@ The second half needs a fresh AI agent with no other context than the clone and 
 `nguidle-test`": it must succeed using only the documentation and the template, and every blocker it reports becomes a fix
 to the guide, the template or the interface. Keep the report in the pull request or in `docs/archive/`.
 
+## Performance budgets
+The Vita budgets and reference are in nguidle-vita (`budgets.json`, `perf/`). The PC window has its own in `budgets.json` here:
+on the title screen at 1280x720 the window must hold at least 60 img/s with no frame over 20 ms and no interval over 33 ms.
+Check it by hand (it needs a display and the prepared data):
+`just pc-perf <ngu-window executable> <Assembly-CSharp.dll> <prepared folder>`. First measurement, 24 November 2026, engine `851cb5c`,
+a Windows 11 desktop (GPU window at its 200 img/s pacing): median 200.0 img/s, longest interval 13.5 ms, no frame over 20 ms. A figure
+is valid only with the commit and the machine named. Measurements on the title screen say nothing about dense menus.
+
 ## Local game verification
 
 On WSL, prepare the game and build the generated crate with the
