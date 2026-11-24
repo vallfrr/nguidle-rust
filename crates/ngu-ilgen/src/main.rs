@@ -1274,7 +1274,7 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         let e = self.ty_to_rt(t);
                         let expr = if let RT::Class(id) = &e {
                             if self.vm.types[*id as usize].is_value {
-                                format!("Some(std::rc::Rc::new(std::cell::RefCell::new((0..({n2}).max(0)).map(|_| Some(Gc::new({}::default()))).collect())))", self.cname(*id))
+                                format!("Some(std::rc::Rc::new(std::cell::RefCell::new((0..({n2}).max(0)).map(|_| Some(Gc::new({}::default()))).collect::<Vec<_>>())))", self.cname(*id))
                             } else { format!("ngu_rt::new_arr::<{}>({})", self.rs(&e), n2) }
                         } else { format!("ngu_rt::new_arr::<{}>({})", self.rs(&e), n2) };
                         push!(expr, RT::Arr(Box::new(e)));
