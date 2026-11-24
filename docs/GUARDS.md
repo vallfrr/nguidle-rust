@@ -27,3 +27,5 @@ The interpreter identifies the following game methods in `clr/src/program.rs` an
 | 21 | InventoryController.specBonus | Native fast path with fallback. |
 
 The named tests use prepared game data and a suitable save. They compare specific scenarios and do not prove that all possible inputs behave identically. Guards without named tests in this table need targeted coverage. No decision about their long-term removal follows from this inventory.
+
+Unity RNG vectors captured from the original Unity 2019.4.22f1 runtime are checked in `clr/tests/fixtures/unity2019_rng.csv`. See [the probe](../tools/oracle/README.md) for the collection method and coverage.
