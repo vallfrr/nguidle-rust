@@ -172,6 +172,29 @@ mod unity_random_tests {
             }
         }
     }
+
+    #[test]
+    fn state_roundtrips_match_unity_2019() {
+        let vectors = include_str!("../tests/fixtures/unity2019_state.csv");
+        let mut state = [0; 4];
+        for line in vectors.lines().skip(1) {
+            let fields: Vec<_> = line.split(',').collect();
+            let seed: i32 = fields[0].parse().unwrap();
+            let index: usize = fields[1].parse().unwrap();
+            if index == 0 { state = unity_seed_state(seed); }
+            let expected_state: Vec<u32> = fields[2..6].iter().map(|v| v.parse::<i32>().unwrap() as u32).collect();
+            assert_eq!(state.as_slice(), expected_state, "{line}");
+            let saved = state;
+            let random = unity_rand_state(&mut state);
+            let value = (random & 0x7fffff) as f32 / 8388607.0;
+            let mut restored = saved;
+            let random_again = unity_rand_state(&mut restored);
+            let value_again = (random_again & 0x7fffff) as f32 / 8388607.0;
+            assert_eq!(value.to_bits(), fields[6].parse::<f32>().unwrap().to_bits(), "{line}");
+            assert_eq!(value_again.to_bits(), fields[7].parse::<f32>().unwrap().to_bits(), "{line}");
+            assert_eq!(state, restored, "{line}");
+        }
+    }
 }
 
 fn sel<R>(v: &Value, f: impl FnOnce(&mut SelD) -> R) -> Option<R> {

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using BepInEx;
 using UnityEngine;
 
@@ -48,6 +49,30 @@ public class UnityRngProbe : BaseUnityPlugin
                 for (int i = 0; i < 16; i++)
                     writer.WriteLine("system_double," + seed + "," + i + "," +
                         systemRandom.NextDouble().ToString("R", CultureInfo.InvariantCulture));
+            }
+        }
+        string stateOutput = Environment.GetEnvironmentVariable("NGU_RNG_STATE_PROBE_OUTPUT");
+        if (!String.IsNullOrEmpty(stateOutput))
+        {
+            using (var writer = new StreamWriter(stateOutput, false))
+            {
+                writer.WriteLine("seed,index,s0,s1,s2,s3,next,restored_next");
+                foreach (int seed in new int[] { 0, 1, -1, 123456789, Int32.MinValue, Int32.MaxValue })
+                {
+                    UnityEngine.Random.InitState(seed);
+                    for (int index = 0; index < 16; index++)
+                    {
+                        var state = UnityEngine.Random.state;
+                        var type = typeof(UnityEngine.Random.State);
+                        string fields = "";
+                        foreach (string name in new string[] { "s0", "s1", "s2", "s3" })
+                            fields += "," + type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).GetValue(state);
+                        float next = UnityEngine.Random.value;
+                        UnityEngine.Random.state = state;
+                        float restored = UnityEngine.Random.value;
+                        writer.WriteLine(seed + "," + index + fields + "," + next.ToString("R", CultureInfo.InvariantCulture) + "," + restored.ToString("R", CultureInfo.InvariantCulture));
+                    }
+                }
             }
         }
         Application.Quit();

@@ -11,8 +11,10 @@ if [[ -n ${NGU_PROGRESS_PROBE_SAVE:-} ]]; then
     [[ -f $NGU_PROGRESS_PROBE_SAVE && $NGU_PROGRESS_PROBE_SAVE != *';'* ]] || { echo 'Invalid save path' >&2; exit 1; }
     load="l,$NGU_PROGRESS_PROBE_SAVE;"
 fi
-export NGU_STEPS="call,MainMenuController.finishMainMenu;${load}get,Character.curEnergy;get,Character.idleEnergy;get,Character.capEnergy;get,Character.energyGained;get,Character.energyBarProgress;w,1800;get,Character.curEnergy;get,Character.idleEnergy;get,Character.capEnergy;get,Character.energyGained;get,Character.energyBarProgress"
+wait=w
+if [[ ${NGU_PROGRESS_REALTIME:-0} == 1 ]]; then wait=wr; fi
+export NGU_STEPS="call,MainMenuController.finishMainMenu;${load}get,Character.curEnergy;get,Character.idleEnergy;get,Character.capEnergy;get,Character.energyGained;get,Character.energyBarProgress;${wait},1800;get,Character.curEnergy;get,Character.idleEnergy;get,Character.capEnergy;get,Character.energyGained;get,Character.energyBarProgress"
 output="$run/progress.log"
 "$NGU_CLR_TARGET/release/clr" "$NGU_GAME_DIR/Managed/Assembly-CSharp.dll" load "$prepared" 90 >"$output" 2>&1
-grep -E '^\[(get|call)\]' "$output"
+grep -E '^\[(get|call|realtime)\]' "$output"
 printf 'Full output: %s\n' "$output"
