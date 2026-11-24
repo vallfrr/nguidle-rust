@@ -28,6 +28,8 @@ def main():
         "StructArray": [-3, 0, 7],
         "StructBoxing": [-3, 0, 7],
         "StructOut": [-3, 0, 7],
+        "DelegateLambda": [-4, 0, 7],
+        "DelegateBool": [-1, 0, 1],
     }
     failures = []
     for method, arguments in cases.items():

@@ -1079,7 +1079,11 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         match &meta.ret {
                             None => { let _ = writeln!(o, "        {};", call); }
                             Some(Ty::Generic) => fail!("generic delegate return"),
-                            Some(t) => { let r = self.ty_to_rt(t); push!(format!("<{} as FromV>::from_v(&{})", self.rs(&r), call), self.norm(&r)); }
+                            Some(t) => {
+                                let r = self.ty_to_rt(t);
+                                let value = format!("<{} as FromV>::from_v(&{})", self.rs(&r), call);
+                                push!(self.from_decl(&value, &r), self.norm(&r));
+                            }
                         }
                     }
                     Op::LdtokenData(b) => {

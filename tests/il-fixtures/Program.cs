@@ -49,6 +49,19 @@ public static class Fixture
         return counter.Value;
     }
 
+    public static int DelegateLambda(int value)
+    {
+        int offset = value % 3;
+        Func<int, int> callback = n => n + offset + 2;
+        return callback(value);
+    }
+
+    public static int DelegateBool(int value)
+    {
+        Func<int, bool> isPositive = n => n > 0;
+        return isPositive(value) ? 1 : 0;
+    }
+
     public static int StringSwitch(int value)
     {
         string key = value.ToString();
@@ -127,6 +140,8 @@ public static class Fixture
             case "StructArray": value = StructArray(argument); break;
             case "StructBoxing": value = StructBoxing(argument); break;
             case "StructOut": value = StructOut(argument); break;
+            case "DelegateLambda": value = DelegateLambda(argument); break;
+            case "DelegateBool": value = DelegateBool(argument); break;
             default: return 2;
         }
         Console.WriteLine(value);
