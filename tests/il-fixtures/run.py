@@ -37,7 +37,7 @@ def main():
         subprocess.run([str(generator), str(candidates[0]), str(src), "Fixture", "Fixture::Branch"], cwd=ROOT, check=True)
         source = (src / "gen.rs").read_text(encoding="utf-8")
         names = {}
-        for method in ("Branch", "Loop", "Choice", "SeededRandom", "ByRef", "Exception", "StringSwitch"):
+        for method in ("Branch", "Loop", "Choice", "SeededRandom", "ByRef", "Exception", "StringSwitch", "StructProperty", "StructByRef", "StructNested", "StructArray", "StructBoxing", "StructOut"):
             matches = re.findall(r"pub fn (m\d+_Fixture_" + method + r")\(", source)
             if len(matches) != 1:
                 raise RuntimeError(f"Expected one generated {method}, found {matches}")

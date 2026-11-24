@@ -195,6 +195,8 @@ impl<'a> G<'a> {
         match t {
             RT::Bool | RT::Char | RT::I1 | RT::U1 | RT::I2 | RT::U2 | RT::U4 => format!("({} as i32)", v),
             RT::U8 => format!("({} as i64)", v),
+            RT::Class(id) if self.vm.types[*id as usize].is_value =>
+                format!("{}.as_ref().map(|value| Gc::new(value.get().clone()))", v),
             RT::Str | RT::Obj | RT::Arr(_) | RT::Class(_) | RT::Ext(..) => format!("{}.clone()", v),
             _ => v.to_string(),
         }
@@ -304,13 +306,38 @@ impl<'a> G<'a> {
     fn gen_types(&self, tid: u32, out: &mut String) {
         let cn = self.cname(tid);
         let fr = self.field_rts(tid);
-        let _ = writeln!(out, "#[derive(Default)]
+        let derive = if self.vm.types[tid as usize].is_value { "" } else { "#[derive(Clone)]" };
+        let _ = writeln!(out, "{derive}
 pub struct {} {{
     pub __h: u32,", cn);
         for (i, t) in fr.iter().enumerate() {
             let _ = writeln!(out, "    pub f{}: {},", i, self.rs(t));
         }
         let _ = writeln!(out, "}}");
+        let _ = writeln!(out, "impl Default for {cn} {{ fn default() -> Self {{ Self {{ __h: 0,");
+        for (i, t) in fr.iter().enumerate() {
+            if let RT::Class(id) = t {
+                if self.vm.types[*id as usize].is_value {
+                    let _ = writeln!(out, "f{i}: Some(Gc::new({}::default())),", self.cname(*id));
+                    continue;
+                }
+            }
+            let _ = writeln!(out, "f{i}: Default::default(),");
+        }
+        let _ = writeln!(out, "}} }} }}");
+        if self.vm.types[tid as usize].is_value {
+            let _ = writeln!(out, "impl Clone for {cn} {{ fn clone(&self) -> Self {{ Self {{ __h: 0,");
+            for (i, t) in fr.iter().enumerate() {
+                if let RT::Class(id) = t {
+                    if self.vm.types[*id as usize].is_value {
+                        let _ = writeln!(out, "f{i}: self.f{i}.as_ref().map(|value| Gc::new(value.get().clone())),");
+                        continue;
+                    }
+                }
+                let _ = writeln!(out, "f{i}: self.f{i}.clone(),");
+            }
+            let _ = writeln!(out, "}} }} }}");
+        }
         let sr = self.static_rts(tid);
         let _ = writeln!(out, "#[derive(Default)]
 pub struct S{} {{", cn);
@@ -609,6 +636,10 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         if let RT::Ptr(inner, _) = &t {
                             let pl = format!("(*a{})", a);
                             st.push((pl.clone(), RT::Ptr(inner.clone(), pl)));
+                        } else if *a == 0 && !self.vm.prog.methods[mid as usize].is_static
+                            && matches!(t, RT::Class(id) if self.vm.types[id as usize].is_value)
+                        {
+                            push!(format!("a{}.clone()", a), self.norm(&t));
                         } else {
                             push!(self.from_decl(&format!("a{}", a), &t), self.norm(&t));
                         }
@@ -638,7 +669,9 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                     }
                     Op::Dup => {
                         let (v, t) = st.last().cloned().ok_or("dup on empty stack")?;
-                        if self.is_ref(&t) {
+                        if matches!(t, RT::Ptr(..)) {
+                            st.push((v, t));
+                        } else if self.is_ref(&t) {
                             push!(format!("{}.clone()", v), t);
                         } else {
                             push!(v, t);
@@ -986,7 +1019,9 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                         if matches!(t, Ty::Ext(_, true)) && self.is_ref(&bt) {
                             fail!("box of struct");
                         }
-                        if self.is_ref(&bt) {
+                        if matches!(bt, RT::Class(id) if self.vm.types[id as usize].is_value) {
+                            push!(format!("ngu_host::boxv({})", self.to_decl(&v, &vt, &bt)), RT::Obj);
+                        } else if self.is_ref(&bt) {
                             push!(v, vt);
                         } else {
                             push!(format!("ngu_host::boxv({})", self.to_decl(&v, &vt, &bt)), RT::Obj);
@@ -1012,9 +1047,15 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                     Op::Unbox(t) => {
                         let (v, vt) = pop!();
                         let r = self.ty_to_rt(t);
-                        if self.is_ref(&r) && !matches!(r, RT::Obj) { fail!("unbox to {:?}", r); }
+                        let struct_value = matches!(r, RT::Class(id) if self.vm.types[id as usize].is_value);
+                        if self.is_ref(&r) && !matches!(r, RT::Obj) && !struct_value { fail!("unbox to {:?}", r); }
                         if !(matches!(vt, RT::Obj) || matches!(&vt, RT::Ext(..))) { fail!("unbox depuis {:?}", vt); }
-                        push!(format!("ngu_host::unbox::<{}>(&{})", self.rs(&r), v), self.norm(&r));
+                        let result = format!("ngu_host::unbox::<{}>(&{})", self.rs(&r), v);
+                        if struct_value {
+                            push!(format!("{}.as_ref().map(|value| Gc::new(value.get().clone()))", result), self.norm(&r));
+                        } else {
+                            push!(result, self.norm(&r));
+                        }
                     }
                     Op::Ldtoken(n) => push!(format!("ngu_host::type_token({:?})", &**n), RT::Obj),
                     Op::Ldftn(m) => push!(format!("{}u32", m), RT::Ext("@ftn".into(), vec![])),
@@ -1104,7 +1145,14 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                                 }
                             }
                         }
-                        let c = match vt { RT::Class(c) => c, _ => fail!("ldflda on non-class receiver {:?}", vt) };
+                        let c = match &vt {
+                            RT::Class(c) => *c,
+                            RT::Ptr(inner, _) => match &**inner {
+                                RT::Class(c) => *c,
+                                _ => fail!("ldflda on non-class receiver {:?}", vt),
+                            },
+                            _ => fail!("ldflda on non-class receiver {:?}", vt),
+                        };
                         let ft = self.field_rts(c).get(*slot as usize).cloned().ok_or("unknown field")?;
                         let pl = format!("{}.as_ref().expect(\"NullReferenceException\").get().f{}", v, slot);
                         st.push((pl.clone(), RT::Ptr(Box::new(ft), pl)));
@@ -1172,7 +1220,17 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                     Op::Initobj(_) => {
                         let (_, pt) = pop!();
                         match pt {
-                            RT::Ptr(_, place) => { let _ = writeln!(o, "        {} = Default::default();", place); }
+                            RT::Ptr(inner, place) => {
+                                if let RT::Class(id) = *inner {
+                                    if self.vm.types[id as usize].is_value {
+                                        let _ = writeln!(o, "        {} = Some(Gc::new({}::default()));", place, self.cname(id));
+                                    } else {
+                                        let _ = writeln!(o, "        {} = Default::default();", place);
+                                    }
+                                } else {
+                                    let _ = writeln!(o, "        {} = Default::default();", place);
+                                }
+                            }
                             _ => fail!("initobj on non-pointer"),
                         }
                     }
@@ -1214,7 +1272,12 @@ pub {} {{ unimplemented!(\"externe/abstrait\") }}
                     Op::Newarr(t) => {
                         let (n2, _) = pop!();
                         let e = self.ty_to_rt(t);
-                        push!(format!("ngu_rt::new_arr::<{}>({})", self.rs(&e), n2), RT::Arr(Box::new(e)));
+                        let expr = if let RT::Class(id) = &e {
+                            if self.vm.types[*id as usize].is_value {
+                                format!("Some(std::rc::Rc::new(std::cell::RefCell::new((0..({n2}).max(0)).map(|_| Some(Gc::new({}::default()))).collect())))", self.cname(*id))
+                            } else { format!("ngu_rt::new_arr::<{}>({})", self.rs(&e), n2) }
+                        } else { format!("ngu_rt::new_arr::<{}>({})", self.rs(&e), n2) };
+                        push!(expr, RT::Arr(Box::new(e)));
                     }
                     Op::Ldlen => {
                         let (a2, _) = pop!();
