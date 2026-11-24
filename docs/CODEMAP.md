@@ -2,49 +2,50 @@
 
 This index covers first-party tracked Rust source files. The source file names identify their current module or executable. Run `python -B tools/check_codemap.py` to check coverage.
 
-- `clr/src/achievements.rs` — achievements module in clr.
-- `clr/src/assets.rs` — assets module in clr.
-- `clr/src/autoplay.rs` — autoplay module in clr.
-- `clr/src/bcl.rs` — bcl module in clr.
-- `clr/src/bcl_core.rs` — bcl core module in clr.
-- `clr/src/bcl_sys.rs` — bcl sys module in clr.
-- `clr/src/capi.rs` — capi module in clr.
-- `clr/src/code.rs` — code module in clr.
-- `clr/src/console_mode.rs` — console mode module in clr.
-- `clr/src/cooking_score.rs` — cooking score module in clr.
-- `clr/src/desktop_layout.rs` — desktop layout module in clr.
-- `clr/src/dev.rs` — dev module in clr.
-- `clr/src/dropdown.rs` — dropdown module in clr.
-- `clr/src/focus.rs` — focus module in clr.
-- `clr/src/input.rs` — input module in clr.
-- `clr/src/layout.rs` — layout module in clr.
-- `clr/src/legacy_save.rs` — legacy save module in clr.
-- `clr/src/lib.rs` — lib module in clr.
-- `clr/src/lower.rs` — lower module in clr.
-- `clr/src/main.rs` — main module in clr.
-- `clr/src/motion.rs` — motion module in clr.
-- `clr/src/nrbf.rs` — nrbf module in clr.
-- `clr/src/profile.rs` — profile module in clr.
-- `clr/src/program.rs` — program module in clr.
-- `clr/src/render.rs` — render module in clr.
-- `clr/src/save_slots.rs` — save slots module in clr.
-- `clr/src/script.rs` — script module in clr.
-- `clr/src/serial.rs` — serial module in clr.
-- `clr/src/ui.rs` — ui module in clr.
-- `clr/src/unity.rs` — unity module in clr.
-- `clr/src/unity_api.rs` — unity api module in clr.
-- `clr/src/value.rs` — value module in clr.
-- `clr/src/vm.rs` — vm module in clr.
-- `crates/ngu-desktop/src/actions.rs` — actions module in ngu-desktop.
-- `crates/ngu-desktop/src/bin/ngu-window.rs` — ngu-window module in ngu-desktop.
-- `crates/ngu-desktop/src/gl.rs` — gl module in ngu-desktop.
-- `crates/ngu-desktop/src/lib.rs` — lib module in ngu-desktop.
-- `crates/ngu-desktop/src/pad.rs` — pad module in ngu-desktop.
-- `crates/ngu-gen/src/main.rs` — main module in ngu-gen.
-- `crates/ngu-gen/src/vita.rs` — vita module in ngu-gen.
-- `crates/ngu-host/src/lib.rs` — lib module in ngu-host.
-- `crates/ngu-ilgen/src/main.rs` — main module in ngu-ilgen.
-- `crates/ngu-rt/src/ext.rs` — ext module in ngu-rt.
-- `crates/ngu-rt/src/fmt.rs` — fmt module in ngu-rt.
-- `crates/ngu-rt/src/lib.rs` — lib module in ngu-rt.
-- `crates/ngu-rt/src/unity.rs` — unity module in ngu-rt.
+- `clr/src/achievements.rs` — Local progression for the installation's platform achievements.
+- `clr/src/assets.rs` — Access to the prepared data: folder (PC) or single `ngu.pak` archive (Vita), + log.
+- `clr/src/autoplay.rs` — Scripted player for benchmarks (`docs/VITA-60.md`): replays a scenario through the same inputs the console sends
+- `clr/src/bcl.rs` — Native BCL/Unity layer: native types, structs, intrinsics.
+- `clr/src/bcl_core.rs` — BCL intrinsics (System.*): strings, numbers, Math, collections, I/O.
+- `clr/src/bcl_sys.rs` — System intrinsics: Regex, hashes, AES, memory streams, BinaryFormatter (real .NET wire format through `serial`).
+- `clr/src/capi.rs` — C API for the Vita backend (vitaGL): init, input, frame, triangle list, textures.
+- `clr/src/code.rs` — Lowered (resolved) code of a method.
+- `clr/src/console_mode.rs` — Gamepad-first presentation and console layout.
+- `clr/src/cooking_score.rs` — Cooking score optimization used by the interpreter.
+- `clr/src/desktop_layout.rs` — PC presentation rectangles. Game scripts keep their original RectTransforms.
+- `clr/src/dotnet_random.rs` — Seeded System.Random sequence used by the original Mono runtime.
+- `clr/src/dev.rs` — Script-driven development tools (designed for the assistant: text output, no manual clicks).
+- `clr/src/dropdown.rs` — Dropdown interaction and selection behavior.
+- `clr/src/focus.rs` — Finds reachable controls and moves controller focus.
+- `clr/src/input.rs` — Pointer input (mouse / touch): UI raycast, hover, press, click, drag and drop, Slider, Toggle.
+- `clr/src/layout.rs` — Unity UI automatic layout: VerticalLayoutGroup, HorizontalLayoutGroup, GridLayoutGroup, ContentSizeFitter.
+- `clr/src/legacy_save.rs` — Reads and writes legacy game save structures.
+- `clr/src/lib.rs` — Declares the interpreter library modules and public API.
+- `clr/src/lower.rs` — Lowering: dotnetdll::Instruction -> Op (token resolution, 1 instruction = 1 op).
+- `clr/src/main.rs` — Command-line entry point for interpreter and debugging scenarios.
+- `clr/src/motion.rs` — Render-time motion. The authoritative UI and game state still update on their normal clocks.
+- `clr/src/nrbf.rs` — .NET BinaryFormatter wire format (MS-NRBF): parser into a node tree and writer from a node tree.
+- `clr/src/profile.rs` — Transforms the game layout for different screen profiles.
+- `clr/src/program.rs` — Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
+- `clr/src/render.rs` — Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
+- `clr/src/save_slots.rs` — Local save screens. The game still owns serialization and progression.
+- `clr/src/script.rs` — Scripted input scenarios (clicks, drags, waits) shared by the oracle and native mode.
+- `clr/src/serial.rs` — Serializes player and save data using the .NET BinaryFormatter format.
+- `clr/src/ui.rs` — RectTransform layout (world positions in screen pixels, bottom-left origin).
+- `clr/src/unity.rs` — Minimal Unity engine: GameObject/Transform/UI components, scene loading, life cycle.
+- `clr/src/unity_api.rs` — UnityEngine.* / UnityEngine.UI.* / Steam / Kartridge intrinsics (stubs).
+- `clr/src/value.rs` — Value model of the CIL interpreter (dynamic typing).
+- `clr/src/vm.rs` — Virtual machine: type registry, calls, execution loop, exceptions.
+- `crates/ngu-desktop/src/actions.rs` — High-level actions (keyboard, mouse, gamepad) applied to the game: focus navigation and confirmation.
+- `crates/ngu-desktop/src/bin/ngu-window.rs` — Starts the desktop window executable.
+- `crates/ngu-desktop/src/gl.rs` — Renders engine quads through the desktop GPU window.
+- `crates/ngu-desktop/src/lib.rs` — Desktop shell: window, mouse, keyboard (and gamepad through the `pad` feature).
+- `crates/ngu-desktop/src/pad.rs` — Handles Windows gamepad input and focus.
+- `crates/ngu-gen/src/main.rs` — Hosts and executes generated Rust game logic.
+- `crates/ngu-gen/src/vita.rs` — Generated-game integration for the Vita target.
+- `crates/ngu-host/src/lib.rs` — Bridge between generated Rust and the interpreter runtime.
+- `crates/ngu-ilgen/src/main.rs` — Translates resolved CIL methods into Rust source.
+- `crates/ngu-rt/src/ext.rs` — Provides BCL and Unity calls used by generated code.
+- `crates/ngu-rt/src/fmt.rs` — .NET number formats (faithful copy of the `clr` oracle).
+- `crates/ngu-rt/src/lib.rs` — Open runtime of the NGU Idle port: minimal .NET types + BCL functions called by generated code.
+- `crates/ngu-rt/src/unity.rs` — Unity value types (copied by value, no engine).

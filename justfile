@@ -14,3 +14,6 @@ check:
 
 verify-game:
     bash tools/regress.sh
+
+verify-fixtures:
+    {{python}} -B tests/il-fixtures/run.py

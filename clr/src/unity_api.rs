@@ -102,7 +102,10 @@ fn collect_comps(vm: &mut Vm, root: &Value, t: &crate::code::TyOp, children: boo
 }
 
 fn unity_rand(vm: &mut Vm) -> u32 {
-    let s = &mut vm.eng.rng;
+    unity_rand_state(&mut vm.eng.rng)
+}
+
+fn unity_rand_state(s: &mut [u32; 4]) -> u32 {
     let t = s[0] ^ (s[0] << 11);
     s[0] = s[1];
     s[1] = s[2];
@@ -111,12 +114,87 @@ fn unity_rand(vm: &mut Vm) -> u32 {
     s[3]
 }
 
+fn unity_range_float(r: u32, lo: f32, hi: f32) -> f32 {
+    let fraction = (r & 0x7FFFFF) as f32 / 8388607.0;
+    (1.0 - fraction) * hi + fraction * lo
+}
+
+fn unity_range_int(r: u32, lo: i32, hi: i32) -> i32 {
+    let span = (hi as i64 - lo as i64).max(0) as u32;
+    if span == 0 { lo } else { lo.wrapping_add((r % span) as i32) }
+}
+
 fn init_state(vm: &mut Vm, seed: i32) {
+    vm.eng.rng = unity_seed_state(seed);
+}
+
+fn unity_seed_state(seed: i32) -> [u32; 4] {
     let s0 = seed as u32;
     let s1 = s0.wrapping_mul(1812433253).wrapping_add(1);
     let s2 = s1.wrapping_mul(1812433253).wrapping_add(1);
     let s3 = s2.wrapping_mul(1812433253).wrapping_add(1);
-    vm.eng.rng = [s0, s1, s2, s3];
+    [s0, s1, s2, s3]
+}
+
+#[cfg(test)]
+mod unity_random_tests {
+    use super::{unity_rand_state, unity_range_float, unity_range_int, unity_seed_state};
+
+    #[test]
+    fn matches_unity_2019_reference_vectors() {
+        let vectors = include_str!("../tests/fixtures/unity2019_rng.csv");
+        let mut state = [0; 4];
+        for line in vectors.lines().skip(1) {
+            let fields: Vec<_> = line.split(',').collect();
+            let seed: i32 = fields[1].parse().unwrap();
+            let index: usize = fields[2].parse().unwrap();
+            if index == 0 {
+                state = unity_seed_state(seed);
+            }
+            let random = unity_rand_state(&mut state);
+            match fields[0] {
+                "value" => {
+                    let actual = (random & 0x7fffff) as f32 / 8388607.0;
+                    let expected: f32 = fields[3].parse().unwrap();
+                    assert_eq!(actual.to_bits(), expected.to_bits(), "{line}");
+                }
+                "range_int" => {
+                    let actual = unity_range_int(random, -100, 100);
+                    let expected: i32 = fields[3].parse().unwrap();
+                    assert_eq!(actual, expected, "{line}");
+                }
+                "range_float" => {
+                    let actual = unity_range_float(random, -10.0, 30.0);
+                    let expected: f32 = fields[3].parse().unwrap();
+                    assert_eq!(actual.to_bits(), expected.to_bits(), "{line}");
+                }
+                kind => panic!("unexpected vector kind {kind}"),
+            }
+        }
+    }
+
+    #[test]
+    fn state_roundtrips_match_unity_2019() {
+        let vectors = include_str!("../tests/fixtures/unity2019_state.csv");
+        let mut state = [0; 4];
+        for line in vectors.lines().skip(1) {
+            let fields: Vec<_> = line.split(',').collect();
+            let seed: i32 = fields[0].parse().unwrap();
+            let index: usize = fields[1].parse().unwrap();
+            if index == 0 { state = unity_seed_state(seed); }
+            let expected_state: Vec<u32> = fields[2..6].iter().map(|v| v.parse::<i32>().unwrap() as u32).collect();
+            assert_eq!(state.as_slice(), expected_state, "{line}");
+            let saved = state;
+            let random = unity_rand_state(&mut state);
+            let value = (random & 0x7fffff) as f32 / 8388607.0;
+            let mut restored = saved;
+            let random_again = unity_rand_state(&mut restored);
+            let value_again = (random_again & 0x7fffff) as f32 / 8388607.0;
+            assert_eq!(value.to_bits(), fields[6].parse::<f32>().unwrap().to_bits(), "{line}");
+            assert_eq!(value_again.to_bits(), fields[7].parse::<f32>().unwrap().to_bits(), "{line}");
+            assert_eq!(state, restored, "{line}");
+        }
+    }
 }
 
 fn sel<R>(v: &Value, f: impl FnOnce(&mut SelD) -> R) -> Option<R> {
@@ -225,12 +303,11 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let r = unity_rand(vm);
             Ok(match (&a[0], &a[1]) {
                 (Value::I32(lo), Value::I32(hi)) => {
-                    let span = (*hi as i64 - *lo as i64).max(0) as u32;
-                    Value::I32(if span == 0 { *lo } else { lo.wrapping_add((r % span) as i32) })
+                    Value::I32(unity_range_int(r, *lo, *hi))
                 }
                 _ => {
                     let (lo, hi) = (a[0].as_f32(), a[1].as_f32());
-                    Value::F32(lo + (r & 0x7FFFFF) as f32 / 8388607.0 * (hi - lo))
+                    Value::F32(unity_range_float(r, lo, hi))
                 }
             })
         },

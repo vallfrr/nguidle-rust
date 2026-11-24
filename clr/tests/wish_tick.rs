@@ -164,6 +164,34 @@ fn cooking_uses_the_exact_score_after_recipe_changes() {
 }
 
 #[test]
+#[ignore = "requires assets and a late-game save from the verified installation"]
+fn cooking_ui_updates_while_another_menu_is_selected() {
+    let dll = std::env::var("NGU_TEST_DLL").unwrap();
+    let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+    let save = std::env::var("NGU_TEST_SAVE").unwrap();
+    let mut vm = late_game(&dll, &assets, &save);
+    let controller = vm.eng.user_comps.iter().find_map(|component| {
+        let Value::Obj(component) = component else { return None };
+        (vm.types[component.ty as usize].name == "CookingController")
+            .then(|| Rc::clone(component))
+    }).unwrap();
+    let character = member(&vm, &controller, "character");
+    let cooking = member(&vm, &character, "cooking");
+    let menu = field(&vm, &character, "menuID");
+    let timer = field(&vm, &cooking, "cookTimer");
+    let update = vm.find_method(controller.ty, "updateDishUI", 1).unwrap();
+    character.f.borrow_mut()[menu] = Value::I32(0);
+    cooking.f.borrow_mut()[timer] = Value::F32(0.0);
+    vm.invoke(update, vec![Value::Obj(Rc::clone(&controller))])
+        .unwrap_or_else(|error| panic!("Cooking update raised {}", vm.describe(&error)));
+    let before = clr::unity::dump_state(&vm);
+    cooking.f.borrow_mut()[timer] = Value::F32(1000.0);
+    vm.invoke(update, vec![Value::Obj(controller)])
+        .unwrap_or_else(|error| panic!("Cooking update raised {}", vm.describe(&error)));
+    assert_ne!(before, clr::unity::dump_state(&vm));
+}
+
+#[test]
 #[ignore = "requires assets and a save from the verified installation"]
 fn achievement_scan_preserves_thresholds_and_bonus_points() {
     let dll = std::env::var("NGU_TEST_DLL").unwrap();
@@ -265,4 +293,43 @@ fn boss_thresholds_and_loadout_shortcuts_match_the_interpreter() {
     assert!(boss_steps < oracle_steps && idle < oracle_idle);
     assert_eq!(shortcuts, oracle_shortcuts);
     assert!(shortcuts.iter().all(|&steps| steps > 0));
+}
+
+#[test]
+#[ignore = "requires assets and a late-game save from the verified installation"]
+fn inventory_bonus_shortcuts_match_interpreter_for_all_types() {
+    let dll = std::env::var("NGU_TEST_DLL").unwrap();
+    let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+    let save = std::env::var("NGU_TEST_SAVE").unwrap();
+    let mut vm = late_game(&dll, &assets, &save);
+    let controller = vm.eng.user_comps.iter().find_map(|v| {
+        v.as_obj().filter(|o| vm.types[o.ty as usize].name == "InventoryController").cloned()
+    }).expect("inventory controller");
+    let character = member(&vm, &controller, "character");
+    let inventory = member(&vm, &character, "inventory");
+    let weapon = member(&vm, &inventory, "weapon");
+    let disabled = field(&vm, &inventory, "disabled");
+    let total = vm.find_method(controller.ty, "specBonus", 2).unwrap();
+    let equip = vm.find_method(controller.ty, "equipSpecBonus", 3).unwrap();
+    let guards = [vm.prog.methods[total as usize].guard, vm.prog.methods[equip as usize].guard];
+    assert_eq!(guards, [21, 20]);
+    for is_disabled in [false, true] {
+        inventory.f.borrow_mut()[disabled] = Value::bool(is_disabled);
+        for kind in 0..52 {
+            let args = [Value::Obj(controller.clone()), Value::I32(kind)];
+            let equipment_args = [Value::Obj(controller.clone()), Value::I32(kind), Value::Obj(weapon.clone())];
+            let optimized = vm.invoke(total, args.clone()).unwrap_or_else(|e| panic!("{}", vm.describe(&e))).as_f32().to_bits();
+            let optimized_equip = vm.invoke(equip, equipment_args.clone()).unwrap_or_else(|e| panic!("{}", vm.describe(&e))).as_f32().to_bits();
+            let methods = &mut Rc::get_mut(&mut vm.prog).unwrap().methods;
+            methods[total as usize].guard = 0;
+            methods[equip as usize].guard = 0;
+            let reference = vm.invoke(total, args).unwrap_or_else(|e| panic!("{}", vm.describe(&e))).as_f32().to_bits();
+            let reference_equip = vm.invoke(equip, equipment_args).unwrap_or_else(|e| panic!("{}", vm.describe(&e))).as_f32().to_bits();
+            let methods = &mut Rc::get_mut(&mut vm.prog).unwrap().methods;
+            methods[total as usize].guard = guards[0];
+            methods[equip as usize].guard = guards[1];
+            assert_eq!(optimized, reference, "total bonus kind {kind}, disabled {is_disabled}");
+            assert_eq!(optimized_equip, reference_equip, "weapon bonus kind {kind}, disabled {is_disabled}");
+        }
+    }
 }

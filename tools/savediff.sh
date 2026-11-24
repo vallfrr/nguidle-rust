@@ -3,7 +3,8 @@
 # savediff.sh [frames] : output of ImportExport.getBase64Data() (complete save) of the oracle vs native, after the NGU_STEPS scenario
 . ~/.cargo/env
 N=${1:-30}
-export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000} NGU_NO_GUARD=1
+export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000}
+if [ "${NGU_GUARDS:-off}" = on ]; then unset NGU_NO_GUARD; else export NGU_NO_GUARD=1; fi
 DLL="$NGU_GAME_DIR/Managed/Assembly-CSharp.dll"
 cd "$NGU_RUST_REPO"
 NGU_STATE_DIR=$(ngu_new_state_run savediff) || exit 1

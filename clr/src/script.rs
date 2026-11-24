@@ -2,7 +2,8 @@
 use crate::Vm;
 
 /// Steps: `x,y[,wait]` click (virtual 960x600 px, top-left origin; wait in frames, default 15),
-/// `w,N` waits N frames, `h,x,y` holds a press, `d,x1,y1,x2,y2` drags from point 1 to point 2.
+/// `w,N` waits N frames, `wr,N` runs N frames paced at 30 Hz on desktop,
+/// `h,x,y` holds a press, `d,x1,y1,x2,y2` drags from point 1 to point 2.
 pub fn run_steps(vm: &mut Vm, steps: &[String]) {
     for step in steps {
         let p: Vec<&str> = step.split(',').collect();
@@ -435,6 +436,20 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             for _ in 0..p[1].parse::<usize>().unwrap() {
                 vm.frame(1.0 / 30.0);
             }
+            continue;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if p[0] == "wr" {
+            let frames: usize = p[1].parse().unwrap();
+            let start = std::time::Instant::now();
+            for n in 1..=frames {
+                vm.frame(1.0 / 30.0);
+                let deadline = start + std::time::Duration::from_secs_f64(n as f64 / 30.0);
+                if let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+                    std::thread::sleep(remaining);
+                }
+            }
+            println!("[realtime] {} frames in {:.6}s", frames, start.elapsed().as_secs_f64());
             continue;
         }
         if p[0] == "h" {

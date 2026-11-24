@@ -660,7 +660,6 @@ impl Vm {
         let mut achievement_stat = None;
         if guarded {
             let result = match mi.guard {
-                1 if self.guard_skip(mi.guard, base) => Some(Value::Null),
                 // A zero allocation cannot advance a wish. The update loop checks for a
                 // positive value. Other callers still receive the exact formula result.
                 2 if self.wish_tick_fields.as_ref().is_some_and(|fields| {
@@ -911,32 +910,6 @@ impl Vm {
     }
 
     /// Optimisation with no visible effect: UI refresh of a hidden menu.
-    fn guard_skip(&mut self, kind: u8, base: usize) -> bool {
-        let this = match self.slots.get(base) {
-            Some(Value::Obj(o)) => o.clone(),
-            _ => return false,
-        };
-        match kind {
-            1 => {
-                // CookingController.updateDishUI: useless while the Cooking menu (id 57) is not displayed
-                let ty = this.ty as usize;
-                let cs = match self.types[ty].fields.iter().position(|n| n == "character") {
-                    Some(s) => s,
-                    None => return false,
-                };
-                let ch = this.f.borrow()[cs].clone();
-                if let Value::Obj(c) = ch {
-                    let cty = c.ty as usize;
-                    if let Some(ms) = self.types[cty].fields.iter().position(|n| n == "menuID") {
-                        return c.f.borrow()[ms].as_i32() != 57;
-                    }
-                }
-                false
-            }
-            _ => false,
-        }
-    }
-
     fn pop(&mut self) -> Value {
         self.slots.pop().unwrap()
     }

@@ -3,7 +3,8 @@
 # statediff.sh [frames] : same scene, same fixed clock, N frames -> visible state of the oracle (interpreter) vs generated Rust; prints the diff.
 . ~/.cargo/env
 N=${1:-30}
-export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000} NGU_NO_GUARD=1
+export NGU_FIXED_NOW=${NGU_FIXED_NOW:-1700000000}
+if [ "${NGU_GUARDS:-off}" = on ]; then unset NGU_NO_GUARD; else export NGU_NO_GUARD=1; fi
 DLL="$NGU_GAME_DIR/Managed/Assembly-CSharp.dll"
 cd "$NGU_RUST_REPO"
 NGU_STATE_DIR=$(ngu_new_state_run statediff) || exit 1

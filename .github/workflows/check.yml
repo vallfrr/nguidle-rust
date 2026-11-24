@@ -46,3 +46,5 @@ jobs:
           cargo +1.100.0 install --locked --version 1.43.0 just
       - name: Run the local checks
         run: just check
+      - name: Compare synthetic IL fixtures with .NET
+        run: just verify-fixtures

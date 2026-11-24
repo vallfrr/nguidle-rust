@@ -282,7 +282,6 @@ impl Program {
                     code: std::cell::OnceCell::new(),
                     ctor_or_static: m.is_static() || m.name == ".ctor",
                     guard: match m.name.as_ref() {
-                        "updateDishUI" if typedef_name(&self.res, ti) == "CookingController" => 1,
                         "progressPerTick" if typedef_name(&self.res, ti) == "WishesController" => 2,
                         "updateAllWishes" if typedef_name(&self.res, ti) == "WishesController" => 3,
                         "manageFight" if typedef_name(&self.res, ti) == "AdventureController" => 4,
