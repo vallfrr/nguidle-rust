@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0]
+
 - Match Unity 2019's floating-point random range interpolation for the tested reference vectors.
 - Match the tested seeded Mono `System.Random` sequences and bounded ranges.
 - Preserve Cooking UI updates while other menus are selected.

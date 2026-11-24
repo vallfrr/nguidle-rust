@@ -53,6 +53,18 @@ public class ProgressProbe : BaseUnityPlugin
         var menu = menus[0];
         var character = characters[0];
         AccessTools.Method(menuType, "finishMainMenu").Invoke(menu, null);
+        var save = Environment.GetEnvironmentVariable("NGU_PROGRESS_PROBE_SAVE");
+        if (!String.IsNullOrEmpty(save))
+        {
+            var dialogType = AccessTools.TypeByName("OpenFileDialog");
+            var dialogs = Resources.FindObjectsOfTypeAll(dialogType);
+            if (dialogs.Length != 1 || !(bool)AccessTools.Method(dialogType, "quickLoad", new Type[] { typeof(string) }).Invoke(dialogs[0], new object[] { save }))
+            {
+                File.WriteAllText(output, "save_load_failed");
+                Application.Quit();
+                yield break;
+            }
+        }
         float start = Time.realtimeSinceStartup;
         using (var writer = new StreamWriter(output, false))
         {

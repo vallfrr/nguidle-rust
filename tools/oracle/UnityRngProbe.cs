@@ -14,7 +14,7 @@ public class UnityRngProbe : BaseUnityPlugin
         using (var writer = new StreamWriter(output, false))
         {
             writer.WriteLine("unity=" + Application.unityVersion);
-            foreach (int seed in new int[] { 0, 1, -1, 123456789 })
+            foreach (int seed in new int[] { 0, 1, -1, 123456789, Int32.MinValue, Int32.MaxValue })
             {
                 UnityEngine.Random.InitState(seed);
                 for (int i = 0; i < 16; i++)

@@ -11,6 +11,7 @@ def main():
     parser.add_argument("--dotnet", required=True)
     parser.add_argument("--clr", required=True)
     parser.add_argument("--dll", required=True, type=Path)
+    parser.add_argument("--generated", required=True)
     options = parser.parse_args()
     cases = {
         "Branch": [-3, 0, 7],
@@ -30,10 +31,14 @@ def main():
             ).strip()
             if interpreted != f"=> {native}":
                 failures.append(f"{method}({argument}): .NET={native}, interpreter={interpreted}")
+            if method != "SeededRandom":
+                generated = subprocess.check_output([options.generated, method, str(argument)], text=True).strip()
+                if generated != f"=> {native}":
+                    failures.append(f"{method}({argument}): .NET={native}, generated={generated}")
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
-    print(f"{sum(len(values) for values in cases.values())} fixture cases match .NET.")
+    print(f"{sum(len(values) for values in cases.values())} interpreter and 11 generated fixture cases match .NET.")
     return 0
 
 
