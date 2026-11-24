@@ -38,6 +38,13 @@ class NewPortTests(unittest.TestCase):
         self.assertEqual(list(new_port.TEMPLATE.rglob("Cargo.toml")), [])
         self.assertTrue((self.make() / "Cargo.toml").is_file())
 
+    def test_the_workflow_scripts_keep_their_line_breaks(self):
+        # A backslash-n lost in generation once split a shell command across YAML lines: the workflow must stay valid.
+        text = (self.make() / ".github/workflows/check.yml").read_text()
+        self.assertIn("printf '%s" + chr(92) + "n' ", text)
+        for line in text.splitlines():
+            self.assertTrue(line == "" or line.startswith((" ", "name:", '"on":', "permissions:", "concurrency:", "env:", "jobs:")), line)
+
     def test_bad_names_and_non_empty_folders_are_refused_with_advice(self):
         with self.assertRaisesRegex(SystemExit, "nguidle- followed by lowercase words"):
             self.make(name="Bad_Name")
