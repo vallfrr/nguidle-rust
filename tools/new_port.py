@@ -39,6 +39,7 @@ def render(text, values):
 
 
 def create(name, out, platform, engine_path, tag, revision, url):
+    """Write the port into `out`. `revision` is only reported: Cargo.lock records it at the first build."""
     if not NAME.match(name):
         raise SystemExit(f"`{name}` is not a valid port name: use lowercase words joined by hyphens, like nguidle-switch.")
     if out.exists() and any(out.iterdir()):
@@ -53,7 +54,6 @@ def create(name, out, platform, engine_path, tag, revision, url):
         "__PORT_PLATFORM__": platform,
         "__ENGINE_DEPENDENCY__": dependency,
         "__ENGINE_TAG__": tag,
-        "__ENGINE_REVISION__": revision,
     }
     for source in sorted(p for p in TEMPLATE.rglob("*") if p.is_file()):
         target = out / source.relative_to(TEMPLATE)
@@ -85,7 +85,7 @@ def main(argv=None):
     remote = git("remote", "get-url", "origin").stdout.strip() or "https://github.com/vallfrr/nguidle-rust.git"
     out = options.out or ENGINE.parent / options.name
     create(options.name, out, options.platform, options.engine_path, tag, revision, remote)
-    print(f"Created {out}.")
+    print(f"Created {out} (engine {tag}, revision {revision[:12] or 'unknown'}).")
     print("Next: cd there, `just check`, then read docs/PORTING.md of the engine and replace the PORT: stand-ins.")
     return 0
 

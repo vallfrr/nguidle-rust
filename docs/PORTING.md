@@ -122,7 +122,7 @@ Every `PORT:` comment in the generated `src/` marks where your platform's code g
 
 ## 6. Pins, updates and what is public
 
-Pin the engine by **tag and exact revision** (`Cargo.toml` and `engine.tag`). The public surface, the stability promise
+Pin the engine by **tag and exact revision**: the tag in `Cargo.toml` and `engine.tag`, the revision in `Cargo.lock`. The public surface, the stability promise
 (`0.x`: a breaking change is a new minor version with a changelog entry and a migration note) and the C ABI table are in
 [ENGINE-API.md](ENGINE-API.md). Everything else is internal and may change. After changing the pin run `cargo update -p clr`
 and `just check`, and re-prepare your data.

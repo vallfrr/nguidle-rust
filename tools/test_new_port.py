@@ -25,7 +25,7 @@ class NewPortTests(unittest.TestCase):
         for expected in ["Cargo.toml", "AGENTS.md", "README.md", "justfile", "engine.tag", "src/main.rs", "src/lib.rs",
                          "tests/contract.rs", ".github/workflows/check.yml", ".github/repo-check.py", "LICENSE", ".gitignore"]:
             self.assertTrue((out / expected).is_file(), expected)
-        self.assertEqual((out / "engine.tag").read_text().split(), ["v0.5.0", "a" * 40])
+        self.assertEqual((out / "engine.tag").read_text().split(), ["v0.5.0"])
         self.assertIn('tag = "v0.5.0"', (out / "Cargo.toml").read_text())
         self.assertIn("nguidle_test::", (out / "src/main.rs").read_text())
 

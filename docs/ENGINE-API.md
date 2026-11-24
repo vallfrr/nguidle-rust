@@ -7,7 +7,7 @@ crate, is an implementation detail that may change in any release. To build a po
 
 The engine is versioned with immutable Git tags `v0.MINOR.PATCH`. In the `0.x` series a **breaking change to anything
 listed below requires a new minor version**, a [CHANGELOG](../CHANGELOG.md) entry and a "Migration" note for ports.
-Patch versions never break this surface. A port pins a tag **and** its exact revision (`engine.tag`, `Cargo.toml`).
+Patch versions never break this surface. A port pins a tag **and** its exact revision (the tag in `engine.tag` and `Cargo.toml`, the revision in `Cargo.lock` or the submodule pointer).
 There is no promise beyond `0.x`; `1.0` will come with a public stability commitment.
 
 Generated reference documentation: `just doc` (`cargo doc --no-deps` for the crates below, warnings are errors; the CI
