@@ -30,6 +30,9 @@ def main():
         "StructOut": [-3, 0, 7],
         "DelegateLambda": [-4, 0, 7],
         "DelegateBool": [-1, 0, 1],
+        "GenericList": [-3, 0, 7],
+        "LinqSum": [-3, 0, 7],
+        "IteratorSum": [-3, 0, 7],
     }
     failures = []
     for method, arguments in cases.items():

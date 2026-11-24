@@ -41,6 +41,7 @@ def main():
             "Branch", "Loop", "Choice", "SeededRandom", "ByRef", "Exception", "StringSwitch",
             "StructProperty", "StructByRef", "StructNested", "StructArray", "StructBoxing",
             "StructOut", "DelegateLambda", "DelegateBool",
+            "GenericList", "LinqSum", "IteratorSum",
         ):
             matches = re.findall(r"pub fn (m\d+_Fixture_" + method + r")\(", source)
             if len(matches) != 1:

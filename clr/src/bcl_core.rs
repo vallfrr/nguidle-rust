@@ -1344,6 +1344,8 @@ pub fn lookup(key: &str) -> Option<NativeFn> {
             let tk = if let Value::Struct(s) = &t { s.f[0].as_i64() } else { 0 };
             Ok(Value::I32(((tk / 36_000_000_000) % 24) as i32))
         },
+        // The interpreter executes managed code on one owner thread.
+        "System.Environment::get_CurrentManagedThreadId" => |_vm, _a| Ok(Value::I32(1)),
         // ---------------------------------------------------------- System.Random
         "System.Random::.ctor" => |_vm, a| {
             if let Value::Obj(o) = &a[0] {
