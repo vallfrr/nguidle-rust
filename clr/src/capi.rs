@@ -6,31 +6,13 @@ use std::os::raw::c_char;
 
 const GAME_STEP: f64 = 1.0 / 30.0;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct NguVertex {
-    pub x: f32,
-    pub y: f32,
-    pub u: f32,
-    pub v: f32,
-    pub rgba: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct NguBatch {
-    pub tex: u32,
-    pub nearest: u32,
-    pub clip: [i32; 4],
-    pub first: u32,
-    pub count: u32,
-}
+use platform_api::{DrawTarget, TriangleList};
+pub use platform_api::{Batch as NguBatch, Vertex as NguVertex};
 
 struct State {
     vm: Box<Vm>,
     rend: Renderer,
-    verts: Vec<NguVertex>,
-    batches: Vec<NguBatch>,
+    draw: TriangleList,
     scale: f32,
     ox: f32,
     oy: f32,
@@ -119,10 +101,6 @@ fn st() -> Option<&'static mut State> {
     unsafe { STATE.as_mut() }
 }
 
-fn pack(c: [f32; 4]) -> u32 {
-    let b = |x: f32| (x.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
-    b(c[0]) | b(c[1]) << 8 | b(c[2]) << 16 | b(c[3]) << 24
-}
 
 /// data_dir: folder containing ngu.pak (or the files). dev_w/dev_h: screen size in pixels.
 #[no_mangle]
@@ -186,7 +164,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.prepare_layout(&mut vm);
     unsafe {
         STATE = Some(State {
-            vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], scale, ox, oy,
+            vm, rend, draw: TriangleList { vertices: Vec::with_capacity(1 << 16), batches: vec![] }, scale, ox, oy,
             touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true,
             benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
             slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
@@ -326,30 +304,9 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
     if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
     let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
-    if s.vm.dropdown_navigate(action) { return 0; }
-    let click = match action {
-        'a' => {
-            let at = crate::focus::activation_point(&mut s.vm);
-            if at.is_none() {
-                crate::focus::navigate(&mut s.vm, 'd');
-                crate::focus::activation_point(&mut s.vm)
-            } else { at }
-        }
-        'b' => {
-            if !s.vm.back_from_desktop_picker() { crate::focus::clear(&mut s.vm); }
-            None
-        }
-        'p' => crate::focus::menu_step(&mut s.vm, -1),
-        'n' => crate::focus::menu_step(&mut s.vm, 1),
-        'u' | 'd' | 'l' | 'r' => {
-            let before = s.vm.eng.focus.clone();
-            crate::focus::navigate(&mut s.vm, action);
-            return i32::from(!crate::unity::same(&before, &s.vm.eng.focus));
-        }
-        _ => None,
-    };
+    let (click, moved) = crate::focus::pad_action(&mut s.vm, action, true);
     if let Some(at) = click { s.pad_click = Some((at, true)); }
-    0
+    i32::from(moved)
 }
 
 #[no_mangle]
@@ -374,32 +331,17 @@ pub extern "C" fn ngu_emit() -> i32 {
         Some(s) => s,
         None => return 0,
     };
-    if !s.need_emit && !s.batches.is_empty() && !s.no_skip {
-        return s.batches.len() as i32; // nothing changed: the host draws the previous list again
+    if !s.need_emit && !s.draw.batches.is_empty() && !s.no_skip {
+        return s.draw.batches.len() as i32; // nothing changed: the host draws the previous list again
     }
     s.need_emit = false;
     s.rend.defer_layout = s.vm.eng.slice.is_some();
     s.rend.set_subframe_time(s.accumulator.min(GAME_STEP) as f32);
     s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
     s.render_ms = s.render_ms * 0.9 + s.rend.t_emit * 0.1;
-    s.verts.clear();
-    s.batches.clear();
-    let quads = std::mem::take(&mut s.rend.quads);
-    for q in &quads {
-        let first = s.verts.len() as u32;
-        let c = pack(q.col);
-        let v = |i: usize| NguVertex { x: q.p[i][0], y: q.p[i][1], u: q.uv[i][0], v: q.uv[i][1], rgba: c };
-        for i in [0usize, 1, 2, 0, 2, 3] {
-            s.verts.push(v(i));
-        }
-        match s.batches.last_mut() {
-            Some(b) if b.tex == q.tex && b.nearest == q.nearest as u32 && b.clip == q.clip => b.count += 6,
-            _ => s.batches.push(NguBatch { tex: q.tex, nearest: q.nearest as u32, clip: q.clip, first, count: 6 }),
-        }
-    }
-    s.rend.quads = quads;
+    s.draw.draw_quads(&s.rend.quads);
     s.emit_seq = s.emit_seq.wrapping_add(1);
-    s.batches.len() as i32
+    s.draw.batches.len() as i32
 }
 
 #[no_mangle]
@@ -409,12 +351,12 @@ pub extern "C" fn ngu_emit_seq() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn ngu_batches() -> *const NguBatch {
-    st().map(|s| s.batches.as_ptr()).unwrap_or(std::ptr::null())
+    st().map(|s| s.draw.batches.as_ptr()).unwrap_or(std::ptr::null())
 }
 
 #[no_mangle]
 pub extern "C" fn ngu_vertices() -> *const NguVertex {
-    st().map(|s| s.verts.as_ptr()).unwrap_or(std::ptr::null())
+    st().map(|s| s.draw.vertices.as_ptr()).unwrap_or(std::ptr::null())
 }
 
 #[cfg(target_os = "vita")]

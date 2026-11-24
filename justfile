@@ -6,7 +6,7 @@ check:
     {{python}} -B .github/repo-check.py
     {{python}} -B tools/check_codemap.py
     {{python}} -B tools/check_skills.py
-    rustfmt --check --edition 2021 clr/tests/save_fixtures.rs
+    rustfmt --check --edition 2021 clr/tests/save_fixtures.rs crates/save-format/tests/wire.rs crates/platform-api/src/lib.rs crates/cil-interp/src/lib.rs
     {{python}} -B tools/clippy-check.py
     cargo test --locked --workspace --exclude ngu-gen --features clr/legacy-vita-save
     cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
@@ -19,3 +19,17 @@ verify-game:
 
 verify-fixtures:
     {{python}} -B tests/il-fixtures/run.py
+
+check-components:
+    cargo test --locked -p cil-interp
+    cargo test --locked -p platform-api
+    cargo test --locked -p save-format
+
+verify-data directory:
+    {{python}} -B tools/verify_game_data.py "{{directory}}"
+
+prepare-data directory output: (verify-data directory)
+    {{python}} -B tools/nguprep.py --game-data "{{directory}}" --out "{{output}}"
+
+pack-data directory assembly output:
+    {{python}} -B tools/pack.py "{{directory}}" "{{assembly}}" "{{output}}"

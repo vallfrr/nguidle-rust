@@ -24,7 +24,6 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/lower.rs` — Lowering: dotnetdll::Instruction -> Op (token resolution, 1 instruction = 1 op).
 - `clr/src/main.rs` — Command-line entry point for interpreter and debugging scenarios.
 - `clr/src/motion.rs` — Render-time motion. The authoritative UI and game state still update on their normal clocks.
-- `clr/src/nrbf.rs` — .NET BinaryFormatter wire format (MS-NRBF): parser into a node tree and writer from a node tree.
 - `clr/src/profile.rs` — Transforms the game layout for different screen profiles.
 - `clr/src/program.rs` — Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
 - `clr/src/render.rs` — Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
@@ -49,3 +48,23 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-rt/src/fmt.rs` — .NET number formats (faithful copy of the `clr` oracle).
 - `crates/ngu-rt/src/lib.rs` — Open runtime of the NGU Idle port: minimal .NET types + BCL functions called by generated code.
 - `crates/ngu-rt/src/unity.rs` — Unity value types (copied by value, no engine).
+- `clr/src/bcl_core/collections.rs` — Collection and delegate intrinsics.
+- `clr/src/bcl_core/foundation.rs` — LINQ, object, exception, and string intrinsics.
+- `clr/src/bcl_core/numbers.rs` — Numeric conversion and math intrinsics.
+- `clr/src/bcl_core/services.rs` — Time, randomness, filesystem, and enum intrinsics.
+- `clr/src/save_slots/browser.rs` — Browser-facing save commands.
+- `clr/src/save_slots/storage.rs` — Save files, metadata, and autosave persistence.
+- `clr/src/unity/schedule.rs` — Managed delayed invocations and coroutines.
+- `clr/src/vm/specializations.rs` — Game-specific VM accelerators.
+- `crates/cil-interp/src/lib.rs` — Host-independent frame execution and scalar arithmetic.
+- `crates/ngu-ilgen/src/body.rs` — Instruction emission for a translated method.
+- `crates/platform-api/src/lib.rs` — Draw target and shared triangle batching.
+- `crates/save-format/src/lib.rs` — Independent reader and writer for the MS-NRBF wire format.
+- `clr/src/host_platform.rs` — Host-specific file publication and Vita background saves.
+- `clr/src/save_slots/view.rs` — Construction and refresh of the save screens.
+- `clr/src/unity_api/controls.rs` — Unity intrinsic dispatch for controls.
+- `clr/src/unity_api/runtime.rs` — Unity intrinsic dispatch for runtime.
+- `clr/src/unity_api/scene.rs` — Unity intrinsic dispatch for scene.
+- `clr/src/unity_api/services.rs` — Unity intrinsic dispatch for services.
+- `clr/src/unity/scene.rs` — Scene loading and deserialization.
+- `clr/src/vm/instructions.rs` — VM instruction dispatch and evaluation-stack integration.

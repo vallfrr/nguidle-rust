@@ -353,6 +353,39 @@ pub fn neighbour(list: &[Focusable], cur: &[f32; 4], dir: char) -> Option<usize>
     best.map(|b| b.1)
 }
 
+/// Applies navigation shared by the native hosts. The host owns click delivery.
+pub fn pad_action(vm: &mut Vm, action: char, select_before_click: bool) -> (Option<(f32, f32)>, bool) {
+    if vm.dropdown_navigate(action) {
+        return (None, false);
+    }
+    let click = match action {
+        'a' => {
+            let at = activation_point(vm);
+            if at.is_none() && select_before_click {
+                navigate(vm, 'd');
+                activation_point(vm)
+            } else {
+                at
+            }
+        }
+        'b' => {
+            if !vm.back_from_desktop_picker() {
+                clear(vm);
+            }
+            None
+        }
+        'p' => menu_step(vm, -1),
+        'n' => menu_step(vm, 1),
+        'u' | 'd' | 'l' | 'r' => {
+            let before = vm.eng.focus.clone();
+            navigate(vm, action);
+            return (None, !same(&before, &vm.eng.focus));
+        }
+        _ => None,
+    };
+    (click, false)
+}
+
 /// Moves the focus; without a valid focus, takes the first element in reading order.
 pub fn navigate(vm: &mut Vm, dir: char) -> Option<Focusable> {
     let Some(mut f) = choose_control(vm, dir) else {

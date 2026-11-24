@@ -1,6 +1,4 @@
-//! .NET BinaryFormatter wire format (MS-NRBF): parser into a node tree and writer from a node tree.
-//! Used to read and write the game's real save files (PC saves are interchangeable with the original game).
-//! This module knows nothing about the VM: `bcl_sys` maps between nodes and engine values.
+//! Bounded parser and inspection helpers for the .NET BinaryFormatter wire format (MS-NRBF).
 use std::collections::HashMap;
 use std::rc::Rc;
 

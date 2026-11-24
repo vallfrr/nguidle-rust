@@ -91,17 +91,7 @@ pub(crate) fn prepare_startup_fonts() -> Option<std::thread::JoinHandle<Vec<(Str
     }).ok()
 }
 
-#[derive(Clone)]
-pub struct Quad {
-    /// corners in screen pixels: origin, +u, +u+v, +v
-    pub p: [[f32; 2]; 4],
-    /// normalised texture coordinates (v down), same corners
-    pub uv: [[f32; 2]; 4],
-    pub col: [f32; 4],
-    pub tex: u32,
-    pub nearest: bool,
-    pub clip: [i32; 4],
-}
+pub use platform_api::Quad;
 
 struct Atlas {
     px: Vec<u8>,

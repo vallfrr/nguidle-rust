@@ -1,3 +1,4 @@
+mod host_platform;
 pub mod assets;
 pub mod autoplay;
 pub mod bcl;
@@ -19,7 +20,8 @@ pub mod legacy_save;
 pub mod profile;
 pub mod lower;
 mod motion;
-pub mod nrbf;
+pub use platform_api;
+pub use save_format as nrbf;
 pub mod serial;
 pub mod program;
 pub mod render;
