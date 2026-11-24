@@ -6,9 +6,9 @@ python := if os() == "windows" { "python" } else { "python3" }
 check:
     {{python}} -B .github/repo-check.py
     cargo fmt --check
-    cargo clippy --locked --all-targets -- -D warnings
-    cargo test --locked
+    cargo clippy --all-targets -- -D warnings
+    cargo test
 
 # Run the stand-in port on the player's prepared data: just run <prepared folder> <profile folder>
 run data profile:
-    cargo run --locked --release -- --data "{{data}}" --save "{{profile}}"
+    cargo run --release -- --data "{{data}}" --save "{{profile}}"

@@ -1,7 +1,7 @@
 """Create a new port repository from templates/port: `just new-port nguidle-<platform>`.
 
 The new folder holds a Rust crate that builds on this engine, with CI, hygiene check, agent instructions and a contract
-test. It is not a Git repository yet: review it, then `git init` and commit.
+test. It is initialised as a Git repository without a commit: review it, then commit.
 
     python tools/new_port.py nguidle-switch --platform "Nintendo Switch"
     python tools/new_port.py nguidle-test --out ../nguidle-test --engine-path ../nguidle-rust   # local engine checkout
@@ -16,7 +16,9 @@ from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parent.parent
 TEMPLATE = ENGINE / "templates" / "port"
-SHARED = [".github/repo-check.py", ".github/check-baseline", "LICENSE"]
+SHARED = [".github/repo-check.py", "LICENSE"]
+# The hygiene check compares with this baseline; the empty tree makes a new repository check every file.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 NAME = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)+$")
 
 
@@ -63,6 +65,9 @@ def create(name, out, platform, engine_path, tag, revision, url):
         target = out / name_
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ENGINE / name_, target)
+    (out / ".github" / "check-baseline").write_text(EMPTY_TREE + "\n", encoding="utf-8", newline="\n")
+    # `just check` reads the Git index: make the folder a repository (no commit: the author's identity is theirs to choose).
+    subprocess.run(["git", "init", "-q", "-b", "main", str(out)], capture_output=True)
     return out
 
 
