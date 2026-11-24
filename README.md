@@ -65,5 +65,8 @@ configuration. Docker requires verified Steam Windows 1.260 data mounted
 read-only. See the
 [web host guide](https://github.com/vallfrr/nguidle-web) for setup and controls.
 
+## Porting to another platform
+Anyone can build a port on the engine without asking: see [the porting guide](docs/PORTING.md) (`just new-port` creates a starting repository) and [the engine API](docs/ENGINE-API.md).
+
 ## License
 GPL-3.0 (see `LICENSE`). NGU Idle and its contents belong to their authors; this project is not affiliated with 4G.

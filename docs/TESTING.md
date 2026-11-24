@@ -25,6 +25,23 @@ links. The recorded lot 2 revision defines the initial debt boundary.
 On GitHub, the comparison starts at the pull request base or the previous
 push revision. Historical findings are covered by the separate cleanup.
 
+## Port interface checks
+
+`just check` also tests the platform interface and its reference port with the synthetic engine
+(`crates/ngu-headless/tests/synthetic.rs`), generates the port template into a temporary folder and runs its format,
+lint and contract test (`tools/check_template.py`), and builds the reference documentation with warnings as errors
+(`just doc`). With the player's prepared data, `NGU_TEST_DATA=<prepared> cargo test -p ngu-headless --test session -- --ignored`
+runs the reference host against the real game, and `cargo run --release -p ngu-headless -- --data <prepared> --save <tmp>`
+prints a reproducible draw hash.
+
+## Cold trial of the porting guide
+
+Done for each minor engine version. `just cold-trial` (`tools/cold_trial.py`) follows [the guide](PORTING.md) in an empty
+folder from a clone of this repository and runs the generated port's `just check`: it proves the documented commands work.
+The second half needs a fresh AI agent with no other context than the clone and the request "create a headless port
+`nguidle-test`": it must succeed using only the documentation and the template, and every blocker it reports becomes a fix
+to the guide, the template or the interface. Keep the report in the pull request or in `docs/archive/`.
+
 ## Local game verification
 
 On WSL, prepare the game and build the generated crate with the

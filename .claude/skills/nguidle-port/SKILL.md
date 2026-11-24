@@ -1,12 +1,17 @@
 ---
 name: nguidle-port
-description: Investigate a new platform host for the NGU Idle Rust engine.
+description: Create a new NGU Idle platform port on the Rust engine, from the generated template, following the porting guide. Use when asked to add a platform, a host or a "port".
 ---
 
-# Port the engine
+# Create a port
 
-Read the repository's [porting guide](../../../docs/PORTING.md), [engine interface](../../../docs/ENGINE-API.md) and [testing guide](../../../docs/TESTING.md). Pin the engine revision used by both the platform host and the game-data preparation tools.
+Everything you need is in this repository. Read [the porting guide](../../../docs/PORTING.md) first, then [the engine API](../../../docs/ENGINE-API.md). Do not modify the engine to make a port work: report the gap.
 
-Document the platform's renderer, input, storage and timing contracts. Keep engine calls on the engine thread and copy borrowed buffers before passing them elsewhere. Build with synthetic inputs where possible and keep game files and user profiles outside the repository.
+1. **Generate.** From the engine checkout: `just new-port nguidle-<platform> "<Name>"`; add `../nguidle-rust` (your local engine checkout) as a third argument while working on both. In the new repository run `just check`; it must pass before any change.
+2. **Learn the contract.** `cargo doc --no-deps -p platform-api --open`, then read `crates/ngu-headless/src/lib.rs`: its `frame_at` is the main loop in order (input, time, draw, textures, text, sound).
+3. **Prepare the player's data** (guide, step 3). Never commit it. Test with a throw-away profile folder.
+4. **Replace the `PORT:` stand-ins** one at a time, in the guide's order: drawing, time, pointer, gamepad and keyboard, text fields, audio, saves. Run `just check` after each; add a test in `tests/contract.rs` for each behaviour.
+5. **Compare with the reference.** `cargo run --release -p ngu-headless -- --data <prepared> --save <tmp>` prints the draw statistics and a hash for a script; your port's draw list must agree.
+6. **Finish with the guide's checklist** (section 7). Record the platform, engine tag and revision, the commands you ran and what you did not verify.
 
-Run the relevant checks and record the platform, revision, commands and coverage. A reusable platform template and a complete stable platform API remain future work.
+Rules: one thread for the engine; copy borrowed buffers before another thread uses them; the game's files, extracted assets and saves never go in Git; keep code and docs in English.

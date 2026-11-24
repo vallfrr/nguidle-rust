@@ -27,6 +27,9 @@ Assembly-CSharp.dll (the player's copy)
 ## Console mode (presentation layer)
 See `docs/CONSOLE-MODE.md`. Engine side: `clr/src/console_mode.rs` (settings, scale, controller input, scrolling), the vertical fit in `clr/src/desktop_layout.rs` (`console_vertical`), clips and scrollbars in `clr/src/render.rs`. It only changes presented rectangles (`view_xf`), never the game's own transforms or logic.
 
+## Platform interface
+A port drives the engine through `platform-api::Engine` (Rust, implemented by `clr::session::Session`) or the C ABI (`clr::capi`). The interface, its contract and the stability policy are in [ENGINE-API.md](ENGINE-API.md); the decision is [ADR 0009](adr/0009-platform-interface.md). `crates/ngu-headless` is the reference host and `templates/port` the starting point for a new one.
+
 ## Representation
 - Game class: `Option<Gc<Cn>>`; fields `fN` in `clr` slot order; `__h` = handle to the engine shell.
 - Statics: `stN()` initialised (and runs the `.cctor`) on first use.

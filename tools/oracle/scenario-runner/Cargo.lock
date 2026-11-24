@@ -94,6 +94,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cil-interp"
+version = "0.1.0"
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,13 +112,16 @@ name = "clr"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "cil-interp",
  "dotnetdll",
  "fontdue",
  "indexmap",
  "md-5",
  "ngu-rt",
+ "platform-api",
  "png",
  "regex",
+ "save-format",
  "serde",
  "serde_json",
  "sha2",
@@ -464,6 +471,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
+name = "platform-api"
+version = "0.1.0"
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -554,6 +565,10 @@ name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+
+[[package]]
+name = "save-format"
+version = "0.1.0"
 
 [[package]]
 name = "scroll"

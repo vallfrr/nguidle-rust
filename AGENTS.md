@@ -9,3 +9,6 @@ Start with the current task and local session notes when present. Inspect Git st
 - Treat the original installation as read-only. Run original-game comparisons using a backed-up, isolated, ordinary save. Avoid extreme saves on Steam.
 - Run generated-code builds with the documented memory cap. Use isolated profiles for game tests.
 - Report what was tested and what remains unverified. Obtain the maintainer's decisions on user-facing behavior and publication according to the current task instructions.
+
+## Building a port
+To create a new platform port, follow [the porting guide](docs/PORTING.md): `just new-port nguidle-<platform>` generates a compiling repository with CI and a contract test. The public surface is listed in [the engine API](docs/ENGINE-API.md); do not depend on anything else, and do not modify this repository to make a port work (report the gap instead). The skill `.claude/skills/nguidle-port/SKILL.md` walks an agent through it.

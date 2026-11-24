@@ -1,4 +1,16 @@
-//! C API for the Vita backend (vitaGL): init, input, frame, triangle list, textures.
+//! The engine's C ABI: what a native host (the Vita, or any C or C++ program) calls. `engine_api.h` in a port declares
+//! the same functions.
+//!
+//! **Threading.** Call `ngu_init` once, then every `ngu_*` function, from that one thread, one call at a time and never
+//! from inside the engine's own callbacks. All state is process-wide, so there is one engine per process. A host that
+//! presents on another thread copies the draw list and texture pixels first (they are borrowed).
+//!
+//! **Units.** Time in seconds (`ngu_frame`) or microseconds (`ngu_clock_us`); positions in device pixels, top-left
+//! origin; game coordinates are 960 x 600 and the engine maps them. **Memory.** Pointers returned by the engine are
+//! borrowed and valid until the next call; pointers passed in belong to the caller. Strings are NUL-terminated UTF-8.
+//!
+//! The same service for Rust hosts, without globals, is [`crate::session::Session`].
+#![deny(missing_docs)]
 use crate::render::{Renderer, ATLAS_SIZE};
 use crate::Vm;
 use std::ffi::CStr;
@@ -6,31 +18,13 @@ use std::os::raw::c_char;
 
 const GAME_STEP: f64 = 1.0 / 30.0;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct NguVertex {
-    pub x: f32,
-    pub y: f32,
-    pub u: f32,
-    pub v: f32,
-    pub rgba: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct NguBatch {
-    pub tex: u32,
-    pub nearest: u32,
-    pub clip: [i32; 4],
-    pub first: u32,
-    pub count: u32,
-}
+use platform_api::{DrawTarget, TriangleList};
+pub use platform_api::{Batch as NguBatch, Vertex as NguVertex};
 
 struct State {
     vm: Box<Vm>,
     rend: Renderer,
-    verts: Vec<NguVertex>,
-    batches: Vec<NguBatch>,
+    draw: TriangleList,
     scale: f32,
     ox: f32,
     oy: f32,
@@ -119,18 +113,23 @@ fn st() -> Option<&'static mut State> {
     unsafe { STATE.as_mut() }
 }
 
-fn pack(c: [f32; 4]) -> u32 {
-    let b = |x: f32| (x.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
-    b(c[0]) | b(c[1]) << 8 | b(c[2]) << 16 | b(c[3]) << 24
-}
 
-/// data_dir: folder containing ngu.pak (or the files). dev_w/dev_h: screen size in pixels.
+/// Load the game and open its home screen. Call once, first, on the thread that will make every other call.
+///
+/// * `data_dir`: NUL-terminated path of the folder prepared with `tools/nguprep.py` (or holding `ngu.pak`). It must
+///   hold `Assembly-CSharp.dll`. Saves go to `<data_dir>/save` unless `NGU_VITA_SAVE_DIR` names another folder.
+/// * `dev_w`, `dev_h`: output size in device pixels; the game keeps its 960 x 600 proportions, centred, and reflows
+///   to extra width.
+///
+/// Returns `0` on success, `1` if `Assembly-CSharp.dll` is missing, `2` if the scene cannot be loaded (data prepared
+/// by another engine revision), `3` if the save menu cannot start. The reason is also written to `<data_dir>/log.txt`.
 #[no_mangle]
 pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i32 {
     init_vita(data_dir, dev_w, dev_h, |_| {})
 }
 
-/// Initialize the Vita host, optionally attaching translated game methods.
+/// [`ngu_init`] with a hook that runs after the engine is created and before the scene loads. The translated-game
+/// build uses it to attach generated methods. Same contract and return codes as [`ngu_init`].
 pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(&mut Vm)) -> i32 {
     let dir = unsafe { CStr::from_ptr(data_dir) }.to_string_lossy().to_string();
     crate::assets::set_log(&format!("{}/log.txt", dir));
@@ -186,7 +185,7 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     rend.prepare_layout(&mut vm);
     unsafe {
         STATE = Some(State {
-            vm, rend, verts: Vec::with_capacity(1 << 16), batches: vec![], scale, ox, oy,
+            vm, rend, draw: TriangleList { vertices: Vec::with_capacity(1 << 16), batches: vec![] }, scale, ox, oy,
             touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true,
             benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
             slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
@@ -198,7 +197,13 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     0
 }
 
-/// x,y in screen pixels (top-left origin), down = finger down.
+/// Advance the game and apply the pointer, once per display frame.
+///
+/// * `dt`: seconds since the previous call; logic runs in whole 1/30 s steps and the remainder carries over.
+/// * `x`, `y`: pointer or finger in device pixels, top-left origin; negative when there is none.
+/// * `down`: non-zero while the primary button or a finger is down. A change between calls is a press or a release.
+///
+/// Does nothing before a successful [`ngu_init`].
 #[no_mangle]
 pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     let s = match st() {
@@ -313,7 +318,10 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     }
 }
 
-/// Shared focus, dropdown and menu navigation. The host sends ASCII actions.
+/// Apply a navigation command from a pad or keyboard. `action` is one ASCII code: `u` up, `d` down, `l` left, `r` right,
+/// `a` activate (press the focused control), `b` back, `p` previous menu, `n` next menu (`platform_api::Action`).
+///
+/// Returns `1` when the focus moved, `0` otherwise (including when a finger is down or a text field is open).
 #[no_mangle]
 pub extern "C" fn ngu_pad(action: u32) -> i32 {
     let Some(s) = st() else { return 0 };
@@ -326,32 +334,13 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
     if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
     let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
-    if s.vm.dropdown_navigate(action) { return 0; }
-    let click = match action {
-        'a' => {
-            let at = crate::focus::activation_point(&mut s.vm);
-            if at.is_none() {
-                crate::focus::navigate(&mut s.vm, 'd');
-                crate::focus::activation_point(&mut s.vm)
-            } else { at }
-        }
-        'b' => {
-            if !s.vm.back_from_desktop_picker() { crate::focus::clear(&mut s.vm); }
-            None
-        }
-        'p' => crate::focus::menu_step(&mut s.vm, -1),
-        'n' => crate::focus::menu_step(&mut s.vm, 1),
-        'u' | 'd' | 'l' | 'r' => {
-            let before = s.vm.eng.focus.clone();
-            crate::focus::navigate(&mut s.vm, action);
-            return i32::from(!crate::unity::same(&before, &s.vm.eng.focus));
-        }
-        _ => None,
-    };
+    let (click, moved) = crate::focus::pad_action(&mut s.vm, action, true);
     if let Some(at) = click { s.pad_click = Some((at, true)); }
-    0
+    i32::from(moved)
 }
 
+/// Scroll the focused list by `dx`, `dy` game pixels (positive `dy` scrolls down). Ignored while a finger is down or a
+/// text field is open.
 #[no_mangle]
 pub extern "C" fn ngu_scroll(dx: f32, dy: f32) {
     let Some(s) = st() else { return };
@@ -367,62 +356,56 @@ fn scroll_action(s: &mut State, dx: f32, dy: f32) {
     }
 }
 
-/// Builds the frame's triangle list; returns the number of batches.
+/// Build the frame's triangle list and return its number of batches. Read it with [`ngu_batches`] and
+/// [`ngu_vertices`] before the next call to any `ngu_*` function that can rebuild it; copy it first if another
+/// thread will draw it. When nothing changed since the last call the previous list is kept (see [`ngu_emit_seq`]).
 #[no_mangle]
 pub extern "C" fn ngu_emit() -> i32 {
     let s = match st() {
         Some(s) => s,
         None => return 0,
     };
-    if !s.need_emit && !s.batches.is_empty() && !s.no_skip {
-        return s.batches.len() as i32; // nothing changed: the host draws the previous list again
+    if !s.need_emit && !s.draw.batches.is_empty() && !s.no_skip {
+        return s.draw.batches.len() as i32; // nothing changed: the host draws the previous list again
     }
     s.need_emit = false;
     s.rend.defer_layout = s.vm.eng.slice.is_some();
     s.rend.set_subframe_time(s.accumulator.min(GAME_STEP) as f32);
     s.rend.emit_frame(&mut s.vm, s.scale, s.ox, s.oy);
     s.render_ms = s.render_ms * 0.9 + s.rend.t_emit * 0.1;
-    s.verts.clear();
-    s.batches.clear();
-    let quads = std::mem::take(&mut s.rend.quads);
-    for q in &quads {
-        let first = s.verts.len() as u32;
-        let c = pack(q.col);
-        let v = |i: usize| NguVertex { x: q.p[i][0], y: q.p[i][1], u: q.uv[i][0], v: q.uv[i][1], rgba: c };
-        for i in [0usize, 1, 2, 0, 2, 3] {
-            s.verts.push(v(i));
-        }
-        match s.batches.last_mut() {
-            Some(b) if b.tex == q.tex && b.nearest == q.nearest as u32 && b.clip == q.clip => b.count += 6,
-            _ => s.batches.push(NguBatch { tex: q.tex, nearest: q.nearest as u32, clip: q.clip, first, count: 6 }),
-        }
-    }
-    s.rend.quads = quads;
+    s.draw.draw_quads(&s.rend.quads);
     s.emit_seq = s.emit_seq.wrapping_add(1);
-    s.batches.len() as i32
+    s.draw.batches.len() as i32
 }
 
+/// Number of draw lists built so far. A host that draws on another thread publishes a list only when this changes.
 #[no_mangle]
 pub extern "C" fn ngu_emit_seq() -> u32 {
     st().map_or(0, |s| s.emit_seq)
 }
 
+/// The batches of the last [`ngu_emit`] (`NguBatch`, 32 bytes each), valid until the next engine call. NULL before init.
 #[no_mangle]
 pub extern "C" fn ngu_batches() -> *const NguBatch {
-    st().map(|s| s.batches.as_ptr()).unwrap_or(std::ptr::null())
+    st().map(|s| s.draw.batches.as_ptr()).unwrap_or(std::ptr::null())
 }
 
+/// The vertices of the last [`ngu_emit`] (`NguVertex`, 20 bytes each, six per quad), valid until the next engine call.
+/// NULL before init.
 #[no_mangle]
 pub extern "C" fn ngu_vertices() -> *const NguVertex {
-    st().map(|s| s.verts.as_ptr()).unwrap_or(std::ptr::null())
+    st().map(|s| s.draw.vertices.as_ptr()).unwrap_or(std::ptr::null())
 }
 
+/// Microseconds the last [`ngu_emit`] spent laying out the scene (Vita builds only, for the host's trace).
 #[cfg(target_os = "vita")]
 #[no_mangle]
 pub extern "C" fn ngu_layout_us() -> u32 {
     st().map_or(0, |s| s.rend.layout_us)
 }
 
+/// Game time in microseconds. `debt_us` receives the real time already received but not yet simulated (less than one
+/// step). Both are for the host's timing trace.
 #[no_mangle]
 pub extern "C" fn ngu_clock_us(debt_us: *mut u64) -> u64 {
     let Some(s) = st() else { return 0 };
@@ -430,7 +413,9 @@ pub extern "C" fn ngu_clock_us(debt_us: *mut u64) -> u64 {
     (s.vm.eng.time * 1_000_000.0) as u64
 }
 
-/// RGBA8 pixels of a texture (id >= 2). Returns NULL if unknown.
+/// RGBA8 pixels of texture `id` (an id above 1, as in `NguBatch::tex`), row by row from the top. `w` and `h` receive its
+/// size. Returns NULL if the id is unknown. The pixels are borrowed until the next engine call; upload them, then call
+/// [`ngu_tex_release`].
 #[no_mangle]
 pub extern "C" fn ngu_tex(id: u32, w: *mut u32, h: *mut u32) -> *const u8 {
     let s = match st() {
@@ -448,7 +433,9 @@ pub extern "C" fn ngu_tex(id: u32, w: *mut u32, h: *mut u32) -> *const u8 {
     }
 }
 
-/// Glyph atlas (RGBA8, ATLAS_SIZE^2). `dirty` = 1 if modified since the last call.
+/// The glyph atlas (texture id 1): RGBA8, `ATLAS_SIZE` x `ATLAS_SIZE` pixels, size written to `size`. `dirty` receives
+/// `1` if its pixels changed since the previous call (upload it again), `0` otherwise. The pixels belong to the renderer
+/// and may change at the next frame.
 #[no_mangle]
 pub extern "C" fn ngu_atlas(dirty: *mut i32, size: *mut u32) -> *const u8 {
     let s = match st() {
@@ -462,7 +449,10 @@ pub extern "C" fn ngu_atlas(dirty: *mut i32, size: *mut u32) -> *const u8 {
     s.rend.atlas_pixels().as_ptr()
 }
 
-/// Pending text entry request? Copies the initial text into `buf`.
+/// Poll for a text field the game wants edited. Returns `1` once per request and then copies the field's current UTF-8
+/// content into `buf` (at most `cap - 1` bytes plus a NUL), `max` receives the maximum length (0 = none) and `numeric`
+/// is `1` for a number-only field. Show a keyboard, then answer with [`ngu_text_submit`]. Returns `0` when there is no
+/// new request.
 #[no_mangle]
 pub extern "C" fn ngu_text_request(buf: *mut c_char, cap: i32, max: *mut i32, numeric: *mut i32) -> i32 {
     let s = match st() {
@@ -491,7 +481,8 @@ pub extern "C" fn ngu_text_request(buf: *mut c_char, cap: i32, max: *mut i32, nu
     0
 }
 
-/// Result of the entry (`ok` = 0 if cancelled).
+/// Answer a text request: `ok` non-zero commits the NUL-terminated UTF-8 `text`, zero cancels (`text` may then be
+/// NULL).
 #[no_mangle]
 pub extern "C" fn ngu_text_submit(text: *const c_char, ok: i32) {
     let s = match st() {
@@ -506,7 +497,7 @@ pub extern "C" fn ngu_text_submit(text: *const c_char, ok: i32) {
     }
 }
 
-/// The GPU received the texture: free the RAM copy.
+/// Tell the engine that texture `id` has been uploaded to the GPU, so it can free its RAM copy.
 #[no_mangle]
 pub extern "C" fn ngu_tex_release(id: u32) {
     if let Some(s) = st() {
@@ -581,7 +572,8 @@ fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
     }
 }
 
-/// Loads a scenario file (`clr/src/autoplay.rs`); returns 0 on success.
+/// Load a scripted-player scenario (`clr/src/autoplay.rs`) for unattended measurements. `path` is a NUL-terminated file
+/// path. Returns `0` on success.
 #[no_mangle]
 pub extern "C" fn ngu_autoplay_load(path: *const c_char) -> i32 {
     let (Some(s), path) = (st(), unsafe { CStr::from_ptr(path) }.to_string_lossy().to_string()) else { return 1 };
@@ -598,8 +590,9 @@ pub extern "C" fn ngu_autoplay_load(path: *const c_char) -> i32 {
     }
 }
 
-/// What the last `ngu_frame` did, for the host's per-frame trace: out = [ticks, simulation steps, instructions (saturated),
-/// menu id, last action number, mark number (+1, 0 = none), finished flag].
+/// What the last [`ngu_frame`] did, for the host's per-frame trace. `out` must point to eight `u32`: ticks, simulation
+/// steps, instructions (saturated), menu id, last scripted action number, number of marks, finished flag, screenshots
+/// taken by the scenario.
 #[no_mangle]
 pub extern "C" fn ngu_frame_info(out: *mut u32) {
     let Some(s) = st() else { return };
@@ -612,7 +605,7 @@ pub extern "C" fn ngu_frame_info(out: *mut u32) {
     unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
 }
 
-/// `CLR_PROF` report: the `top` methods by exclusive interpreted instructions (hardware-independent cost), one per line:
+/// `CLR_PROF` report: the `top` methods by exclusive interpreted instructions, one per line:
 /// `exclusive inclusive calls Type::Method`. Used by `tools/ngu-profile.sh` to choose what to translate to Rust.
 pub fn profile_report(top: usize) -> String {
     let Some(s) = st() else { return String::new() };

@@ -1,0 +1,18 @@
+[package]
+name = "ngu-headless"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Reference port of the NGU Idle engine: no window, no graphics API, virtual time"
+
+[lib]
+name = "ngu_headless"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ngu-headless"
+path = "src/main.rs"
+
+[dependencies]
+clr = { path = "../../clr" }
+platform-api = { path = "../platform-api" }

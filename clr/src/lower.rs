@@ -1,7 +1,6 @@
 //! Lowering: dotnetdll::Instruction -> Op (token resolution, 1 instruction = 1 op).
 use crate::code::*;
 use crate::program::*;
-use crate::value::*;
 use crate::Vm;
 use dotnetdll::prelude::*;
 use std::rc::Rc;

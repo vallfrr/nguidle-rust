@@ -185,6 +185,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "cil-interp"
+version = "0.1.0"
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -210,13 +214,16 @@ name = "clr"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "cil-interp",
  "dotnetdll",
  "fontdue",
  "indexmap",
  "md-5",
  "ngu-rt",
+ "platform-api",
  "png",
  "regex",
+ "save-format",
  "serde",
  "serde_json",
  "sha2",
@@ -1060,6 +1067,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ngu-headless"
+version = "0.1.0"
+dependencies = [
+ "clr",
+ "platform-api",
+]
+
+[[package]]
 name = "ngu-host"
 version = "0.1.0"
 dependencies = [
@@ -1252,6 +1267,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "platform-api"
+version = "0.1.0"
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1411,6 +1430,10 @@ checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "save-format"
+version = "0.1.0"
 
 [[package]]
 name = "scoped-tls"

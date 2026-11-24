@@ -1,6 +1,5 @@
 //! Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
 use crate::code::Code;
-use crate::value::*;
 use dotnetdll::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -152,7 +151,7 @@ impl Program {
         }
     }
 
-    /// Element type of a 1-parameter generic field (List<T>) or array.
+    /// Element type of a 1-parameter generic field (`List<T>`) or array.
     pub fn elem_of_member(&self, t: &MemberType) -> Option<Ty> {
         if let MemberType::Base(b) = t {
             match &**b {

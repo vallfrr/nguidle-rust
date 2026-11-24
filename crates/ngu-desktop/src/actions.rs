@@ -102,39 +102,22 @@ pub fn console_pad(a: Action) -> clr::console_mode::Pad {
 
 /// Applies an action; returns the click point (engine space, y up) for `Activate`.
 pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
-    let modal = match a {
+    let action = match a {
         Action::Up => 'u',
         Action::Down => 'd',
+        Action::Left => 'l',
+        Action::Right => 'r',
         Action::Activate => 'a',
         Action::Back => 'b',
-        _ => ' ',
-    };
-    if vm.dropdown_navigate(modal) {
-        return None;
-    }
-    match a {
-        Action::Up => {
-            clr::focus::navigate(vm, 'u');
-        }
-        Action::Down => {
-            clr::focus::navigate(vm, 'd');
-        }
-        Action::Left => {
-            clr::focus::navigate(vm, 'l');
-        }
-        Action::Right => {
-            clr::focus::navigate(vm, 'r');
-        }
-        Action::Activate => return clr::focus::activation_point(vm),
-        Action::Back => {
-            if !vm.back_from_desktop_picker() {
-                clr::focus::clear(vm);
+        Action::Prev => 'p',
+        Action::Next => 'n',
+        Action::Scroll { x, y } => {
+            if !vm.dropdown_navigate(' ') {
+                clr::focus::scroll(vm, x, y);
             }
+            return None;
         }
-        Action::Scroll { x, y } => clr::focus::scroll(vm, x, y),
-        Action::Prev => return clr::focus::menu_step(vm, -1),
-        Action::Next => return clr::focus::menu_step(vm, 1),
-        Action::Secondary | Action::HoldStart | Action::HoldEnd => {}
-    }
-    None
+        Action::Secondary | Action::HoldStart | Action::HoldEnd => return None,
+    };
+    clr::focus::pad_action(vm, action, false).0
 }

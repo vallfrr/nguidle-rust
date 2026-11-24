@@ -109,7 +109,7 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
     let mut rend = Renderer::new(w, h);
     let mut buf = vec![0u32; w * h];
     let mut last = Instant::now();
-    let mut acc = 0.0f32;
+    let mut clock = clr::platform_api::FixedStep::default();
     let mut prev_btn = [false; 3];
     let mut nav_mode = false; // F1: keyboard drives the focus instead of the game
     let mut pending: Vec<(f32, f32)> = vec![]; // synthetic clicks (confirm at focus): one click = 2 logic steps
@@ -216,10 +216,9 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
         // ---- logic: fixed steps caught up on real time
         let t_logic = Instant::now();
         let now = Instant::now();
-        acc += (now - last).as_secs_f32().min(0.25);
+        let steps = clock.advance((now - last).as_secs_f32());
         last = now;
-        let mut steps = 0;
-        while acc >= LOGIC_DT && steps < 6 {
+        for _ in 0..steps {
             // synthetic click: press then release over two steps
             if let Some(&(x, y)) = pending.first() {
                 if synth_phase == 0 {
@@ -235,16 +234,11 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
                 }
             }
             vm.frame(LOGIC_DT);
-            acc -= LOGIC_DT;
-            steps += 1;
-        }
-        if steps == 6 {
-            acc = 0.0;
         }
         p_logic += t_logic.elapsed().as_secs_f32() * 1000.0;
         p_steps += steps as u32;
         // ---- display
-        rend.set_subframe_time(acc);
+        rend.set_subframe_time(clock.remainder());
         rend.render(vm, scale, ox, oy);
         p_emit += rend.t_emit;
         p_raster += rend.t_raster;

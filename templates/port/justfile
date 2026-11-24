@@ -1,0 +1,14 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]
+
+python := if os() == "windows" { "python" } else { "python3" }
+
+# Formatting, lints, hygiene and the tests that need no game files.
+check:
+    {{python}} -B .github/repo-check.py
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+    cargo test
+
+# Run the stand-in port on the player's prepared data: just run <prepared folder> <profile folder>
+run data profile:
+    cargo run --release -- --data "{{data}}" --save "{{profile}}"
