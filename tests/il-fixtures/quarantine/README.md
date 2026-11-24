@@ -3,11 +3,11 @@
 `StructProperty.cs` reproduces a generated-Rust compilation failure. With the
 isolated project, the interpreter returned 7 for input 3 and `ngu-ilgen`
 reported success, but `rustc` reported E0382 (the struct local was moved before reuse).
-`StringSwitch.cs` independently reproduces a second failure: the interpreter
-returns 1 for `alpha`, but the generated Rust refers to an omitted
-`_PrivateImplementationDetails` hash method (E0425). The local compiler outputs
-are `work/traces/lot6/isolated-struct-error.log` and `string-switch-error.log`,
-outside the repository.
+An independently reproduced string-switch failure (E0425) was corrected by
+including the compiler's `<PrivateImplementationDetails>` helper when selecting
+classes. Five string-switch cases are now part of the passing main suite. The
+local compiler outputs are `work/traces/lot6/isolated-struct-error.log` and
+`string-switch-error.log`, outside the repository.
 
 This fixture is not counted as passing, and the main suite does not exercise it.
 Do not remove it from quarantine until the generated code compiles and its
@@ -19,6 +19,3 @@ Feed its DLL to `ngu-ilgen` selecting class `StructFixture` and entry
 engine's `ngu-rt` and `ngu-host` crates. Run the .NET and interpreter versions
 with identical inputs when validating a fix. Build outputs and traces must stay
 outside Git.
-
-For the other case, build `StringSwitch.csproj` into a temporary artifacts
-directory and select class `SwitchFixture` and entry `SwitchFixture::Pick`.

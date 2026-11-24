@@ -2,6 +2,16 @@ using System;
 
 public static class Fixture
 {
+    public static int StringSwitch(int value)
+    {
+        string key = value.ToString();
+        return key switch {
+            "0" => 1, "1" => 2, "2" => 3, "3" => 4, "4" => 5, "5" => 6,
+            "6" => 7, "7" => 8, "8" => 9, "9" => 10, "10" => 11, "11" => 12,
+            _ => -1
+        };
+    }
+
     public static int Branch(int value)
     {
         if (value < 0) return -value + 3;
@@ -63,6 +73,7 @@ public static class Fixture
             case "SeededRandom": value = SeededRandom(argument); break;
             case "ByRef": value = ByRef(argument); break;
             case "Exception": value = Exception(argument); break;
+            case "StringSwitch": value = StringSwitch(argument); break;
             default: return 2;
         }
         Console.WriteLine(value);

@@ -21,6 +21,7 @@ def main():
         "SeededRandom": [-1, 0, 1, 123456789],
         "ByRef": [-3, 0, 7],
         "Exception": [-1, 0, 1, 2],
+        "StringSwitch": [-1, 0, 5, 11, 12],
     }
     failures = []
     for method, arguments in cases.items():
