@@ -9,6 +9,7 @@ check:
     rustfmt --check --edition 2021 clr/tests/save_fixtures.rs
     {{python}} -B tools/clippy-check.py
     cargo test --locked --workspace --exclude ngu-gen --features clr/legacy-vita-save
+    cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
     {{python}} -B -m ruff check --select E9,F63,F7,F82 .github/repo-check.py tools
     {{python}} -B -m unittest discover -s tools -p test_verify_game_data.py
     {{python}} -B -m unittest discover -s tools/oracle -p test_compare_scenario.py
