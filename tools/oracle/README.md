@@ -18,4 +18,14 @@ Run `just verify-game` with `NGU_GUARDS=on` and `NGU_GUARDS=off` to compare the 
 
 `ScenarioProbe.cs` is an opt-in first recorder for a restricted subset of the autoplay format. Set `NGU_SCENARIO_PROBE_INPUT` to a text file and `NGU_SCENARIO_PROBE_OUTPUT` to a new local trace path; optionally set `NGU_PROGRESS_PROBE_SAVE` to an isolated save copy. It supports `tick menu N`, `tick mark NAME`, `tick check NAME` and `tick end`; unsupported commands are recorded as errors rather than silently ignored. `check` writes a private serialized save alongside the trace. Ticks are scheduled at 30 per second of wall time, not captured engine ticks. It seeds Unity RNG but does not fix the original's wall clock, does not replay pointer/controller input and does not yet compare traces automatically. Keep its outputs outside Git. A four-event smoke scenario (mark, menu, check, end) was exercised in an isolated copy with a copied save.
 
+For that subset, `scenario-runner` replays the same file with the interpreter:
+
+```sh
+cargo run --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml -- \
+  "$DLL" "$ISOLATED_ASSETS" "$COPIED_SAVE" "$SCENARIO" "$PORT_TRACE"
+python tools/oracle/compare-scenario.py "$ORIGINAL_TRACE" "$PORT_TRACE"
+```
+
+Use an isolated prepared-assets view, because the runner writes a profile below it. The comparator reports differing fields and returns a nonzero status if any differ; it does not normalize timing or compare the generated saves. In the first four-event run, menus and resource fields matched, while the energy-bar phase differed at three events. Original events were wall-clock scheduled and port events were simulation-tick scheduled, so this is not a tick-synchronized equivalence test. With `CLR_PROF=1`, the runner additionally logs the number of energy updates since startup.
+
 Run `just verify-fixtures` with the .NET 8 SDK and Cargo installed to compare small independently written C# programs with the interpreter and generated Rust. Set `NGU_DOTNET` to the SDK executable when it is not on PATH. The fixture assembly and generated Rust are built in a temporary directory. This first generated suite covers branches, loops and switches, not random operations.
