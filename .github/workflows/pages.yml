@@ -1,0 +1,39 @@
+name: Publish the reference documentation
+
+# Manual on purpose: it needs GitHub Pages enabled for this repository (Settings, Pages, Source: GitHub Actions).
+# Run it from the Actions tab after a release.
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust
+        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Build the reference documentation
+        run: cargo +1.100.0 doc --locked --no-deps -p platform-api -p ngu-headless -p clr
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Add a landing page
+        run: printf '%s\n' '<meta http-equiv="refresh" content="0; url=platform_api/index.html">' > target/doc/index.html
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: target/doc
+      - id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

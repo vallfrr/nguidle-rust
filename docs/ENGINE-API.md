@@ -11,7 +11,8 @@ Patch versions never break this surface. A port pins a tag **and** its exact rev
 There is no promise beyond `0.x`; `1.0` will come with a public stability commitment.
 
 Generated reference documentation: `just doc` (`cargo doc --no-deps` for the crates below, warnings are errors; the CI
-job uploads it as the `engine-docs` artifact).
+job uploads it as the `engine-docs` artifact; the manual `pages.yml` workflow publishes it to GitHub Pages once Pages is enabled
+for the repository).
 
 ## Rust interface (documented in the code, `deny(missing_docs)`)
 

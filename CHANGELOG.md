@@ -9,6 +9,7 @@
 - Add `ngu-headless`, a reference port that runs in CI against a synthetic engine (`platform-api::testing::ScriptedEngine`) and locally against the real game.
 - Add the port template (`templates/port`), `just new-port` and `just doc`; the template is built, linted and tested by `just check`.
 - Replace the porting notes with a step-by-step guide and publish the public surface and migration notes in `docs/ENGINE-API.md`.
+- Add a manual workflow (`pages.yml`) that publishes the reference documentation to GitHub Pages.
 - The desktop host now steps time with `FixedStep`; the web port runs on `Session` (the Vita stays on the C ABI for its time slicing).
 - Migration: none required; hosts built on `0.4.0` keep working.
 
