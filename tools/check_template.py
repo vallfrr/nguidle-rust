@@ -23,10 +23,13 @@ def main():
     env = dict(os.environ, CARGO_TARGET_DIR=str(new_port.ENGINE / "target" / "template-check"))
     work = Path(tempfile.mkdtemp(prefix="ngu-template-"))
     try:
-        out = new_port.create("nguidle-template-check", work / "port", "a test platform",
-                              new_port.ENGINE.as_posix(), "v0.0.0", "0" * 40, "unused")
-        (out / "Cargo.toml").write_text((out / "Cargo.toml").read_text() + "\n[workspace]\n", encoding="utf-8")
-        for command in (["cargo", "fmt", "--check"], ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"], ["cargo", "test"]):
+        # Formatting depends on the port's name (line lengths): check a short and a long one.
+        for name in ("nguidle-x", "nguidle-a-rather-long-platform-name-for-formatting"):
+            out = new_port.create(name, work / name, "a test platform", new_port.ENGINE.as_posix(), "v0.0.0", "0" * 40, "unused")
+            (out / "Cargo.toml").write_text((out / "Cargo.toml").read_text() + "\n[workspace]\n", encoding="utf-8")
+            if run(["cargo", "fmt", "--check"], out, env):
+                return 1
+        for command in (["cargo", "clippy", "--all-targets", "--", "-D", "warnings"], ["cargo", "test"]):
             if run(command, out, env):
                 return 1
     finally:

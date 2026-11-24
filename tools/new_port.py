@@ -19,7 +19,7 @@ TEMPLATE = ENGINE / "templates" / "port"
 SHARED = [".github/repo-check.py", "LICENSE"]
 # The hygiene check compares with this baseline; the empty tree makes a new repository check every file.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-NAME = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)+$")
+NAME = re.compile(r"^nguidle-[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 def git(*args):
@@ -43,7 +43,7 @@ def render(text, values):
 def create(name, out, platform, engine_path, tag, revision, url):
     """Write the port into `out`. `revision` is only reported: Cargo.lock records it at the first build."""
     if not NAME.match(name):
-        raise SystemExit(f"`{name}` is not a valid port name: use lowercase words joined by hyphens, like nguidle-switch.")
+        raise SystemExit(f"`{name}` is not a valid port name: use nguidle- followed by lowercase words joined by hyphens, like nguidle-switch.")
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} exists and is not empty: choose another --out or remove it.")
     if engine_path:

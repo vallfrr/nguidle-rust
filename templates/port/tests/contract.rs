@@ -2,11 +2,9 @@
 //! Keep this passing while replacing the stand-ins; add a test for each platform behaviour you implement.
 
 use clr::platform_api::{testing::ScriptedEngine, Action, Pointer};
-use __PORT_LIB__::{
-    display::Display,
-    input::{Event, Scripted},
-    run_frame,
-};
+use __PORT_LIB__::display::Display;
+use __PORT_LIB__::input::{Event, Scripted};
+use __PORT_LIB__::run_frame;
 
 #[test]
 fn input_time_drawing_text_and_sound_all_reach_the_engine() {

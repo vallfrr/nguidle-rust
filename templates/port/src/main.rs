@@ -2,7 +2,9 @@
 //! PORT: this becomes your application's entry point (window, event loop, real clock).
 
 use clr::session::{Session, SessionConfig};
-use __PORT_LIB__::{display::Display, input::Scripted, run_frame};
+use __PORT_LIB__::display::Display;
+use __PORT_LIB__::input::Scripted;
+use __PORT_LIB__::run_frame;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -12,7 +14,12 @@ fn main() {
             ("--data", Some(value)) => data = Some(value),
             ("--save", Some(value)) => save = Some(value),
             ("--frames", Some(value)) => frames = value.parse().unwrap_or(frames),
-            _ => return eprintln!("usage: __PORT_NAME__ --data <prepared folder> --save <profile folder> [--frames N]"),
+            _ => {
+                return eprintln!(
+                    "usage: {} --data <prepared folder> --save <profile folder> [--frames N]",
+                    env!("CARGO_PKG_NAME")
+                )
+            }
         }
     }
     let (Some(data), Some(save)) = (data, save) else {

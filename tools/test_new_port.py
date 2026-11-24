@@ -34,7 +34,7 @@ class NewPortTests(unittest.TestCase):
         self.assertIn('clr = { path = "../nguidle-rust/clr" }', (out / "Cargo.toml").read_text())
 
     def test_bad_names_and_non_empty_folders_are_refused_with_advice(self):
-        with self.assertRaisesRegex(SystemExit, "lowercase words joined by hyphens"):
+        with self.assertRaisesRegex(SystemExit, "nguidle- followed by lowercase words"):
             self.make(name="Bad_Name")
         out = self.make()
         with self.assertRaisesRegex(SystemExit, "not empty"):
