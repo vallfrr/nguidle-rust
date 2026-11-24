@@ -22,9 +22,14 @@ check:
 doc:
     {{doc-env}} cargo doc --locked --no-deps -p platform-api -p ngu-headless -p clr
 
-# Create a new port repository next to this checkout: just new-port nguidle-switch --platform "Nintendo Switch"
-new-port name *options:
-    {{python}} -B tools/new_port.py {{name}} {{options}}
+# Create a port repository next to this checkout: just new-port nguidle-switch "Nintendo Switch"
+# The optional third argument builds it against a local engine checkout: just new-port nguidle-test "Test" ../nguidle-rust
+new-port name platform="a new platform" engine="":
+    {{python}} -B tools/new_port.py {{name}} --platform "{{platform}}" {{ if engine == "" { "" } else { "--engine-path " + engine } }}
+
+# The mechanical half of the porting-guide cold trial (clones this repository, follows the guide, runs the new port's checks).
+cold-trial:
+    {{python}} -B tools/cold_trial.py
 
 verify-game:
     bash tools/regress.sh

@@ -37,15 +37,15 @@ You need Rust (rustup), Python 3.11+, [just](https://github.com/casey/just) 1.43
 ```text
 git clone https://github.com/vallfrr/nguidle-rust.git
 cd nguidle-rust
-just new-port nguidle-switch --platform "Nintendo Switch"      # use your own name
+just new-port nguidle-switch "Nintendo Switch"      # use your own name and platform
 cd ../nguidle-switch
 just check
 ```
 
-`just new-port` (`tools/new_port.py`) copies `templates/port/` next to the engine checkout, pins the engine's newest
+`just new-port` (`tools/new_port.py`, which also takes `--out`, `--tag`) copies `templates/port/` next to the engine checkout, pins the engine's newest
 `v0.x.y` tag, and adds CI, the hygiene check, `AGENTS.md` and a contract test. `just check` must pass at once: the
 generated port compiles and its loop is tested against a synthetic engine. If it does not, that is a bug in the template:
-report it. Add `--engine-path ../nguidle-rust` to build against your local engine checkout while you work on both.
+report it. To build against your local engine checkout while you work on both, add it as a third argument: `just new-port nguidle-switch "Nintendo Switch" ../nguidle-rust`.
 
 ## 2. Understand the contract (10 minutes)
 

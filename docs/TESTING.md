@@ -34,6 +34,14 @@ lint and contract test (`tools/check_template.py`), and builds the reference doc
 runs the reference host against the real game, and `cargo run --release -p ngu-headless -- --data <prepared> --save <tmp>`
 prints a reproducible draw hash.
 
+## Cold trial of the porting guide
+
+Done for each minor engine version. `just cold-trial` (`tools/cold_trial.py`) follows [the guide](PORTING.md) in an empty
+folder from a clone of this repository and runs the generated port's `just check`: it proves the documented commands work.
+The second half needs a fresh AI agent with no other context than the clone and the request "create a headless port
+`nguidle-test`": it must succeed using only the documentation and the template, and every blocker it reports becomes a fix
+to the guide, the template or the interface. Keep the report in the pull request or in `docs/archive/`.
+
 ## Local game verification
 
 On WSL, prepare the game and build the generated crate with the
