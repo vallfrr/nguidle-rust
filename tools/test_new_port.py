@@ -33,6 +33,11 @@ class NewPortTests(unittest.TestCase):
         out = self.make(engine_path="../nguidle-rust")
         self.assertIn('clr = { path = "../nguidle-rust/clr" }', (out / "Cargo.toml").read_text())
 
+    def test_no_placeholder_manifest_is_tracked(self):
+        # cargo scans a git dependency's checkout for manifests and rejects one with a placeholder inside.
+        self.assertEqual(list(new_port.TEMPLATE.rglob("Cargo.toml")), [])
+        self.assertTrue((self.make() / "Cargo.toml").is_file())
+
     def test_bad_names_and_non_empty_folders_are_refused_with_advice(self):
         with self.assertRaisesRegex(SystemExit, "nguidle- followed by lowercase words"):
             self.make(name="Bad_Name")
