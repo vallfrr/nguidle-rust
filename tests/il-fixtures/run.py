@@ -1,4 +1,4 @@
-"""Build synthetic .NET fixtures and compare them with the CLR interpreter."""
+"""Compare synthetic .NET fixtures with the interpreter and generated Rust."""
 
 import os
 import json
@@ -17,6 +17,8 @@ CARGO = os.environ.get("NGU_CARGO", "cargo")
 def main():
     subprocess.run([CARGO, "build", "--locked", "-p", "clr", "-p", "ngu-ilgen"], cwd=ROOT, check=True)
     target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
+    if not target.is_absolute():
+        target = ROOT / target
     executable = target / "debug" / ("clr.exe" if os.name == "nt" else "clr")
     with TemporaryDirectory(prefix="ngu-il-fixture-") as temporary:
         output = Path(temporary)
@@ -52,7 +54,8 @@ def main():
             'fn main() { let a:Vec<String>=std::env::args().collect(); let value:i32=a[2].parse().unwrap(); '
             f'let result=match a[1].as_str() {{ {arms} _ => panic!("unknown fixture") }}; '
             'println!("=> {}",result); }\n', encoding="utf-8")
-        subprocess.run([CARGO, "build", "--manifest-path", str(generated / "Cargo.toml")], cwd=ROOT, check=True)
+        subprocess.run([CARGO, "build", "--manifest-path", str(generated / "Cargo.toml"),
+                        "--target-dir", str(target), "--offline"], cwd=ROOT, check=True)
         runner = target / "debug" / ("ngu-fixture-runner.exe" if os.name == "nt" else "ngu-fixture-runner")
         subprocess.run(
             [
