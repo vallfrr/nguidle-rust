@@ -13,6 +13,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/console_mode.rs` — console mode module in clr.
 - `clr/src/cooking_score.rs` — cooking score module in clr.
 - `clr/src/desktop_layout.rs` — desktop layout module in clr.
+- `clr/src/dotnet_random.rs` — seeded Mono-compatible random number generator.
 - `clr/src/dev.rs` — dev module in clr.
 - `clr/src/dropdown.rs` — dropdown module in clr.
 - `clr/src/focus.rs` — focus module in clr.
