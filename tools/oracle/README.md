@@ -10,6 +10,8 @@ The file `clr/tests/fixtures/unity2019_rng.csv` contains numeric output captured
 
 The parameterless `System.Random` constructor currently retains the port's fixed seed of 12345. Original time-based seeding has not been reproduced or compared. The seeded generator follows the Mono reference algorithm and the recorded vectors. See [Mono's reference implementation](https://github.com/mono/mono/blob/2019-12/mcs/class/referencesource/mscorlib/system/random.cs).
 
+The progression probe uses a preloader patch on the isolated copy to skip Steam initialization and autosave updates. It starts a fresh game state, bypasses the title menu and logs energy fields after 60 seconds of real time. It does not validate Steam integration or an existing save. Compile the probes with `build-probes.ps1 -GameCopy <isolated-copy> -BepInEx <extracted-bepinex-directory>`, set `NGU_PROGRESS_PROBE_OUTPUT` to a new local path, and launch the copied game with `-batchmode -nographics`. Install the BepInEx runtime in the copy before running. The probe and patcher affect the copied executable's in-memory assembly for that run. Back up and compare the original save files before and after the run.
+
 Run `just verify-game` with `NGU_GUARDS=on` and `NGU_GUARDS=off` to compare the interpreter paths with the generated game. The default is `off`. These comparisons use the shared compatibility layer.
 
 Run `just verify-fixtures` with the .NET 8 SDK and Cargo installed to compare small independently written C# programs with the interpreter. Set `NGU_DOTNET` to the SDK executable when it is not on PATH. The fixture assembly is built in a temporary directory. This first suite covers branches, loops and switches; it does not yet exercise generated Rust.

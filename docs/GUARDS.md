@@ -4,7 +4,7 @@ The interpreter identifies the following game methods in `clr/src/program.rs` an
 
 | ID | Method selection | Purpose and existing coverage |
 | --- | --- | --- |
-| 1 | CookingController.updateDishUI | Skip redundant UI updates. |
+| 1 | CookingController.updateDishUI | Removed after guarded and unguarded replays showed that off-screen UI text diverged. |
 | 2 | WishesController.progressPerTick | Return zero in the documented zero-allocation context. Covered by `wish_tick_preserves_levelups_and_idle_wishes`. |
 | 3 | WishesController.updateAllWishes | Skip the loop when all wishes are idle. Covered by the same wish test. |
 | 4 | AdventureController.manageFight | Scope repeated Titan calculations. Covered by `titan_checks_preserve_state_with_autokill_on_and_off`. |
@@ -26,6 +26,6 @@ The interpreter identifies the following game methods in `clr/src/program.rs` an
 | 20 | InventoryController.equipSpecBonus | Native fast path with fallback. |
 | 21 | InventoryController.specBonus | Native fast path with fallback. |
 
-The named tests use prepared game data and a suitable save. They compare specific scenarios and do not prove that all possible inputs behave identically. Guards without named tests in this table need targeted coverage. No decision about their long-term removal follows from this inventory.
+The named tests use prepared game data and a suitable save. They compare specific scenarios and do not prove that all possible inputs behave identically. Guards without named tests in this table need targeted coverage. Guard 1 was removed because the skipped updates changed the stored UI state. The remaining guards need individual evidence.
 
 Unity RNG vectors captured from the original Unity 2019.4.22f1 runtime are checked in `clr/tests/fixtures/unity2019_rng.csv`. See [the probe](../tools/oracle/README.md) for the collection method and coverage.

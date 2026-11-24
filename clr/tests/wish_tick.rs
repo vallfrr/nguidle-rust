@@ -164,6 +164,34 @@ fn cooking_uses_the_exact_score_after_recipe_changes() {
 }
 
 #[test]
+#[ignore = "requires assets and a late-game save from the verified installation"]
+fn cooking_ui_updates_while_another_menu_is_selected() {
+    let dll = std::env::var("NGU_TEST_DLL").unwrap();
+    let assets = std::env::var("NGU_TEST_ASSETS").unwrap();
+    let save = std::env::var("NGU_TEST_SAVE").unwrap();
+    let mut vm = late_game(&dll, &assets, &save);
+    let controller = vm.eng.user_comps.iter().find_map(|component| {
+        let Value::Obj(component) = component else { return None };
+        (vm.types[component.ty as usize].name == "CookingController")
+            .then(|| Rc::clone(component))
+    }).unwrap();
+    let character = member(&vm, &controller, "character");
+    let cooking = member(&vm, &character, "cooking");
+    let menu = field(&vm, &character, "menuID");
+    let timer = field(&vm, &cooking, "cookTimer");
+    let update = vm.find_method(controller.ty, "updateDishUI", 1).unwrap();
+    character.f.borrow_mut()[menu] = Value::I32(0);
+    cooking.f.borrow_mut()[timer] = Value::F32(0.0);
+    vm.invoke(update, vec![Value::Obj(Rc::clone(&controller))])
+        .unwrap_or_else(|error| panic!("Cooking update raised {}", vm.describe(&error)));
+    let before = clr::unity::dump_state(&vm);
+    cooking.f.borrow_mut()[timer] = Value::F32(1000.0);
+    vm.invoke(update, vec![Value::Obj(controller)])
+        .unwrap_or_else(|error| panic!("Cooking update raised {}", vm.describe(&error)));
+    assert_ne!(before, clr::unity::dump_state(&vm));
+}
+
+#[test]
 #[ignore = "requires assets and a save from the verified installation"]
 fn achievement_scan_preserves_thresholds_and_bonus_points() {
     let dll = std::env::var("NGU_TEST_DLL").unwrap();
