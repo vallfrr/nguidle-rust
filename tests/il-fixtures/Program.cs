@@ -1,7 +1,89 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 public static class Fixture
 {
+    public static int GenericList(int value)
+    {
+        var values = new List<int> { value, 17 };
+        return values[0] + values[1] * values.Count;
+    }
+
+    public static int LinqSum(int value) => new[] { value, value + 1, value + 2 }.Sum();
+
+    private static IEnumerable<int> Sequence(int value)
+    {
+        yield return value;
+        yield return value + 3;
+    }
+
+    public static int IteratorSum(int value)
+    {
+        int total = 0;
+        foreach (int item in Sequence(value)) total += item;
+        return total;
+    }
+    public struct Counter { public int Value { get; set; } }
+    public struct Container { public Counter Counter; }
+    public static int StructBoxing(int value)
+    {
+        var counter = new Counter { Value = value };
+        object boxed = counter;
+        counter.Value += 3;
+        return ((Counter)boxed).Value * 100 + counter.Value;
+    }
+    public static int StructArray(int value)
+    {
+        var counters = new Counter[2];
+        counters[0].Value = value;
+        counters[1] = counters[0];
+        counters[1].Value += 2;
+        return counters[0].Value * 100 + counters[1].Value;
+    }
+    public static int StructNested(int value)
+    {
+        var first = new Container();
+        first.Counter.Value = value;
+        var second = first;
+        second.Counter.Value += 2;
+        return first.Counter.Value * 100 + second.Counter.Value;
+    }
+    public static int StructProperty(int value)
+    {
+        var first = new Counter { Value = value };
+        var second = first;
+        second.Value += 4;
+        return first.Value * 100 + second.Value;
+    }
+
+    private static void Increment(ref Counter counter) { counter.Value += 2; }
+    private static void Make(out Counter counter, int value) { counter = new Counter { Value = value }; }
+    public static int StructOut(int value)
+    {
+        Make(out Counter counter, value);
+        return counter.Value;
+    }
+    public static int StructByRef(int value)
+    {
+        var counter = new Counter { Value = value };
+        Increment(ref counter);
+        return counter.Value;
+    }
+
+    public static int DelegateLambda(int value)
+    {
+        int offset = value % 3;
+        Func<int, int> callback = n => n + offset + 2;
+        return callback(value);
+    }
+
+    public static int DelegateBool(int value)
+    {
+        Func<int, bool> isPositive = n => n > 0;
+        return isPositive(value) ? 1 : 0;
+    }
+
     public static int StringSwitch(int value)
     {
         string key = value.ToString();
@@ -56,9 +138,11 @@ public static class Fixture
 
     public static int Exception(int value)
     {
-        try { if (value == 0) throw new ArgumentException(); return 10 / value; }
-        catch (ArgumentException) { return -7; }
+        int result;
+        try { if (value == 0) throw new ArgumentException(); result = 10 / value; }
+        catch (ArgumentException) { result = -7; }
         finally { value++; }
+        return result + value;
     }
 
     public static int Main(string[] args)
@@ -74,6 +158,17 @@ public static class Fixture
             case "ByRef": value = ByRef(argument); break;
             case "Exception": value = Exception(argument); break;
             case "StringSwitch": value = StringSwitch(argument); break;
+            case "StructProperty": value = StructProperty(argument); break;
+            case "StructByRef": value = StructByRef(argument); break;
+            case "StructNested": value = StructNested(argument); break;
+            case "StructArray": value = StructArray(argument); break;
+            case "StructBoxing": value = StructBoxing(argument); break;
+            case "StructOut": value = StructOut(argument); break;
+            case "DelegateLambda": value = DelegateLambda(argument); break;
+            case "DelegateBool": value = DelegateBool(argument); break;
+            case "GenericList": value = GenericList(argument); break;
+            case "LinqSum": value = LinqSum(argument); break;
+            case "IteratorSum": value = IteratorSum(argument); break;
             default: return 2;
         }
         Console.WriteLine(value);

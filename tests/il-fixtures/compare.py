@@ -22,6 +22,17 @@ def main():
         "ByRef": [-3, 0, 7],
         "Exception": [-1, 0, 1, 2],
         "StringSwitch": [-1, 0, 5, 11, 12],
+        "StructProperty": [-3, 0, 7],
+        "StructByRef": [-3, 0, 7],
+        "StructNested": [-3, 0, 7],
+        "StructArray": [-3, 0, 7],
+        "StructBoxing": [-3, 0, 7],
+        "StructOut": [-3, 0, 7],
+        "DelegateLambda": [-4, 0, 7],
+        "DelegateBool": [-1, 0, 1],
+        "GenericList": [-3, 0, 7],
+        "LinqSum": [-3, 0, 7],
+        "IteratorSum": [-3, 0, 7],
     }
     failures = []
     for method, arguments in cases.items():
