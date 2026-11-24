@@ -36,6 +36,21 @@ public static class Fixture
         }
     }
 
+    public static int ByRef(int value)
+    {
+        Add(ref value);
+        return value;
+    }
+
+    private static void Add(ref int value) { value += 3; }
+
+    public static int Exception(int value)
+    {
+        try { if (value == 0) throw new ArgumentException(); return 10 / value; }
+        catch (ArgumentException) { return -7; }
+        finally { value++; }
+    }
+
     public static int Main(string[] args)
     {
         int argument = int.Parse(args[1]);
@@ -46,6 +61,8 @@ public static class Fixture
             case "Loop": value = Loop(argument); break;
             case "Choice": value = Choice(argument); break;
             case "SeededRandom": value = SeededRandom(argument); break;
+            case "ByRef": value = ByRef(argument); break;
+            case "Exception": value = Exception(argument); break;
             default: return 2;
         }
         Console.WriteLine(value);

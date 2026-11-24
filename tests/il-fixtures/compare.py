@@ -1,6 +1,7 @@
 """Compare synthetic .NET fixture results with the CLR interpreter."""
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ def main():
         "Loop": [0, 1, 10],
         "Choice": [-1, 0, 1, 2, 3],
         "SeededRandom": [-1, 0, 1, 123456789],
+        "ByRef": [-3, 0, 7],
+        "Exception": [-1, 0, 1, 2],
     }
     failures = []
     for method, arguments in cases.items():
@@ -31,14 +34,14 @@ def main():
             ).strip()
             if interpreted != f"=> {native}":
                 failures.append(f"{method}({argument}): .NET={native}, interpreter={interpreted}")
-            if method != "SeededRandom":
-                generated = subprocess.check_output([options.generated, method, str(argument)], text=True).strip()
-                if generated != f"=> {native}":
-                    failures.append(f"{method}({argument}): .NET={native}, generated={generated}")
+            generated = subprocess.check_output([options.generated, method, str(argument)], text=True,
+                                                env={**os.environ, "NGU_DLL": str(options.dll)}).strip()
+            if generated != f"=> {native}":
+                failures.append(f"{method}({argument}): .NET={native}, generated={generated}")
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
-    print(f"{sum(len(values) for values in cases.values())} interpreter and 11 generated fixture cases match .NET.")
+    print(f"{sum(len(values) for values in cases.values())} interpreter and generated fixture cases match .NET.")
     return 0
 
 
