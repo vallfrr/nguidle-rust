@@ -4,6 +4,8 @@ python := if os() == "windows" { "python" } else { "python3" }
 
 check:
     {{python}} -B .github/repo-check.py
+    {{python}} -B tools/check_codemap.py
+    {{python}} -B tools/check_skills.py
     rustfmt --check --edition 2021 clr/tests/save_fixtures.rs
     {{python}} -B tools/clippy-check.py
     cargo test --locked --workspace --exclude ngu-gen --features clr/legacy-vita-save
