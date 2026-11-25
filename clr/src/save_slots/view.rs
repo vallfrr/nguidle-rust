@@ -212,7 +212,7 @@ pub(super) fn build(vm: &mut Vm) -> Screen {
     let status = text(vm, &message, body_style.as_ref(), Some(16), 4);
     let primary = button(vm, &right, Action::Primary, [0.08, 0.92], 213.0, 41.0, 16);
     let secondary = button(vm, &right, Action::Secondary, [0.08, 0.92], 266.0, 41.0, 16);
-    let browser_import = button(vm, &right, Action::BrowserImport, [0.08, 0.92], 319.0, 41.0, 16);
+    let hosted_import = button(vm, &right, Action::HostImport, [0.08, 0.92], 319.0, 41.0, 16);
     let main_menu = button(vm, &parent, Action::MainMenu, [0.035, 0.168], 18.0, 37.0, 16);
     let back = button(vm, &parent, Action::Back, [0.035, 0.168], 18.0, 37.0, 16);
     let previous = button(vm, &left, Action::Previous, [0.066, 0.35], 366.0, 34.0, 15);
@@ -276,7 +276,7 @@ pub(super) fn build(vm: &mut Vm) -> Screen {
         name_input,
         primary,
         secondary,
-        browser_import,
+        hosted_import,
         back,
         previous,
         next,
@@ -478,7 +478,7 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
         label(&grid.description, String::new());
         label(&grid.state, String::new());
     }
-    for button in [&ui.primary, &ui.secondary, &ui.browser_import, &ui.main_menu] {
+    for button in [&ui.primary, &ui.secondary, &ui.hosted_import, &ui.main_menu] {
         vm.set_active(&button.0, false);
     }
     vm.set_active(&ui.previous.0, state.page > 0);
@@ -547,7 +547,7 @@ pub(super) fn draw_state(vm: &mut Vm, state: &SaveSlots) {
             "Choose a slot for a snapshot of your current game."
         } else if state.from_title {
             "Choose a saved game to continue."
-        } else if state.browser.is_some() {
+        } else if state.hosted.is_some() {
             "Choose a saved game to continue. Save any current progress first."
         } else {
             "Choose a saved game to continue. Your current game is backed up before loading."
@@ -580,8 +580,8 @@ pub(super) fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     for (i, row) in ui.rows.iter().enumerate() {
         let confirming = state.deleting.as_ref().is_some_and(|delete| delete.index == i);
         let visible = (!choosing || i > 0) && !confirming;
-        let browser_load = state.browser.is_some() && mode == Mode::Load;
-        let available = (!choosing || browser_load || slot_available(mode, state.entries.get(i))) &&
+        let hosted_load = state.hosted.is_some() && mode == Mode::Load;
+        let available = (!choosing || hosted_load || slot_available(mode, state.entries.get(i))) &&
             (importing || !state.blocked(i));
         set_interactable(&row.0, available);
         vm.set_active(&go_of(&ui.row_info[i]), visible);
@@ -619,7 +619,7 @@ pub(super) fn draw_state(vm: &mut Vm, state: &SaveSlots) {
         } else {
             format!("Slot {i}")
         };
-        let contents = if state.browser.as_ref().is_some_and(|browser| browser.locked & (1 << i) != 0) {
+        let contents = if state.hosted.as_ref().is_some_and(|hosted| hosted.locked & (1 << i) != 0) {
             "In use on another device".into()
         } else { match state.entries.get(i).unwrap_or(&Entry::Empty) {
             Entry::Empty => "Empty".into(),
@@ -667,18 +667,18 @@ pub(super) fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     label(&ui.selection, selection);
     vm.set_active(&ui.primary.0, (!importing || state.pending.is_some()) && state.deleting.is_none());
     with_tr(&tr(&ui.primary.0), |t| t.apos[1] = if creating { -251.0 } else { -213.0 });
-    let waiting = state.browser.as_ref().is_some_and(|browser| browser.requested.is_some());
+    let waiting = state.hosted.as_ref().is_some_and(|hosted| hosted.requested.is_some());
     let server_action = !matches!(state.pending, Some(Pending::MainMenu));
     set_interactable(&ui.primary.0, !waiting && (!server_action || !state.blocked(state.selected)) &&
         (!choosing || slot_available(mode, state.entries.get(state.selected))));
-    let web = state.browser.is_some();
+    let web = state.hosted.is_some();
     vm.set_active(&ui.secondary.0, !importing && if web { !creating && state.pending.is_none() } else { !choosing });
     set_interactable(&ui.secondary.0, if web && mode == Mode::Save { state.active_slot.is_some() }
         else if web { !state.blocked(state.selected) && matches!(state.entries.get(state.selected), Some(Entry::Save(..))) }
         else { !state.blocked(state.selected) });
-    vm.set_active(&ui.browser_import.0, web && mode == Mode::Load && state.pending.is_none());
-    set_interactable(&ui.browser_import.0, state.browser_import_target().is_some());
-    caption(&ui.browser_import, "Import Save File", false);
+    vm.set_active(&ui.hosted_import.0, web && mode == Mode::Load && state.pending.is_none());
+    set_interactable(&ui.hosted_import.0, state.hosted_import_target().is_some());
+    caption(&ui.hosted_import, "Import Save File", false);
     vm.set_active(&ui.main_menu.0, !state.from_title && !cancelling);
     caption(&ui.main_menu, "Main Menu", false);
     let pages = state

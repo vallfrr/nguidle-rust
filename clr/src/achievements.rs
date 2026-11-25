@@ -65,7 +65,7 @@ pub(crate) fn tick(vm: &mut Vm) {
         });
     }
     let file = Path::new(&vm.eng.save_dir).join("achievements.json");
-    let shared_profile = vm.browser_saves_enabled();
+    let shared_profile = vm.hosted_saves_enabled();
     let book = &mut vm.eng.achievements;
     let last_failure = book.write_failed;
     if book.saved.is_none() || shared_profile {

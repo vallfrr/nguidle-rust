@@ -44,7 +44,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/bcl_core/foundation.rs` — LINQ, object, exception, and string intrinsics.
 - `clr/src/bcl_core/numbers.rs` — Numeric conversion and math intrinsics.
 - `clr/src/bcl_core/services.rs` — Time, randomness, filesystem, and enum intrinsics.
-- `clr/src/save_slots/browser.rs` — Browser-facing save commands.
+- `clr/src/save_slots/hosted.rs` — Saves leased from a host (a server, for example): lease requests, import and export.
 - `clr/src/save_slots/storage.rs` — Save files, metadata, and autosave persistence.
 - `clr/src/unity/schedule.rs` — Managed delayed invocations and coroutines.
 - `clr/src/vm/specializations.rs` — Game-specific VM accelerators.

@@ -5,6 +5,8 @@
 - Run the original assembly through the interpreter on all builds. Remove the translator and use local replay references to check saves, game state and number formatting.
 
 - Add the PC window budgets (`budgets.json`) and `tools/pc_budget.py` / `just pc-perf` to check them (manual: needs a display and game data).
+- Make the host-leased save mode generic: `browser_*` and `import_browser_save` become `hosted_*` and `import_hosted_save`, and `Session` now exposes them, with `text_field` and `take_resolution_request_after`, so a port no longer needs `Session::vm()`. Migration: rename the calls.
+
 ## [0.5.0]
 
 - Add the documented platform interface (`platform-api::Engine`, `Action`, `Pointer`, `MouseButton`, `FixedStep`), including keys, the mouse wheel, secondary buttons and `reset_input` and `clr::session::Session`, a safe implementation that hosts the whole game.
