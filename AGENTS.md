@@ -1,14 +1,23 @@
 # Agent instructions
 
-Start with the current task and local session notes when present. Inspect Git status before editing. Work on a topic branch and follow the maintainer's instructions for publication and review.
+Read `docs/VISION.md` first. The authoritative French vision is
+in the maintainer's local notes when available.
 
-- [Contributing](CONTRIBUTING.md) covers setup and repository workflow.
-- [Status](docs/STATUS.md), [roadmap](docs/ROADMAP.md), [testing](docs/TESTING.md) and [fidelity](docs/FIDELITY.md) describe current work and evidence.
-- [Architecture](docs/ARCHITECTURE.md), [code map](docs/CODEMAP.md) and [porting](docs/PORTING.md) describe the implementation.
-- Keep code, comments and repository documentation in English. Keep original game files, extracted assets, saves and personal data outside the repository.
-- Treat the original installation as read-only. Run original-game comparisons using a backed-up, isolated, ordinary save. Avoid extreme saves on Steam.
-- Run generated-code builds with the documented memory cap. Use isolated profiles for game tests.
-- Report what was tested and what remains unverified. Obtain the maintainer's decisions on user-facing behavior and publication according to the current task instructions.
+Work from the highest-priority issue in the current milestone. Use a topic branch and work in small steps. Run `just check` before each
+significant commit. Open a pull request using the template and include
+`Closes #N`, evidence and anything still unverified. Merge after the required
+checks pass. Never push directly to `main`. Report the result in five lines.
 
-## Building a port
-To create a new platform port, follow [the porting guide](docs/PORTING.md): `just new-port nguidle-<platform>` generates a compiling repository with CI and a contract test. The public surface is listed in [the engine API](docs/ENGINE-API.md); do not depend on anything else, and do not modify this repository to make a port work (report the gap instead). The skill `.claude/skills/nguidle-port/SKILL.md` walks an agent through it.
+The maintainer decides v1 feature scope, milestones, public-facing text,
+visible behavior changes and manual platform/controller playtests. Do not
+change the maintainer's vision. Do not add unapproved features or improvements and never reintroduce
+a translation of the game into Rust. Record technical decisions in short ADRs.
+
+Never write to the original game installation or commit game code, saves
+or personal data. Use isolated test profiles. Interface resources follow
+the project vision. See `CONTRIBUTING.md` and the engine's `docs/PORTING.md`
+and `docs/ENGINE-API.md` for development and platform details.
+
+Continue authorized work and verification without routine checkpoints.
+Ask the maintainer when their decision, manual validation, or access is
+required. Report completed work and remaining limits together.

@@ -1,45 +1,74 @@
-# Vision (maintainer, 2026-11-20): read before any interface decision
+# NGU Idle Rust Engine project vision
 
-## What the maintainer wants
-- **A real port, not a recompilation** ("almost an NGU Idle 2, the ultimate version").
-- **First a PERFECT PC base**: usable, portable everywhere, **fully modifiable and documented**. Readability on Vita is the final goal and becomes easy if the base is good.
-- **Responsive**, in the PC-game sense (adapts to any window size and shape) **and** the web sense. The original's fixed 16:10 resolutions are **the biggest challenge**.
-- On PC: resize the window freely; the original's fixed sizes are removed from the settings; the game stays **sharp at any size** at the **monitor's refresh rate**.
-- Anything the original "draws by hand" (fine for a fixed size, painful for an adaptive UI) may be **changed** to become adaptive.
-- **Example (one idea among others, not a spec)** on Vita, where space is short: the page list is hidden by default; holding **L** replaces the energy/magic/save column with the page list, the d-pad changes page, releasing L confirms. The space gained goes to the right-hand game area (zoomed page, scrolling).
-- Every trade-off must be **known and documented**.
+> **Maintainer's document.** This is the authoritative document. The AI agent reads it at the start of each session and **must not modify it**.
+> This is a translation of the French version in the local notes. If in doubt, the French version prevails.
+> Last updated: 25/11/2026.
 
-## Principles
-1. **Logic stays the original's, verified identical** (generated Rust vs reference interpreter). **Presentation becomes ours**: the game's controllers keep writing to their texts/images; our layout layer decides where, how big, and whether it is visible. Everything can be rearranged without touching game rules, and the conformance checks stay valid.
-2. **Layers**: logic (generated) -> scene model (UI tree extracted from the game) -> **layout** (ours: per-target profiles in readable files) -> **rendering** (quad list -> GPU) -> **platform** (window, input, gamepad, sound, on-screen keyboard).
-3. **Layout profiles**: "PC free", "Vita", "web / portrait"... Each defines regions (player column, page list, game area, tooltips), their visibility, shortcuts (e.g. Vita's L) and zoom/scroll of the game area.
-4. **Override a game method cleanly** when presentation requires it (e.g. `NGUResolutions`): a documented mechanism of hand-written Rust in one file, each override justified.
-5. **Documentation generated from data** (it cannot lie): UI map, elements, controlling script, baked-drawing images; plus hand-written guides ("how to move / hide / redraw an element").
+## 1. The objective
 
-## Known trade-offs
-| topic | reality | consequence / option |
-|---|---|---|
-| Central menus (~55, 668x600) | laid out pixel by pixel, no automatic layout (74 % of elements have fixed anchors) | cannot "reflow" automatically: scale as a block (sharp, redrawn on GPU), then redo the most used by hand |
-| Images (sprites) | fixed resolution, much of it pixel art | text and flat fills stay sharp at any size; icons are simply enlarged (filtering by default), no more detail than the source |
-| Baked backgrounds | some menu backgrounds contain boxes/lines at button positions | moving buttons breaks the drawing: inventory of those images needed, redraw with 9-slice or simple shapes (using the game's real assets only) |
-| Absolute coordinates in game code | menus hidden by moving off-screen, tooltips placed at the mouse and clamped to 960x600, drag and drop, `Screen.width/height` (45 uses) | the game always believes it lives in 960x600: our layer converts to the real screen |
-| Speed | CPU drawing ~13 ms at 1280x800, ~100 ms estimated at 4K | GPU rendering also on PC |
-| Graphics API | the original uses Direct3D 11 | ours: OpenGL ES 2 / WebGL / vitaGL (same role, portable) |
-| Small buttons (+ / Cap / -) | designed for a mouse | on touch/gamepad: larger hit areas, focus, zoom |
+**An engine that runs the player's real NGU Idle on other platforms (PC, web, PS Vita), with a better interface, without ever distributing a single line of game code.**
 
-## Decisions (2026-11-20)
-1. **Large screen**: the game area **only scales up**. Exception, page by page: if the enlarged render is bad, or the page already scrolled (list), try to **show more content**.
-2. **Enlarged images**: simply enlarged (default filtering); revisit later.
-3. **Style**: keep **the original drawings as much as possible**. A new interface is allowed if it **copies the original exactly**.
-4. **Display**: offer **common resolutions** (+ fullscreen) in addition to free resizing. **No frame-rate setting for the player**: runs like the original. Measured: the original forces `QualitySettings.vSyncCount = 1` (`Character.cs`), i.e. synchronised to the monitor (60, 144, 200 Hz...) through Direct3D 11. We do the same: vsync, one frame per refresh.
-5. **Rendering stack**: `miniquad` for the PC GPU window, WebGL for the browser and a vitaGL host in C for the Vita.
-5b. **Platform order**: PC first, then web, then Vita. The Vita preview now has a hardware-tested shared 960 × 544 layout. The [Vita hardware audit](VITA.md) records its implementation and the remaining performance work.
-6. **GPU**: of course, like the original.
-7. **Dev mode** in the game: see everything, unlock everything, test without depending on a save or clicks (`docs/DEV.md`); it is used first by the assistant.
-8. **Free publication, three repositories (GPL-3.0)**: `nguidle-rust` holds the engine, conversion tools and PC host. `nguidle-web` pins the engine tag in Cargo and its lockfile. `nguidle-vita` pins the exact tagged commit through its Git submodule. Both use matching tools to prepare the player's own files. See [ADR 0001](adr/0001-pin-engine-consumers.md). Game code, assets, extracted texts, saves and personal information stay local.
-9. **Web**: personal self-hosting with server-side saves and per-slot locks. The browser runs the shared Rust game engine in WebAssembly and uses the desktop game layout, including on landscape touch screens. Docker verifies the user's 1.260 files, prepares the assets, compiles WebAssembly and serves the game. The first preview binds to localhost by default, with LAN and personal reverse-proxy setup documented. **Vita**: same preparation principle with a small PC tool that produces the SD-card data folder and VPK.
-10. **Images and assets**: screenshots of OUR port may go into the repositories (only what is really visible in our port); always the game's real assets and official assets (LiveArea provided by the maintainer); **never create an asset from scratch**, except console-mode elements the game lacks, drawn by us in its style (`docs/CONSOLE-MODE.md`).
-11. **Language**: everything in the repositories is English (code, comments, messages, docs); only the chat with the maintainer is French.
+1. The player **owns** NGU Idle on Steam (version 1.260, free).
+2. An application supplied by the project finds the game, checks the version, and prepares the files **on the player's machine**.
+3. The engine **reads the original game code and executes it as is**, like a player. The game's rules, calculations and progression apply.
+4. On top of that, the engine displays **its own interface**: adapted to each screen, entirely playable with a controller, with save management.
 
-## Open point: logic cadence
-In the original, `Update()` (86 classes) runs once per displayed frame with real `Time.deltaTime` (125 uses) and most computation goes through `InvokeRepeating` (108 calls, e.g. `updateNGU` every 0.02 s). Ours: fixed 1/30 s step. So the original's result depends slightly on the monitor rate; ours does not. To settle by measurement (task A9).
+## 2. What the project is not
+
+- **Not a translation of the game into Rust.** That idea has been **abandoned permanently**. The engine is written in Rust, but the game remains the player's original code.
+- **Not a remake**: the rules of the game do not change.
+- **Not a distribution of the game**: without their own Steam copy, the player cannot do anything.
+
+## 3. Fixed rules
+
+1. **Identical for the player.** The engine can work differently from the game internally, provided the player sees no difference. A visible difference is tolerated only if **absolutely necessary**, and it must **never change the game in the long term**. Progression is as fast as in the original.
+2. **A save is always a file in the original game's format**, identical on PC, web, Vita and in the original game. It is moved by copying the file.
+3. **Behavior is the same on all platforms**, only the display changes.
+4. **Three independent public repositories:**
+   - `nguidle-rust`: engine and PC version (Windows, Linux, macOS);
+   - `nguidle-web`: self-hosted web version;
+   - `nguidle-vita`: PS Vita version.
+
+   Web and Vita use only the engine, through a tagged version. **A future platform = a new repository**, without modifying `nguidle-rust`.
+5. **No game code in any repository**, nor decompilation, player saves or personal information. The project's interface elements (borders, backgrounds, buttons, one image) are part of the project and serve its applications.
+6. **Anyone assisted by an AI must be able to use the engine** to create their own port by reading only the `nguidle-rust` documentation.
+7. **Nothing for the player to install:** ready-to-run applications at each version, with NGU Idle's visual direction.
+8. **The player's original game is never modified:** we read and copy it, nothing else.
+
+## 4. v1.0.0
+
+v1.0.0 is released **on the same day across all three repositories**, when all of the following are true:
+
+- [ ] The game is **100% playable**, tested end to end by script on PC, web and Vita.
+- [ ] **Controller mode** works throughout **the entire game** on Vita, from beginning to end.
+- [ ] Vita sustains **60 frames per second for 99% of frames**.
+- [ ] **Saves transfer** between PC, web, Vita and the original game, in both directions.
+- [ ] **Speed and behavior** are identical for the player across all three platforms and the original.
+- [ ] PC works on **Windows, Linux and macOS**, manually tested on all three by the maintainer.
+- [ ] **No known bugs.**
+- [ ] The **applications** exist: the PC app (which prepares and launches the game) and the Vita preparation app (supplied alongside the VPK).
+- [ ] A **README** clearly explains how to install and use everything.
+
+**No new features in v1.** We perfect what exists.
+
+## 5. Reserved to the maintainer
+
+- Add or remove a v1 feature.
+- Create or modify a GitHub milestone.
+- Approve whether an improvement issue found by the AI enters v1.
+- All public text: repository descriptions, player README, release notes, announcements.
+- Every visible difference for the player, even if judged necessary.
+- Controller playtests and manual tests on Windows, Linux, macOS and a real Vita.
+- Any modification of this document.
+
+**Everything else, including technical choices, is decided by the AI**, in writing (ADR), without asking.
+
+## 6. What the AI is not allowed to do
+
+- Modify this document.
+- Push directly to `main`: everything goes through a pull request, with green CI.
+- Close an issue or say “done”, “verified” or “identical” without evidence (command and result).
+- Add a feature or improvement without maintainer approval.
+- Add a document, process or tool that does not directly unblock a current task.
+- Write into the original game folder.
+- Reintroduce a translation of the game into Rust in any form.

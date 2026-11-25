@@ -19,3 +19,6 @@ Content changes are reviewable against verified upstream revisions and checksums
 ## Revisit when
 
 Replace bundled third-party copies with a reproducible installation once their upstream revisions and consumer discovery mechanisms have been established.
+
+The v1 project plan ends the transition described above. The bundled third-party
+files were removed and the lock now records an empty inventory.
