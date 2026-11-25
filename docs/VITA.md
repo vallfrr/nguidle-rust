@@ -234,6 +234,4 @@ captures, personal saves and local device configuration stay outside Git.
    controller paths, and the Vita audio output. Keep the official LiveArea
    art and any small-screen redesign as separate work.
 
-See [project status](STATUS.md#ps-vita-port-on-2026-11-21) for earlier raw
-performance ranges and [the roadmap](NEXT.md#phase-6-vita-validation)
-for the open Vita tasks.
+Open Vita tasks are tracked in the GitHub milestones of `nguidle-vita`.

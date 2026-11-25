@@ -2,7 +2,7 @@
 
 Method (reproducible): `tools/orig.ps1` drives the original (launched through Steam, window captured with `PrintWindow` even when hidden, real mouse clicks in the foreground, cursor restored afterwards). Our side: `tools/screens.sh` / script steps. Side-by-side images and pixel diffs (`tools/imgdiff.py`) go to `out/compare/` (not versioned). The original's save folder is copied before a test and restored after.
 
-Rule: compare **behaviour and content**, not pixel-exact output (see `docs/NEXT.md`).
+Rule: compare **behaviour and content**, not pixel-exact output (see [fidelity](FIDELITY.md)).
 
 ## 2026-11-20: new game, 960x600 (title, intro, main screen, Boss Fight, Info 'n Stuff)
 Layout, images, fonts and texts match. Differences found:

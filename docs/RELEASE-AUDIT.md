@@ -13,7 +13,7 @@ requires evidence from the target runtime.
 
 ## Repository boundaries
 
-- **nguidle-rust** owns extraction, IL conversion, runtime compatibility, the UI scene model, layout, draw commands, focus and scrolling. The Windows executable owns OS input and audio, high DPI, display settings, frame pacing and filesystem UI. The desktop save pages and layout are shared through the separate Vita C API.
+- **nguidle-rust** owns extraction, runtime compatibility, the UI scene model, layout, draw commands, focus and scrolling. The Windows executable owns OS input and audio, high DPI, display settings, frame pacing and filesystem UI. The desktop save pages and layout are shared through the separate Vita C API.
 - **nguidle-web** owns the browser input and WebGL adapter, the save API and
   slot leases, the localhost launcher, and the Compose configuration.
   The `ngu-browser` reactor runs the shared CIL engine in the browser.

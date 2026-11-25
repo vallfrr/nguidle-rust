@@ -15,7 +15,7 @@
 - [Testing](docs/TESTING.md): commands and what each proves. [Fidelity](docs/FIDELITY.md): comparison with the original.
 
 ## Project state
-- [Vision](docs/VISION.md), [Roadmap](docs/ROADMAP.md), [Status](docs/STATUS.md).
+- [Vision](docs/VISION.md). Work is tracked in GitHub milestones and issues.
 
 ## Rules for agents
 - Read [AGENTS.md](AGENTS.md). Keep the original game's files, extracted assets, saves and machine paths out of Git.

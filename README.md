@@ -11,7 +11,7 @@ You need to own NGU Idle on Steam (version 1.260).
 - The [test guide](docs/TESTING.md) explains the interpreter checks and local replay coverage.
 - The Windows version has a resizable GPU window, F11 fullscreen, local save slots and local milestone tracking. Focus navigation uses the D-pad or left stick. The right stick scrolls and the south button confirms.
 - The PS Vita preview shares the game scene at 960 × 544 and supports touch and controller navigation. See the [Vita port history and hardware audit](docs/VITA.md).
-- The [release audit](docs/RELEASE-AUDIT.md) tracks platform boundaries and validation. See [vision](docs/VISION.md), [roadmap](docs/ROADMAP.md) and [testing](docs/TESTING.md) for decisions and remaining work.
+- The [release audit](docs/RELEASE-AUDIT.md) tracks platform boundaries and validation. See [vision](docs/VISION.md) and [testing](docs/TESTING.md). Work is tracked in GitHub milestones and issues.
 
 ## Layout
 | folder | role |
