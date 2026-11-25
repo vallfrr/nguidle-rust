@@ -207,7 +207,7 @@ Everything that led here, in order, with the commit (nguidle-rust unless noted) 
     NEXT, AGENTS, the ngu-devmode and ngu-verify skills.
 
 ### D. Next
-Maintainer gamepad playtest -> per-menu reorganisations -> amount pad / keyboard -> face-button skills -> Vita port (see NEXT.md B-console).
+Maintainer gamepad playtest -> per-menu reorganisations -> amount pad / keyboard -> face-button skills -> Vita port.
 
 ## History of decisions
 - 2026-11-22 mockups v1-v3 (own overlay look) rejected: not the game's look and a plain zoom cut the pages. Rule kept: only

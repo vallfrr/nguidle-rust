@@ -16,4 +16,4 @@ The first original-game scenario recorder supports menu changes and state snapsh
 
 ## Unresolved intermittent save difference
 
-The historical report in [archive/STATUS](archive/STATUS.md) records one differing complete save after an invocation change, followed by passing runs, without retaining the differing files. The four current guard and locale combinations passed, but that cannot establish the cause of the historical result. The comparison remains enabled; a future failure must retain both saves, inputs, seeds, logs and environment for investigation. This issue remains open rather than being declared fixed by retries.
+An earlier report recorded one differing complete save after an invocation change, followed by passing runs, without retaining the differing files. The four current guard and locale combinations passed, but that cannot establish the cause of the historical result. The comparison remains enabled; a future failure must retain both saves, inputs, seeds, logs and environment for investigation. This issue remains open rather than being declared fixed by retries.
