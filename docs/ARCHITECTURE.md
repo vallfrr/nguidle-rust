@@ -46,7 +46,7 @@ A port drives the engine through `platform-api::Engine` (Rust, implemented by `c
 - Known limits: arrays/lists/dictionaries are **copied** across the bridge (no aliasing with the engine); native calls with `out/ref` parameters are not bridged.
 
 ## Verification
-- `tools/regress.sh`: oracle vs native battery (see `docs/AUDIT-ILGEN.md`).
+- `tools/regress.sh`: local replay against recorded state and saves (see [tests](TESTING.md)).
 - `tools/ilall.sh`: regenerates the whole game, `cargo check`, error summary.
 
 ## Vita runtime
