@@ -1,47 +1,97 @@
-//! Host-specific filesystem behavior and background save scheduling.
-#[cfg(target_os = "vita")]
+//! Host tuning: how the engine adapts to slow or limited storage and processors, chosen by the host.
 use crate::save_slots::{atomic_write, record_autosave_slot};
 use crate::Vm;
-#[cfg(target_os = "vita")]
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{fs, path::Path};
 
-#[cfg(not(any(target_family = "wasm", target_os = "vita")))]
-pub(crate) fn save_process_id() -> u32 {
-    std::process::id()
+/// Behaviors a host with little memory, slow storage and a slow processor can switch on. All are off by
+/// default, and none changes what the player sees or what a save contains.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostTuning {
+    /// Write autosaves on a worker thread instead of inside the frame.
+    pub background_autosave: bool,
+    /// The save folder has no hard links and only this process writes to it.
+    pub single_writer_storage: bool,
+    /// Parse the startup fonts on a worker thread while the scene loads.
+    pub startup_fonts_worker: bool,
+    /// Measure the layout time of each frame, for the host's trace (`ngu_layout_us`).
+    pub time_layout: bool,
 }
 
-#[cfg(any(target_family = "wasm", target_os = "vita"))]
+impl HostTuning {
+    /// The bit values used by the C ABI function `ngu_set_host_tuning`.
+    pub const BACKGROUND_AUTOSAVE: u32 = 1;
+    /// See [`HostTuning::single_writer_storage`].
+    pub const SINGLE_WRITER_STORAGE: u32 = 2;
+    /// See [`HostTuning::startup_fonts_worker`].
+    pub const STARTUP_FONTS_WORKER: u32 = 4;
+    /// See [`HostTuning::time_layout`].
+    pub const TIME_LAYOUT: u32 = 8;
+
+    /// Build from the C ABI bit set.
+    pub fn from_bits(bits: u32) -> Self {
+        Self {
+            background_autosave: bits & Self::BACKGROUND_AUTOSAVE != 0,
+            single_writer_storage: bits & Self::SINGLE_WRITER_STORAGE != 0,
+            startup_fonts_worker: bits & Self::STARTUP_FONTS_WORKER != 0,
+            time_layout: bits & Self::TIME_LAYOUT != 0,
+        }
+    }
+
+    fn bits(self) -> u32 {
+        [
+            (self.background_autosave, Self::BACKGROUND_AUTOSAVE),
+            (self.single_writer_storage, Self::SINGLE_WRITER_STORAGE),
+            (self.startup_fonts_worker, Self::STARTUP_FONTS_WORKER),
+            (self.time_layout, Self::TIME_LAYOUT),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |bits, (_, bit)| bits | bit)
+    }
+}
+
+static TUNING: AtomicU32 = AtomicU32::new(0);
+
+/// Choose the tuning before opening a session. It applies to the whole process.
+pub fn set_host_tuning(tuning: HostTuning) {
+    TUNING.store(tuning.bits(), Ordering::Relaxed);
+}
+
+/// The tuning in force.
+pub fn host_tuning() -> HostTuning {
+    HostTuning::from_bits(TUNING.load(Ordering::Relaxed))
+}
+
 pub(crate) fn save_process_id() -> u32 {
+    #[cfg(not(target_family = "wasm"))]
+    if !host_tuning().single_writer_storage {
+        return std::process::id();
+    }
     0
 }
 
-#[cfg(not(target_os = "vita"))]
 pub(crate) fn publish_new_save(temp: &Path, path: &Path) -> std::io::Result<()> {
+    if host_tuning().single_writer_storage {
+        // No hard links on this storage and the game has one writer.
+        if path.try_exists()? {
+            return Err(std::io::ErrorKind::AlreadyExists.into());
+        }
+        return fs::rename(temp, path);
+    }
     // Publishing with a link fails atomically if another process filled the slot.
     fs::hard_link(temp, path)
 }
 
-#[cfg(target_os = "vita")]
-pub(crate) fn publish_new_save(temp: &Path, path: &Path) -> std::io::Result<()> {
-    // The Vita's local volume has no hard links and the game has one writer.
-    if path.try_exists()? {
-        return Err(std::io::ErrorKind::AlreadyExists.into());
-    }
-    fs::rename(temp, path)
-}
-
-#[cfg(target_os = "vita")]
 enum AutosaveWork {
     Write(PathBuf, String, Option<usize>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
-#[cfg(target_os = "vita")]
-pub(crate) struct VitaAutosave(std::sync::mpsc::SyncSender<AutosaveWork>);
+pub(crate) struct BackgroundAutosave(std::sync::mpsc::SyncSender<AutosaveWork>);
 
-#[cfg(target_os = "vita")]
-impl VitaAutosave {
+impl BackgroundAutosave {
     fn new(profile: bool) -> std::io::Result<Self> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(2);
         std::thread::Builder::new()
@@ -66,7 +116,7 @@ impl VitaAutosave {
                                     }
                                 }
                                 Err(error) => {
-                                    crate::elog!("Could not write the Vita autosave: {error}");
+                                    crate::elog!("Could not write the autosave: {error}");
                                 }
                             }
                         }
@@ -87,22 +137,18 @@ impl VitaAutosave {
     }
 }
 
-pub(crate) fn flush_pending_autosave(_vm: &Vm) {
-    #[cfg(target_os = "vita")]
-    if let Some(writer) = &_vm.eng.autosave_writer {
+pub(crate) fn flush_pending_autosave(vm: &Vm) {
+    if let Some(writer) = &vm.eng.autosave_writer {
         writer.flush();
     }
 }
 
 pub(crate) fn before_managed_read(vm: &Vm, path: &Path) {
-    #[cfg(target_os = "vita")]
     if is_autosave_path(vm, path) {
         flush_pending_autosave(vm);
     }
-    let _ = (vm, path);
 }
 
-#[cfg(target_os = "vita")]
 fn is_autosave_path(vm: &Vm, path: &Path) -> bool {
     path.parent() == Some(Path::new(&vm.eng.save_dir))
         && matches!(
@@ -111,15 +157,17 @@ fn is_autosave_path(vm: &Vm, path: &Path) -> bool {
         )
 }
 
-#[cfg(target_os = "vita")]
 pub(crate) fn defer_autosave(vm: &mut Vm, filename: &str, data: String) -> Option<String> {
+    if !host_tuning().background_autosave {
+        return Some(data);
+    }
     let data = if vm.eng.save_slots.has_home()
         && !data.is_empty()
         && is_autosave_path(vm, Path::new(filename))
     {
         if vm.eng.autosave_writer.is_none() {
-            let profile = std::env::var_os("NGU_VITA_SAVE_DIR").is_some();
-            vm.eng.autosave_writer = VitaAutosave::new(profile).ok();
+            let profile = std::env::var_os("NGU_SAVE_DIR").is_some();
+            vm.eng.autosave_writer = BackgroundAutosave::new(profile).ok();
         }
         if let Some(writer) = &vm.eng.autosave_writer {
             let job = AutosaveWork::Write(
@@ -138,10 +186,5 @@ pub(crate) fn defer_autosave(vm: &mut Vm, filename: &str, data: String) -> Optio
     } else {
         data
     };
-    Some(data)
-}
-
-#[cfg(not(target_os = "vita"))]
-pub(crate) fn defer_autosave(_vm: &mut Vm, _filename: &str, data: String) -> Option<String> {
     Some(data)
 }

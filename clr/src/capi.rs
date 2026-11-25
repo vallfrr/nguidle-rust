@@ -65,9 +65,9 @@ mod layout_tests {
 
     #[test]
     #[ignore = "requires prepared assets and a late-game save"]
-    fn vita_autosave_projects_small_menus_to_the_display() {
-        let assets = std::env::var("NGU_TEST_VITA_ASSETS").unwrap();
-        let profile = std::env::var("NGU_VITA_SAVE_DIR").unwrap();
+    fn autosave_projects_small_menus_to_the_display() {
+        let assets = std::env::var("NGU_TEST_PREPARED_ASSETS").unwrap();
+        let profile = std::env::var("NGU_SAVE_DIR").unwrap();
         let save = std::env::var("NGU_TEST_SAVE").unwrap();
         std::fs::create_dir_all(&profile).unwrap();
         std::fs::copy(save, std::path::Path::new(&profile).join("NGUSaveSteam.txt")).unwrap();
@@ -117,7 +117,7 @@ fn st() -> Option<&'static mut State> {
 /// Load the game and open its home screen. Call once, first, on the thread that will make every other call.
 ///
 /// * `data_dir`: NUL-terminated path of the folder prepared with `tools/nguprep.py` (or holding `ngu.pak`). It must
-///   hold `Assembly-CSharp.dll`. Saves go to `<data_dir>/save` unless `NGU_VITA_SAVE_DIR` names another folder.
+///   hold `Assembly-CSharp.dll`. Saves go to `<data_dir>/save` unless `NGU_SAVE_DIR` names another folder.
 /// * `dev_w`, `dev_h`: output size in device pixels; the game keeps its 960 x 600 proportions, centred, and reflows
 ///   to extra width.
 ///
@@ -142,7 +142,7 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
     vm.eng.screen = (960, 600);
     vm.eng.desktop_panels = true;
     vm.eng.cache_focus_controls = true;
-    let benchmark_dir = std::env::var("NGU_VITA_SAVE_DIR");
+    let benchmark_dir = std::env::var("NGU_SAVE_DIR");
     let benchmark = benchmark_dir.is_ok();
     vm.eng.save_dir = benchmark_dir.unwrap_or_else(|_| format!("{dir}/save"));
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
@@ -153,8 +153,7 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
         return 2;
     }
     crate::elog!("[ngu] scene loaded in {:?} ({} GameObjects)", t1.elapsed(), vm.eng.gos.len());
-    #[cfg(target_os = "vita")]
-    let fonts = crate::render::prepare_startup_fonts();
+    let fonts = crate::host_platform::host_tuning().startup_fonts_worker.then(crate::render::prepare_startup_fonts).flatten();
     let t2 = std::time::Instant::now();
     vm.awake_all();
     crate::elog!("[ngu] Awake in {:?}", t2.elapsed());
@@ -164,13 +163,12 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
         return 3;
     }
     crate::ui::cache_menu_canvases(&mut vm);
-    // Keep the native proportions and reflow the desktop UI to use the full Vita screen.
+    // Keep the native proportions and reflow the desktop UI to use the whole screen.
     let scale = (dev_w as f32 / 960.0).min(dev_h as f32 / 600.0);
     let ox = 0.0;
     let oy = (dev_h as f32 - 600.0 * scale) * 0.5;
     vm.eng.desktop_layout.set_width(dev_w as f32 / scale);
     let mut rend = Renderer::new(0, 0);
-    #[cfg(target_os = "vita")]
     if let Some(fonts) = fonts.and_then(|worker| worker.join().ok()) {
         rend.install_fonts(fonts);
     }
@@ -390,8 +388,16 @@ pub extern "C" fn ngu_vertices() -> *const NguVertex {
     st().map(|s| s.draw.vertices.as_ptr()).unwrap_or(std::ptr::null())
 }
 
-/// Microseconds the last [`ngu_emit`] spent laying out the scene (Vita builds only, for the host's trace).
-#[cfg(target_os = "vita")]
+/// Choose the host tuning, a bit set of `HostTuning::*` values: 1 background autosave, 2 single-writer storage (no hard
+/// links), 4 startup fonts on a worker thread, 8 time the layout. Call it before [`ngu_init`]; it applies to the whole
+/// process. A host that never calls it gets the defaults (all off).
+#[no_mangle]
+pub extern "C" fn ngu_set_host_tuning(bits: u32) {
+    crate::host_platform::set_host_tuning(crate::host_platform::HostTuning::from_bits(bits));
+}
+
+/// Microseconds the last [`ngu_emit`] spent laying out the scene, for the host's trace. 0 unless the host asked for
+/// `HostTuning::TIME_LAYOUT` with [`ngu_set_host_tuning`].
 #[no_mangle]
 pub extern "C" fn ngu_layout_us() -> u32 {
     st().map_or(0, |s| s.rend.layout_us)

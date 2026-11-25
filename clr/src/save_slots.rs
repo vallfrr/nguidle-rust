@@ -9,7 +9,6 @@ use view::*;
 pub(crate) use crate::host_platform::before_managed_read;
 use crate::host_platform::flush_pending_autosave;
 pub(crate) use storage::{atomic_write, write_managed_file};
-#[cfg(target_os = "vita")]
 pub(crate) use storage::record_autosave_slot;
 use storage::*;
 
@@ -122,12 +121,10 @@ struct HostedSlots {
 }
 
 impl SaveSlots {
-    #[cfg(target_os = "vita")]
     pub(crate) fn has_home(&self) -> bool {
         self.home.is_some()
     }
 
-    #[cfg(target_os = "vita")]
     pub(crate) fn active_slot(&self) -> Option<usize> {
         self.active_slot
     }

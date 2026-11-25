@@ -2,7 +2,7 @@
 //!
 //! This is the entry point for a new port written in Rust. It owns the engine state (no globals of its
 //! own), turns a host's input into the engine's, steps game time, and exposes the frame to draw. The
-//! C ABI in [`crate::capi`] is the same service for C hosts and keeps the Vita-specific scheduling.
+//! C ABI in [`crate::capi`] is the same service for C hosts and keeps the host's own time slicing (see `HostTuning`).
 //!
 //! ```no_run
 //! use clr::session::{Session, SessionConfig};
