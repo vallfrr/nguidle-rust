@@ -125,12 +125,6 @@ fn st() -> Option<&'static mut State> {
 /// by another engine revision), `3` if the save menu cannot start. The reason is also written to `<data_dir>/log.txt`.
 #[no_mangle]
 pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i32 {
-    init_vita(data_dir, dev_w, dev_h, |_| {})
-}
-
-/// [`ngu_init`] with a hook that runs after the engine is created and before the scene loads. The translated-game
-/// build uses it to attach generated methods. Same contract and return codes as [`ngu_init`].
-pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(&mut Vm)) -> i32 {
     let dir = unsafe { CStr::from_ptr(data_dir) }.to_string_lossy().to_string();
     crate::assets::set_log(&format!("{}/log.txt", dir));
     crate::assets::init(&dir);
@@ -153,7 +147,6 @@ pub fn init_vita(data_dir: *const c_char, dev_w: i32, dev_h: i32, configure: fn(
     vm.eng.save_dir = benchmark_dir.unwrap_or_else(|_| format!("{dir}/save"));
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
     crate::unity_api::load_prefs(&mut vm);
-    configure(&mut vm);
     let t1 = std::time::Instant::now();
     if let Err(e) = vm.load_scene(&dir) {
         crate::elog!("[ngu] load_scene: {}", e);

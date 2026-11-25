@@ -1,6 +1,5 @@
 //! Script-driven development tools (designed for the assistant: text output, no manual clicks).
 //! Paths: `Type.field.field...` where `Type` = name of a game class attached to the scene (first component of that type).
-//! ponytail: interpreter mode only (native state lives in the typed twins of ngu-host); wire to the bridge if needed.
 use crate::unity::*;
 use crate::value::*;
 use crate::Vm;

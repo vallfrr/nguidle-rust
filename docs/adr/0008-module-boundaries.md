@@ -20,7 +20,6 @@ budget for the components touched in this change.
 | `clr/src/vm.rs` | 1050 |
 | `clr/src/vm/instructions.rs` | 800 |
 | `clr/src/bcl_core.rs` and `clr/src/unity_api.rs` | 700 each |
-| `crates/ngu-ilgen/src/main.rs` and `crates/ngu-ilgen/src/body.rs` | 950 each |
 | Vita `main.c` | 900 |
 | Web `profile_store.py` | 205 |
 

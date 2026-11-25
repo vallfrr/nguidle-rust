@@ -219,7 +219,6 @@ dependencies = [
  "fontdue",
  "indexmap",
  "md-5",
- "ngu-rt",
  "platform-api",
  "png",
  "regex",
@@ -1058,41 +1057,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "ngu-gen"
-version = "0.1.0"
-dependencies = [
- "ngu-desktop",
- "ngu-host",
- "ngu-rt",
-]
-
-[[package]]
 name = "ngu-headless"
 version = "0.1.0"
 dependencies = [
  "clr",
  "platform-api",
 ]
-
-[[package]]
-name = "ngu-host"
-version = "0.1.0"
-dependencies = [
- "clr",
- "ngu-rt",
-]
-
-[[package]]
-name = "ngu-ilgen"
-version = "0.1.0"
-dependencies = [
- "clr",
- "dotnetdll",
-]
-
-[[package]]
-name = "ngu-rt"
-version = "0.1.0"
 
 [[package]]
 name = "nix"

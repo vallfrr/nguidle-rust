@@ -203,9 +203,9 @@ equivalent loose data and assembly, and `NGU_VITA_SAVE_DIR`, a disposable
 test directory.
 
 ```sh
-bash tools/capbuild.sh 12 cargo test --release -p clr --test wish_tick -- --ignored
-bash tools/capbuild.sh 12 cargo test --release -p clr --lib parked_canvas_pruning_preserves_focus_and_hit_targets -- --ignored
-bash tools/capbuild.sh 12 cargo test --release -p clr --lib vita_autosave_projects_small_menus_to_the_display -- --ignored
+cargo test --release -p clr --test wish_tick -- --ignored
+cargo test --release -p clr --lib parked_canvas_pruning_preserves_focus_and_hit_targets -- --ignored
+cargo test --release -p clr --lib vita_autosave_projects_small_menus_to_the_display -- --ignored
 bash tools/regress.sh
 ```
 

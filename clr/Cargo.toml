@@ -19,7 +19,6 @@ legacy-vita-save = []
 cil-interp = { path = "../crates/cil-interp" }
 save-format = { path = "../crates/save-format" }
 platform-api = { path = "../crates/platform-api" }
-ngu-rt = { path = "../crates/ngu-rt" }
 dotnetdll = "0.5"
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 indexmap = { version = "2", features = ["serde"] }

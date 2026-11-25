@@ -1,4 +1,4 @@
-//! Scripted input scenarios (clicks, drags, waits) shared by the oracle and native mode.
+//! Scripted clicks, drags and waits for game verification.
 use crate::Vm;
 
 /// Steps: `x,y[,wait]` click (virtual 960x600 px, top-left origin; wait in frames, default 15),

@@ -10,7 +10,7 @@ STRICT = "clr/tests/save_fixtures.rs"
 
 def main():
     command = [
-        "cargo", "clippy", "--locked", "--workspace", "--exclude", "ngu-gen",
+        "cargo", "clippy", "--locked", "--workspace",
         "--all-targets", "--features", "clr/legacy-vita-save", "--no-deps",
         "--message-format=json", "--", "--cap-lints", "warn",
     ]

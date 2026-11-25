@@ -1,7 +1,7 @@
 # Developer mode (tools for the assistant)
 
 Designed to be driven by an assistant: everything is scriptable, output is text (no need to look at an image to know what is on screen), no manual clicks.
-Code: `clr/src/dev.rs`, steps in `clr/src/script.rs`. **Interpreter only** for now (native state lives in the typed twins of `ngu-host`); same engine and rendering.
+Code: `clr/src/dev.rs`, steps in `clr/src/script.rs`.
 
 ## Run
 ```
@@ -53,13 +53,13 @@ To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.c
 ## Known limits
 - `set` does not traverse arrays or structs (values are copied).
 - `swapMenu` raises an exception for menus 3 (Adventure Menu) and 39 (Beard) even when unlocked: to investigate (capture still produced).
-- Not yet available in native mode or in the window (F12 console): to add if needed.
+- Developer commands can run before the desktop window opens using `NGU_STEPS`.
 
-Rules: go through the game's own fields and methods (as a save would); never change the translated logic for a test need.
+Rules: go through the game's own fields and methods (as a save would); never change the game rules for a test need.
 
-## Test window without the native build
-`ngu-window <Assembly-CSharp.dll> <out/ngu> [fps] [max_frames]` (crate `ngu-desktop`, interpreter only): the same GPU window
-and gamepad handling as `ngu-gen window`, built in seconds; `NGU_SAVE_DIR` picks the save folder, `NGU_STEPS` runs steps first.
-Set `NGU_PERF=1` to log frame intervals. Slow frames over 25 ms report update, layout and quad emission, draw and submission,
-and time outside those measured phases. The last value includes presentation waits and scheduling.
-Build: `.\tools\capbuild.ps1 10 cargo build --release -p ngu-desktop --bin ngu-window`. Set `CARGO_TARGET_DIR` beforehand to place build output outside the checkout.
+## Test the PC window
+
+Build with `cargo build --locked --release -p ngu-desktop --bin ngu-window`.
+Run `ngu-window <Assembly-CSharp.dll> <prepared folder> [fps] [max_frames]`.
+Set `NGU_SAVE_DIR` to an isolated profile, `NGU_STEPS` to run scripted inputs
+before opening the window, and `NGU_PERF=1` to log frame intervals.

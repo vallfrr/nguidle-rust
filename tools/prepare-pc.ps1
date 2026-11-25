@@ -34,18 +34,12 @@ if (!$SkipMilestoneIcons) {
 if ($ExtractOnly) { return }
 
 $env:CARGO_TARGET_DIR = $target
-$env:RUST_MIN_STACK = '536870912'
-$env:CARGO_BUILD_JOBS = '1'
 $dll = Join-Path $game 'Managed/Assembly-CSharp.dll'
 Push-Location -LiteralPath $repo
 try {
-    cargo build --locked --release --package ngu-ilgen
-    if ($LASTEXITCODE -ne 0) { throw 'The converter build failed.' }
-    & (Join-Path $target 'release/ngu-ilgen.exe') $dll (Join-Path $repo 'crates/ngu-gen/src') ALL NumberOutput::suffixFormat
-    if ($LASTEXITCODE -ne 0) { throw 'The game conversion failed.' }
-    & (Join-Path $PSScriptRoot 'capbuild.ps1') -GB 14 -Cmd @('cargo','build','--locked','--profile','game','--package','ngu-gen')
-    if ($LASTEXITCODE -ne 0) { throw 'The game build failed.' }
-    Write-Output ("& '{0}' window '{1}' '{2}'" -f (Join-Path $target 'game/ngu-gen.exe'), $dll, $out)
+    cargo build --locked --release --package ngu-desktop --bin ngu-window
+    if ($LASTEXITCODE -ne 0) { throw 'The desktop engine build failed.' }
+    Write-Output ("& '{0}' '{1}' '{2}'" -f (Join-Path $target 'release/ngu-window.exe'), $dll, $out)
 } finally {
     Pop-Location
 }

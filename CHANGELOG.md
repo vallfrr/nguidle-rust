@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Run the original assembly through the interpreter on all builds. Remove the translator and use local replay references to check saves, game state and number formatting.
+
 - Add the PC window budgets (`budgets.json`) and `tools/pc_budget.py` / `just pc-perf` to check them (manual: needs a display and game data).
 ## [0.5.0]
 

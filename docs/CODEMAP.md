@@ -28,7 +28,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/program.rs` — Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
 - `clr/src/render.rs` — Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
 - `clr/src/save_slots.rs` — Local save screens. The game still owns serialization and progression.
-- `clr/src/script.rs` — Scripted input scenarios (clicks, drags, waits) shared by the oracle and native mode.
+- `clr/src/script.rs` — Scripted input scenarios (clicks, drags, waits) for game verification.
 - `clr/src/serial.rs` — Serializes player and save data using the .NET BinaryFormatter format.
 - `clr/src/ui.rs` — RectTransform layout (world positions in screen pixels, bottom-left origin).
 - `clr/src/unity.rs` — Minimal Unity engine: GameObject/Transform/UI components, scene loading, life cycle.
@@ -40,14 +40,6 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-desktop/src/gl.rs` — Renders engine quads through the desktop GPU window.
 - `crates/ngu-desktop/src/lib.rs` — Desktop shell: window, mouse, keyboard (and gamepad through the `pad` feature).
 - `crates/ngu-desktop/src/pad.rs` — Handles Windows gamepad input and focus.
-- `crates/ngu-gen/src/main.rs` — Hosts and executes generated Rust game logic.
-- `crates/ngu-gen/src/vita.rs` — Generated-game integration for the Vita target.
-- `crates/ngu-host/src/lib.rs` — Bridge between generated Rust and the interpreter runtime.
-- `crates/ngu-ilgen/src/main.rs` — Translates resolved CIL methods into Rust source.
-- `crates/ngu-rt/src/ext.rs` — Provides BCL and Unity calls used by generated code.
-- `crates/ngu-rt/src/fmt.rs` — .NET number formats (faithful copy of the `clr` oracle).
-- `crates/ngu-rt/src/lib.rs` — Open runtime of the NGU Idle port: minimal .NET types + BCL functions called by generated code.
-- `crates/ngu-rt/src/unity.rs` — Unity value types (copied by value, no engine).
 - `clr/src/bcl_core/collections.rs` — Collection and delegate intrinsics.
 - `clr/src/bcl_core/foundation.rs` — LINQ, object, exception, and string intrinsics.
 - `clr/src/bcl_core/numbers.rs` — Numeric conversion and math intrinsics.
@@ -57,7 +49,6 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/unity/schedule.rs` — Managed delayed invocations and coroutines.
 - `clr/src/vm/specializations.rs` — Game-specific VM accelerators.
 - `crates/cil-interp/src/lib.rs` — Host-independent frame execution and scalar arithmetic.
-- `crates/ngu-ilgen/src/body.rs` — Instruction emission for a translated method.
 - `crates/platform-api/src/lib.rs` — Platform interface: the engine trait, draw target, actions, fixed-step time and triangle batching.
 - `crates/save-format/src/lib.rs` — Independent reader and writer for the MS-NRBF wire format.
 - `clr/src/host_platform.rs` — Host-specific file publication and Vita background saves.

@@ -231,7 +231,6 @@ pub struct Engine {
     pub(crate) dropdown: crate::dropdown::Dropdown,
     pub(crate) save_slots: crate::save_slots::SaveSlots,
     pub desktop_panels: bool,
-    pub read_live_fields: Option<fn(&Value) -> Option<Vec<Value>>>,
     pub(crate) achievements: crate::achievements::Book,
     pub(crate) motion: crate::motion::Motion,
     pub keys: HashMap<String, Value>,
@@ -1002,7 +1001,7 @@ impl Vm {
 
 /// Tag name of a tag id: built-in tags, then the project's custom tags (id 20000 + index, listed in `tags.json`).
 /// Text snapshot of the game's visible state (one line per GameObject, active or not): used to compare
-/// the interpreter (oracle) and the generated Rust on the same scene after N frames.
+/// the output of deterministic scene replays.
 pub fn dump_state(vm: &Vm) -> String {
     let mut lines: Vec<String> = vec![];
     for go in &vm.eng.gos {

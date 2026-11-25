@@ -352,11 +352,9 @@ impl Vm {
                             continue;
                         }
                     }
-                    self.trace_native(code, *pc, *argc);
                     self.call_native_args(*f, *argc, *ret, targs)?;
                 }
                 Op::CallNative { f, argc, ret, targs } => {
-                    self.trace_native(code, *pc, *argc);
                     self.call_native_args(*f, *argc, *ret, targs)?
                 }
                 Op::CallStructCtor { f, argc } => {
