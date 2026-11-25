@@ -52,10 +52,26 @@ is valid only with the commit and the machine named. Measurements on the title s
 
 ## Local game verification
 
-On WSL, prepare the game and build the generated crate with the
-[contributor guide](../CONTRIBUTING.md). Then run `just verify-game`.
-It calls the existing differential replay suite with isolated profiles.
-Keep the prepared data, saves and logs in the local workspace.
+Prepare the game using the [contributor guide](../CONTRIBUTING.md). Run the
+commands from Bash or WSL. In a separate worktree, set `NGUIDLE_HOME` to the
+workspace containing the prepared data and original game.
+
+Before changing the interpreter, run `just verify-game record` from the known
+good revision to create the local reference. Then run `just verify-game` after
+each change. The reference is never overwritten by either command. Set
+`NGU_GAME_BASELINE` to use a different reference directory outside the
+repository. The default is `$NGU_WORK/traces/game-baseline`.
+
+The suite compares the state and full saves for deterministic click and input
+scenarios, Rebirth, and a save-load-save round trip. It also checks all 84
+number formatting cases. To include a local PC save at recording time, set
+`NGU_REAL_SAVE` to a disposable copy. The imported backup in the shared
+workspace is used if present. The runner copies it into the local reference
+so later changes to the source save cannot alter the comparison.
+
+Each run uses a fixed clock and an isolated save folder. The report prints
+the path to its local logs, and verification compares saves byte for byte.
+Keep references, saves and logs outside version control.
 
 Windows and Linux run the same `just check` recipe in GitHub Actions.
 The web and Vita checkouts own their separate workflow and build tools.

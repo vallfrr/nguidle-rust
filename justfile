@@ -32,8 +32,8 @@ new-port name platform="a new platform" engine="":
 cold-trial:
     {{python}} -B tools/cold_trial.py
 
-verify-game:
-    bash tools/regress.sh
+verify-game mode="verify":
+    bash tools/regress.sh {{mode}}
 
 verify-fixtures:
     {{python}} -B tests/il-fixtures/run.py
