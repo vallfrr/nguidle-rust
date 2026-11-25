@@ -1,5 +1,5 @@
 //! Local save screens. The game still owns serialization and progression.
-mod browser;
+mod hosted;
 mod storage;
 mod view;
 
@@ -64,7 +64,7 @@ enum Action {
     Achievement(usize),
     Primary,
     Secondary,
-    BrowserImport,
+    HostImport,
     Back,
     Previous,
     Next,
@@ -109,10 +109,10 @@ pub(crate) struct SaveSlots {
     entries: Vec<Entry>,
     ui: Option<Screen>,
     returned_title: Value,
-    browser: Option<BrowserSlots>,
+    hosted: Option<HostedSlots>,
 }
 
-struct BrowserSlots {
+struct HostedSlots {
     online: bool,
     locked: u8,
     granted: Option<usize>,
@@ -133,14 +133,14 @@ impl SaveSlots {
     }
 
     fn blocked(&self, index: usize) -> bool {
-        self.browser.as_ref().is_some_and(|browser| {
-            !browser.online || (index < ROW_COUNT && browser.locked & (1 << index) != 0)
+        self.hosted.as_ref().is_some_and(|hosted| {
+            !hosted.online || (index < ROW_COUNT && hosted.locked & (1 << index) != 0)
         })
     }
 
-    fn browser_import_target(&self) -> Option<usize> {
+    fn hosted_import_target(&self) -> Option<usize> {
         let index = self.selected;
-        (self.browser.is_some() && self.mode == Some(Mode::Load) && index > 0 && index < ROW_COUNT
+        (self.hosted.is_some() && self.mode == Some(Mode::Load) && index > 0 && index < ROW_COUNT
             && !self.blocked(index) && matches!(self.entries.get(index), Some(Entry::Empty))
             && self.pending.is_none()).then_some(index)
     }
@@ -184,7 +184,7 @@ struct Screen {
     name_input: Value,
     primary: (Value, Value),
     secondary: (Value, Value),
-    browser_import: (Value, Value),
+    hosted_import: (Value, Value),
     back: (Value, Value),
     previous: (Value, Value),
     next: (Value, Value),
@@ -768,7 +768,7 @@ fn show_home(vm: &mut Vm, state: &mut SaveSlots, dir: &Path) -> Result<(), Strin
     let autosave_available = !state.blocked(0) && matches!(entries.first(), Some(Entry::Save(..)));
     let numbered_available = entries[1..].iter().any(|entry| matches!(entry, Entry::Save(..)));
     let description = if state.blocked(0) {
-        if state.browser.as_ref().is_some_and(|b| b.online) { "Autosave in use on another device".into() }
+        if state.hosted.as_ref().is_some_and(|b| b.online) { "Autosave in use on another device".into() }
         else { "Save server unavailable".into() }
     } else { match entries.first() {
         Some(Entry::Save(info, _)) => {
@@ -898,7 +898,7 @@ fn close(vm: &mut Vm, state: &mut SaveSlots) {
     state.pending = None;
     state.deleting = None;
     state.import_files = None;
-    if let Some(browser) = &mut state.browser { browser.requested = None; }
+    if let Some(hosted) = &mut state.hosted { hosted.requested = None; }
     if let Some(ui) = &state.ui {
         if vm.eng.text_req.as_ref().is_some_and(|input| same(&input.comp, &ui.name_input)) {
             vm.eng.text_req = None;
@@ -978,16 +978,16 @@ fn perform(
         Pending::Load(slot) | Pending::Create(slot) => Some(*slot),
         _ => None,
     };
-    if let Some(browser) = &mut state.browser {
-        if !browser.online && !matches!(action, Pending::MainMenu) {
+    if let Some(hosted) = &mut state.hosted {
+        if !hosted.online && !matches!(action, Pending::MainMenu) {
             return Err("Save server unavailable.".into());
         }
         if let Some(slot) = requested_slot {
-            if browser.granted != Some(slot) && state.active_slot != Some(slot) {
-                if browser.locked & (1 << slot) != 0 {
+            if hosted.granted != Some(slot) && state.active_slot != Some(slot) {
+                if hosted.locked & (1 << slot) != 0 {
                     return Err("Save in use on another device.".into());
                 }
-                browser.requested = Some((slot, action));
+                hosted.requested = Some((slot, action));
                 return Ok("Checking the save slot…".into());
             }
         }
@@ -1040,7 +1040,7 @@ fn perform(
             write_save_file(&slot_path(dir, index), data.as_bytes(), replace)
                 .map_err(|e| format!("Could not write to Slot {index}: {e}"))?;
             state.active_slot.get_or_insert(index);
-            if state.browser.is_some() {
+            if state.hosted.is_some() {
                 Ok(format!("Saving Slot {index}…"))
             } else {
                 Ok(format!("Saved to Slot {index}."))
@@ -1073,7 +1073,7 @@ fn perform(
                 state.returned_title = Value::Null;
             }
             state.active_slot = if index == 0 {
-                autosave_slot(dir, &path).or_else(|| state.browser.is_some().then_some(0))
+                autosave_slot(dir, &path).or_else(|| state.hosted.is_some().then_some(0))
             } else { Some(index) };
             let autosave = if index == 0 { Ok(()) } else {
                 current_snapshot(vm).and_then(|data| {
@@ -1088,7 +1088,7 @@ fn perform(
             if let Err(error) = autosave {
                 crate::elog!("Game loaded. Autosave could not be updated: {error}");
             }
-            if state.browser.is_some() {
+            if state.hosted.is_some() {
                 Ok("Game loaded.".into())
             } else {
                 Ok("Game loaded. The previous game is in save/before-load.txt.".into())
@@ -1187,9 +1187,9 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Row(index) => {
             state.deleting = None;
-            let browser_load = state.browser.is_some() && mode == Mode::Load;
+            let hosted_load = state.hosted.is_some() && mode == Mode::Load;
             if state.from_title && state.home.is_some() &&
-                (index == 0 || !browser_load && !slot_available(mode, state.entries.get(index))) {
+                (index == 0 || !hosted_load && !slot_available(mode, state.entries.get(index))) {
                 return;
             }
             if let Some(files) = &state.import_files {
@@ -1209,9 +1209,9 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Previous => state.page = state.page.saturating_sub(1),
         Action::Next => state.page += 1,
-        Action::BrowserImport => {
-            if let Some(index) = state.browser_import_target() {
-                state.browser.as_mut().unwrap().file_request = Some(("import", Some(index)));
+        Action::HostImport => {
+            if let Some(index) = state.hosted_import_target() {
+                state.hosted.as_mut().unwrap().file_request = Some(("import", Some(index)));
             }
         }
         Action::MainMenu => {
@@ -1255,7 +1255,7 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
                     state.entries = load_entries(dir);
                 } else {
                     state.pending = Some(action);
-                    state.status = if state.browser.is_some() {
+                    state.status = if state.hosted.is_some() {
                         "Load this save? Unsaved progress in the current game will be lost.".into()
                     } else {
                         "Load this save and replace the current game? The current game will be backed up.".into()
@@ -1267,8 +1267,8 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         }
         Action::Secondary => {
             state.pending = None;
-            if let Some(browser) = &mut state.browser {
-                browser.file_request = Some(("export", (mode == Mode::Load).then_some(state.selected)));
+            if let Some(hosted) = &mut state.hosted {
+                hosted.file_request = Some(("export", (mode == Mode::Load).then_some(state.selected)));
                 return;
             }
             if mode == Mode::Save {

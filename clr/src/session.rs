@@ -44,7 +44,7 @@ pub struct SessionConfig {
     /// Output height in device pixels.
     pub height: u32,
     /// Runs on the engine after it is created and before the home screen opens, for platform features that must be
-    /// enabled first (the browser port turns on its save mode here). `None` for most ports.
+    /// enabled first (a port whose saves live on a host, such as the browser, turns on the hosted save mode here). `None` for most ports.
     pub before_home: Option<fn(&mut Vm)>,
 }
 
@@ -104,6 +104,19 @@ struct Press {
     down: bool,
     /// Unity mouse button: 0 left, 1 right, 2 middle.
     button: i32,
+}
+
+/// A text field the game asks the player to fill in, with its place on screen.
+#[derive(Clone, Debug)]
+pub struct TextField {
+    /// Current content.
+    pub value: String,
+    /// Maximum length in characters.
+    pub max: i32,
+    /// Only a number is accepted.
+    pub numeric: bool,
+    /// Left, top, right and bottom in game coordinates.
+    pub rect: [f32; 4],
 }
 
 /// The running game. See the [module documentation](self).
@@ -171,6 +184,82 @@ impl Session {
             .resolution_req
             .take()
             .map(|(w, h, fullscreen, _)| (w as u32, h as u32, fullscreen))
+    }
+
+    /// Like [`Session::take_resolution_request`], but ignores requests made in the first `guard_frames`
+    /// frames (the game asks for its saved size at start-up) and maps the size to the desktop profiles.
+    pub fn take_resolution_request_after(&mut self, guard_frames: u64) -> Option<(u32, u32, bool)> {
+        let (w, h, fullscreen, at) = self.vm.eng.resolution_req.take()?;
+        if at <= guard_frames {
+            return None;
+        }
+        let (w, h) = crate::desktop_layout::pc_resolution(w, h);
+        Some((w as u32, h as u32, fullscreen))
+    }
+
+    /// The text field the game is asking the player to fill in, if any. `rect` is in game coordinates.
+    pub fn text_field(&self) -> Option<TextField> {
+        let r = self.vm.eng.text_req.as_ref()?;
+        let rect = focus::node_rect(&self.vm, &crate::unity::go_of(&r.comp))?;
+        Some(TextField { value: r.text.clone(), max: r.max, numeric: r.numeric, rect })
+    }
+
+    /// Whether the home (save picker) screen is showing.
+    pub fn at_home(&self) -> bool {
+        self.vm.at_desktop_start()
+    }
+
+    // Hosted saves: the host keeps the player's saves (for example a server) and leases slots to the
+    // engine. Enable the mode with `SessionConfig::before_home` and `Vm::enable_hosted_saves`.
+
+    /// The host's connection state and the bit set of slots locked elsewhere changed.
+    pub fn hosted_profile_changed(&mut self, online: bool, locked: u8, reload: bool) {
+        self.vm.hosted_profile_changed(online, locked, reload)
+    }
+
+    /// The host answers a lease request made by the game (`hosted_requested_slot`).
+    pub fn hosted_finish_request(&mut self, granted: bool) -> Result<(), String> {
+        self.vm.hosted_finish_request(granted)
+    }
+
+    /// The slot the game wants the host to lease, if any.
+    pub fn hosted_requested_slot(&self) -> Option<usize> {
+        self.vm.hosted_requested_slot()
+    }
+
+    /// The slot of the running game, if any.
+    pub fn hosted_active_slot(&self) -> Option<usize> {
+        self.vm.hosted_active_slot()
+    }
+
+    /// A file the game wants the host to import into or export from a slot, once.
+    pub fn hosted_file_request(&mut self) -> Option<(&'static str, Option<usize>)> {
+        self.vm.hosted_file_request()
+    }
+
+    /// The import button: its slot and its rectangle in game coordinates.
+    pub fn hosted_import_control(&self) -> Option<(usize, [f32; 4])> {
+        self.vm.hosted_import_control()
+    }
+
+    /// Show a message from the host in the save screen.
+    pub fn hosted_save_notice(&mut self, message: String) {
+        self.vm.hosted_save_notice(message)
+    }
+
+    /// Replace the last line of the in-game autosave label.
+    pub fn hosted_autosave_label(&mut self, message: &str) {
+        self.vm.hosted_autosave_label(message)
+    }
+
+    /// Install the staged upload `name` into the empty numbered `slot`.
+    pub fn import_hosted_save(&mut self, name: &str, slot: usize) -> Result<(), String> {
+        self.vm.import_hosted_save(name, slot)
+    }
+
+    /// The save text of `slot`, or of the running game for `None`.
+    pub fn hosted_export(&mut self, slot: Option<usize>) -> Result<String, String> {
+        self.vm.hosted_export(slot)
     }
 
     /// Pixels per game pixel, and the vertical offset that centres the 960 x 600 screen.
