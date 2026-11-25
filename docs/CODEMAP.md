@@ -51,7 +51,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/cil-interp/src/lib.rs` — Host-independent frame execution and scalar arithmetic.
 - `crates/platform-api/src/lib.rs` — Platform interface: the engine trait, draw target, actions, fixed-step time and triangle batching.
 - `crates/save-format/src/lib.rs` — Independent reader and writer for the MS-NRBF wire format.
-- `clr/src/host_platform.rs` — Host-specific file publication and Vita background saves.
+- `clr/src/host_platform.rs` — Host tuning chosen at run time: file publication and background autosaves.
 - `clr/src/save_slots/view.rs` — Construction and refresh of the save screens.
 - `clr/src/unity_api/controls.rs` — Unity intrinsic dispatch for controls.
 - `clr/src/unity_api/runtime.rs` — Unity intrinsic dispatch for runtime.
