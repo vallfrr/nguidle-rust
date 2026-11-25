@@ -1,11 +1,14 @@
 # nguidle-rust
 
-Free port of **NGU Idle** (by 4G, Unity 2019.4) to Rust: the game's C# code is **converted to Rust from your own copy of the game** and runs on a Unity-compatible engine written in Rust. This repository contains the engine, the conversion tool and the PC version. Other platforms build on it: [`nguidle-web`](https://github.com/vallfrr/nguidle-web) (self-hosted web version) and [`nguidle-vita`](https://github.com/vallfrr/nguidle-vita) (PS Vita).
+A Rust engine that runs your own copy of **NGU Idle** by 4G. It runs the game's
+original assembly and provides the PC window, save slots and controller
+controls. The [web](https://github.com/vallfrr/nguidle-web) and
+[PS Vita](https://github.com/vallfrr/nguidle-vita) ports also use this engine.
 
-> **No game file is provided or published here** (no code, images or texts). You must own the game (free on Steam): the conversion reads `Assembly-CSharp.dll` and the data of your installation on your machine.
+You need to own NGU Idle on Steam (version 1.260).
 
 ## State (in development)
-- Differential testing compares the converted runtime with the original IL running in the reference interpreter. See [`docs/AUDIT-ILGEN.md`](docs/AUDIT-ILGEN.md) and [`docs/STATUS.md`](docs/STATUS.md) for the measured coverage.
+- The [test guide](docs/TESTING.md) explains the interpreter checks and local replay coverage.
 - The Windows version has a resizable GPU window, F11 fullscreen, local save slots and local milestone tracking. Focus navigation uses the D-pad or left stick. The right stick scrolls and the south button confirms.
 - The PS Vita preview shares the game scene at 960 × 544 and supports touch and controller navigation. See the [Vita port history and hardware audit](docs/VITA.md).
 - The [release audit](docs/RELEASE-AUDIT.md) tracks platform boundaries and validation. See [vision](docs/VISION.md), [roadmap](docs/ROADMAP.md) and [testing](docs/TESTING.md) for decisions and remaining work.
@@ -13,10 +16,8 @@ Free port of **NGU Idle** (by 4G, Unity 2019.4) to Rust: the game's C# code is *
 ## Layout
 | folder | role |
 |---|---|
-| `crates/ngu-ilgen` | IL (.NET) -> Rust converter |
-| `crates/ngu-rt`, `crates/ngu-host` | runtime of the converted code, bridge to the engine |
-| `clr/` | engine (scene, UI, layout, rendering, input, developer mode) + reference interpreter for conformance tests |
-| `crates/ngu-gen`, `crates/ngu-desktop` | the game: test bench and PC window |
+| `clr/` | engine (scene, UI, layout, rendering, input, developer mode) and interpreter |
+| `crates/ngu-desktop` | PC window |
 | `tools/` | game data extraction (`nguprep.py`), build and comparison scripts |
 | `docs/` | architecture, audit, status, developer mode ([`docs/DEV.md`](docs/DEV.md)) |
 
@@ -34,8 +35,7 @@ python -B tools/doctor --game-dir $gameData
 
 The preparer verifies the supported Windows 1.260 build against a SHA-256
 manifest before unpacking assets or building. It prints the command that
-opens the game when the build succeeds. The first build runs the converter
-and can require more than 10 GB of RAM. Use `-ExtractOnly` to validate and
+opens the game when the build succeeds. Use `-ExtractOnly` to validate and
 extract data without building. The default data and build folders are
 `work/prepared/pc` and `build/win` in the workspace. Local saves live under
 `work/prepared/pc/save`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the

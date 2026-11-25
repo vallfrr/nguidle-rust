@@ -26,6 +26,6 @@ region <name> <x> <y> <w> <h> <place> [flags] nodes=<node>,<node>...
   - `when-drawn`: takes the pointer only while something of it is on screen (pop-ups).
 - `nodes`: UI objects drawn in this region: names of children of the root `Canvas`, or `Parent/Child` one level deeper.
   `*` = everything not bound elsewhere (exactly one region must have it).
-  `ngu-gen`'s dev step `tree,2` lists the names with their rectangles.
+  `clr`'s dev step `tree,2` lists the names with their rectangles.
 
-Try one: `NGU_LAYOUT=vita` with the PC window (`ngu-gen window ...`), or the script step `pngl,<out.png>,<profile>,<w>,<h>[,hold][,pointer y]`.
+Try one: `NGU_LAYOUT=vita` with the PC window (`ngu-window ...`), or the script step `pngl,<out.png>,<profile>,<w>,<h>[,hold][,pointer y]`.

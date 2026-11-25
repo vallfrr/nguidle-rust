@@ -1,9 +1,0 @@
-[package]
-name = "ngu-host"
-version = "0.1.0"
-edition = "2021"
-description = "Bridge between translated Rust types and the Unity runtime"
-
-[dependencies]
-ngu-rt = { path = "../ngu-rt" }
-clr = { path = "../../clr" }

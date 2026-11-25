@@ -9,7 +9,7 @@ check:
     {{python}} -B tools/check_skills.py
     rustfmt --check --edition 2021 clr/tests/save_fixtures.rs crates/save-format/tests/wire.rs crates/platform-api/src/lib.rs crates/platform-api/src/testing.rs crates/cil-interp/src/lib.rs clr/src/session.rs crates/ngu-headless/src/lib.rs crates/ngu-headless/src/main.rs crates/ngu-headless/tests/synthetic.rs crates/ngu-headless/tests/session.rs templates/port/src/lib.rs templates/port/src/main.rs templates/port/src/display.rs templates/port/src/input.rs templates/port/src/audio.rs templates/port/tests/contract.rs
     {{python}} -B tools/clippy-check.py
-    cargo test --locked --workspace --exclude ngu-gen --features clr/legacy-vita-save
+    cargo test --locked --workspace --features clr/legacy-vita-save
     cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
     {{python}} -B -m ruff check --select E9,F63,F7,F82 .github/repo-check.py tools
     {{python}} -B -m unittest discover -s tools -p test_verify_game_data.py

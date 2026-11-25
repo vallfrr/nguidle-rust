@@ -1,5 +1,0 @@
-[package]
-name = "ngu-rt"
-version = "0.1.0"
-edition = "2021"
-description = "Runtime and .NET base classes for translated NGU Idle code"

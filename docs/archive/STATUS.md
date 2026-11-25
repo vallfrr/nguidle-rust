@@ -201,7 +201,7 @@ desktop state and save regression suite also passed.
 To rerun the late-game regression tests, set `NGU_TEST_DLL` to the verified
 `Assembly-CSharp.dll`, `NGU_TEST_ASSETS` to the prepared asset directory and
 `NGU_TEST_SAVE` to a save with Wishes, Titans and Cooking unlocked. Run
-`bash tools/capbuild.sh 12 cargo test --release -p clr --test wish_tick -- --ignored`.
+`cargo test --release -p clr --test wish_tick -- --ignored`.
 
 The Vita host advances simulation in 30 Hz steps with bounded catch-up and
 interpolates progress bars for presentation. A budget overrun can still

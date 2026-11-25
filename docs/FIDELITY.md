@@ -1,6 +1,6 @@
 # Fidelity
 
-The engine's automated comparison covers selected input sequences, saves and game state. Both compared implementations share the Unity compatibility layer and parts of the runtime, so the comparisons cannot establish equivalence to the original game by themselves. See [IL generator audit](AUDIT-ILGEN.md) and [comparison notes](COMPARISON.md).
+Local replays cover selected input sequences, saves and game state. See [comparison notes](COMPARISON.md) for evidence against the original game.
 
 Open work includes broader measurements of progression against the original, additional random-number cases, and comparison of reproducible original-game traces to the port. The interpreter's game-specific shortcuts also require individual evidence.
 

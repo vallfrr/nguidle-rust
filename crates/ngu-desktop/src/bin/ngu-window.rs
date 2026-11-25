@@ -1,5 +1,4 @@
-//! Interpreter-only GPU window: `ngu-window <Assembly-CSharp.dll> <out/ngu> [fps] [max_frames]`. Same shell and engine as `ngu-gen window`,
-//! without the translated game code, so UI work (console mode, layouts) can be tried without the long native build.
+//! Desktop GPU window: `ngu-window <Assembly-CSharp.dll> <out/ngu> [fps] [max_frames]`.
 //! `NGU_SAVE_DIR` overrides the save folder (default `<out/ngu>/save`).
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();

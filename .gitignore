@@ -6,10 +6,6 @@ target/
 *.assets
 *.resS
 .venv/
-crates/ngu-gen/src/gen.rs
-crates/ngu-gen/src/ext_stubs.rs
-crates/ngu-gen/src/entry.rs
-crates/ngu-gen/src/coverage.txt
 # local notes, not published (history, console connection, game-derived data)
 local/
 work/

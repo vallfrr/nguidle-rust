@@ -67,9 +67,6 @@ pub struct Vm {
     pub prof: Option<HashMap<u32, (u64, u64, u64)>>,
     prof_child: u64,
     pub last_meta: Option<Rc<ExtMeta>>,
-    /// Native mode: the game logic runs as the generated Rust (ngu-gen), not in the interpreter.
-    pub native_inv: Option<fn(*mut Vm, u32, &[Value]) -> Option<R<Value>>>,
-    pub native_mode: bool,
     wish_tick_fields: Option<WishTickFields>,
     titan_check_fields: Option<[(u32, usize); 3]>,
     titan_checks: Option<TitanChecks>,
@@ -116,8 +113,6 @@ impl Vm {
             cur_exc: vec![],
             callstack: vec![],
             last_meta: None,
-            native_inv: None,
-            native_mode: false,
             wish_tick_fields: None,
             titan_check_fields: None,
             titan_checks: None,
@@ -241,9 +236,6 @@ impl Vm {
     /// Instantiates a user type and runs its default constructor (field initializers).
     pub fn construct(&mut self, ty: u32) -> Rc<Obj> {
         let o = self.new_obj(ty);
-        if self.native_mode {
-            return o;
-        }
         let ctor = self.types[ty as usize].methods.get(".ctor").and_then(|v| v.iter().copied().find(|&m| self.prog.methods[m as usize].argc == 1));
         if let Some(c) = ctor {
             if self.types[ty as usize].cctor_state == 0 {
@@ -414,35 +406,16 @@ impl Vm {
         Ok(())
     }
 
-    pub fn invoke(&mut self, mid: u32, args: impl AsRef<[Value]> + IntoIterator<Item = Value>) -> R<Value> {
+    pub fn invoke(&mut self, mid: u32, args: impl IntoIterator<Item = Value>) -> R<Value> {
         if self.trace_calls() {
             let mi = &self.prog.methods[mid as usize];
             eprintln!("[call] {}::{}", self.types[mi.owner as usize].name, mi.name);
-        }
-        if let Some(f) = self.native_inv {
-            if let Some(r) = f(self as *mut Vm, mid, args.as_ref()) {
-                return r;
-            }
         }
         let base = self.slots.len();
         self.slots.extend(args);
         self.call_at(mid, base)
     }
 
-    /// Native call trace (NGU_TRACE=1), same format as `ngu_host::native`: used to compare oracle and native mode.
-    fn trace_native(&self, code: &Code, pc: usize, argc: usize) {
-        static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if !*T.get_or_init(|| std::env::var("NGU_TRACE").is_ok()) {
-            return;
-        }
-        let key = match code.ext.get(pc.wrapping_sub(1)).and_then(|m| m.as_ref()) {
-            Some(m) => m.key.clone(),
-            None => "?".to_string(),
-        };
-        let at = self.slots.len() - argc;
-        let d: Vec<String> = self.slots[at..].iter().map(|v| self.describe(v)).collect();
-        eprintln!("[native] {key} {}", d.join(", "));
-    }
     pub fn describe(&self, v: &Value) -> String {
         match v {
             Value::Null => "null".to_string(),
@@ -1000,7 +973,7 @@ pub fn convert_store(v: Value, t: &Ty) -> Value {
     }
 }
 
-/// Trace of all user methods called (NGU_TRACE_M=1): same format in the oracle and native mode.
+/// Trace user method calls when NGU_TRACE_M=1.
 pub fn trace_m() -> bool {
     static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *T.get_or_init(|| std::env::var("NGU_TRACE_M").is_ok())

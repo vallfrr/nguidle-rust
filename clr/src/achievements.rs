@@ -22,9 +22,9 @@ pub(crate) struct Book {
     pub write_failed: bool,
 }
 
-fn fields(vm: &Vm, object: &Value) -> Vec<Value> {
+fn fields(object: &Value) -> Vec<Value> {
     let Value::Obj(o) = object else { return Vec::new() };
-    vm.eng.read_live_fields.and_then(|read| read(object)).unwrap_or_else(|| o.f.borrow().clone())
+    o.f.borrow().clone()
 }
 
 fn field(vm: &Vm, object: &Value, values: &[Value], name: &str) -> Value {
@@ -40,12 +40,12 @@ pub(crate) fn tick(vm: &mut Vm) {
     vm.eng.achievements.next_check = vm.eng.time + 1.0;
     let Some(controller) = game_component(vm, "SteamManager") else { return };
     let started = game_component(vm, "MainMenuController").is_some_and(|title| {
-        field(vm, &title, &fields(vm, &title), "doneInitialLoad").as_bool()
+        field(vm, &title, &fields(&title), "doneInitialLoad").as_bool()
     });
     if started {
         let _ = game_call(vm, &controller, "checkAllAchievements", vec![]);
     }
-    let Value::Obj(array) = field(vm, &controller, &fields(vm, &controller), "m_Achievements") else {
+    let Value::Obj(array) = field(vm, &controller, &fields(&controller), "m_Achievements") else {
         return;
     };
     let entries = match &*array.x.borrow() {
@@ -54,7 +54,7 @@ pub(crate) fn tick(vm: &mut Vm) {
     };
     let mut catalog = Vec::with_capacity(entries.len());
     for object in entries {
-        let f = fields(vm, &object);
+        let f = fields(&object);
         let read = |name| field(vm, &object, &f, name);
         let name = read("m_strName");
         let description = read("m_strDescription");

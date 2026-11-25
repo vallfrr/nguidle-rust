@@ -168,8 +168,7 @@ macro_rules! with_vec {
 
 // ------------------------------------------------------------------ number display culture
 // Like Mono in the original game: separators of the system language (Windows in French: `50 000`, `48,9`).
-// NGU_CULTURE=fr|en|de|invariant forces the culture (tests). ponytail: separator table per language (no CLDR data);
-// identical copy in clr/src/bcl_core.rs and crates/ngu-rt/src/fmt.rs (oracle and native must stay equal).
+// NGU_CULTURE=fr|en|de|invariant selects the culture for tests.
 pub fn culture() -> (char, char) {
     static C: std::sync::OnceLock<(char, char)> = std::sync::OnceLock::new();
     *C.get_or_init(|| {

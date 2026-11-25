@@ -33,11 +33,9 @@ python -B tools/doctor
 .\tools\prepare-pc.ps1
 ```
 
-The last command validates the game data, prepares local assets, generates
-Rust and builds the executable. Run the PowerShell command it prints to open
-the GPU window. `-GameData` overrides the input location. CI or offline
-preparation can pass `-SkipMilestoneIcons` to omit the optional download.
-Build the generated game under the existing memory cap.
+The last command validates the original data, prepares local assets, builds
+the desktop engine and prints its launch command. Use `-ExtractOnly` to
+prepare data without compiling.
 
 ## WSL or Linux
 
