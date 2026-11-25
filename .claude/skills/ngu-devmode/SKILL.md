@@ -1,22 +1,10 @@
 ---
 name: ngu-devmode
-description: Drive NGU Idle by script without manual clicks: start a game, unlock everything, jump to any of the 58 menus, read the screen as text, get/set/call any game field or method, capture PNGs. Use when you need to see, reach, test or debug any screen or game state of nguidle-rust.
+description: Reproduce a screen or game state with the engine's scriptable developer mode.
 ---
 
-# Developer mode (scriptable, designed for the assistant)
-
-Full reference: `docs/DEV.md`. Code: `clr/src/dev.rs`, steps in `clr/src/script.rs`. Interpreter only (same engine and rendering as native).
-
-```sh
-source tools/environment.sh
-bash tools/clr.sh play "$NGU_PREPARED" "${TMPDIR:-/tmp}/final.png" \
-  "click,Start New Game" "click,PLAY" "do,$NGU_RUST_REPO/dev/unlock.steps" "menu,15" "ui"
-```
-- `click,<text>`: clicks a visible element by its text. `ui[,file]`: screen as text (clickable elements + texts, 960x600 rectangles). `inspect,x,y`: nodes and components under a point.
-- `get,Character.bossID` / `set,Character.settings.beardsOn,true` / `call,ButtonShower.updateButtons`: game state and methods by path (`Type` = game class attached to the scene; fields in `re/decomp/Assembly-CSharp/<Class>.cs`).
-- `menus` / `menu,N`: list / show the 58 menus. `png,file`: capture. `do,file`: step file. `w,N`: wait N frames (1/30 s).
-- `dev/unlock.steps`: everything unlocked (boss 150, features), tutorial closed.
-- All menus as PNG + text: `bash tools/screens.sh <name> [steps...]`.
-
-Rules: go through the game's own fields/methods (as a save would); never change the translated logic for a test need. File paths absolute (`clr.sh` changes into `clr/`).
-- Console mode: `consolemode,on|off`, `consolescale,100|110|120`, `pad,d|u|l|r|a|s|b|prev|next|holdstart|holdend|scroll[,rows]`, `consolestate`; capture with `pngl,<png>,desktop,<w>,<h>` after `consolemode,on` (it lays the console screen out). See `docs/CONSOLE-MODE.md`.
+Use `docs/DEV.md` for setup and command syntax. Run on an isolated profile.
+Use `click,<label>`, `menu,N` and `ui` to navigate and verify controls.
+Use `dev/unlock.steps` when the scenario requires late-game menus.
+Use the game's own methods for interactions. Capture PNGs only for the
+affected screens and record the scenario steps used to produce them.

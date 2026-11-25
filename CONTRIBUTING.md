@@ -59,12 +59,8 @@ build, setup and troubleshooting commands.
   the changed path. Write down the command and observed result.
 - Keep workstation details in `work/notes/AGENTS.local.md` and the current
   handoff in `work/session/SESSION.md`.
-- Bundled third-party skill files and their content hashes are recorded in
-  `skills.lock`. Their upstream revisions were verified against the archived source checkouts.
-  Skills are optional guidance and do not replace source-level verification.
-  User-installed assistant plugins and hooks can add their own instructions.
-- Run `python -B tools/install-skills.py` to restore locked third-party
-  guidance from its recorded commits. It verifies every file before writing.
+- Use the project skills in `.claude/skills/` as optional guidance. Verify
+  against the code and tests. The third-party skill inventory is empty.
 - For a legacy Windows workspace, back it up and preview the one-time
   migration with `tools/migrate-workspace.ps1 -Workspace <workspace>`.
   Pass `-Apply` after reviewing the moves and closing local consumers of
