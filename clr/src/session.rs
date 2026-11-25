@@ -201,7 +201,12 @@ impl Session {
     pub fn text_field(&self) -> Option<TextField> {
         let r = self.vm.eng.text_req.as_ref()?;
         let rect = focus::node_rect(&self.vm, &crate::unity::go_of(&r.comp))?;
-        Some(TextField { value: r.text.clone(), max: r.max, numeric: r.numeric, rect })
+        Some(TextField {
+            value: r.text.clone(),
+            max: r.max,
+            numeric: r.numeric,
+            rect,
+        })
     }
 
     /// Whether the home (save picker) screen is showing.
