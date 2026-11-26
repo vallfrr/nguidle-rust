@@ -40,6 +40,7 @@ fn main() {
         &ngu_app::preview::screen(&vita, &art, 0.3),
     );
     for (name, screen) in screens {
+        model.job.lock().unwrap().text = "Preparing the game data...".into();
         model.screen = screen;
         let picture = ngu_app::preview::screen(&model, &art, 0.3);
         write(&out, name, &picture);

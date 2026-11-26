@@ -8,6 +8,7 @@ pub mod art;
 pub mod browse;
 pub mod canvas;
 pub mod gpu;
+pub mod install;
 pub mod play;
 pub mod preview;
 pub mod setup;

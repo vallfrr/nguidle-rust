@@ -36,7 +36,24 @@ fn main() {
     log_crashes(&root);
     let forced = std::env::args().any(|a| a == "--setup");
     match ngu_prep::prepare::check_prepared(&root) {
-        Ok(()) if !forced => ngu_app::play::run(&root),
+        Ok(()) if !forced => {
+            // The downloaded file is the installer: the game always starts from the installed copy.
+            let spec = ngu_app::install::Spec {
+                root: &root,
+                stem: "NGUIdleRustEngine",
+                label: "NGU Idle Rust Engine",
+                icon: Some(dirs::game_dir(&root).join("NGUIdle.exe")),
+            };
+            if !ngu_app::install::is_installed(&root, spec.stem) {
+                let exe = ngu_app::install::install(&spec);
+                if std::env::current_exe().ok().as_ref() != Some(&exe)
+                    && std::process::Command::new(exe).spawn().is_ok()
+                {
+                    return;
+                }
+            }
+            ngu_app::play::run(&root)
+        }
         Ok(()) => ngu_app::setup::run(root, String::new()),
         Err(reason) => {
             // Nothing at all means a first launch: no explanation needed.
