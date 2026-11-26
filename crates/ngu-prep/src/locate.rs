@@ -17,14 +17,40 @@ pub fn vdf_libraries(text: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Drops the verbatim prefix Windows adds to resolved paths, so the player sees a normal path.
+pub fn plain(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// The Steam folder the Windows registry names, read with the system's own `reg` tool.
+#[cfg(windows)]
+fn registry_steam() -> Option<PathBuf> {
+    let out = std::process::Command::new("reg")
+        .args(["query", r"HKCU\Software\Valve\Steam", "/v", "SteamPath"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().find(|l| l.contains("SteamPath"))?;
+    let value = line.split("REG_SZ").nth(1)?.trim();
+    (!value.is_empty()).then(|| PathBuf::from(value))
+}
+
 /// Steam installation roots worth checking on `os`.
 pub fn steam_roots(os: Os, home: &Path, env: impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
     match os {
-        Os::Windows => ["ProgramFiles(x86)", "ProgramFiles"]
-            .iter()
-            .filter_map(|name| env(name))
-            .map(|base| PathBuf::from(base).join("Steam"))
-            .collect(),
+        Os::Windows => {
+            let mut roots: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
+                .iter()
+                .filter_map(|name| env(name))
+                .map(|base| PathBuf::from(base).join("Steam"))
+                .collect();
+            #[cfg(windows)]
+            roots.extend(registry_steam());
+            roots
+        }
         Os::Linux => vec![
             home.join(".steam/steam"),
             home.join(".local/share/Steam"),
@@ -63,7 +89,7 @@ pub fn find_games(roots: &[PathBuf]) -> Vec<PathBuf> {
         {
             continue;
         }
-        let game = game.canonicalize().unwrap_or(game);
+        let game = plain(game.canonicalize().unwrap_or(game));
         if !found.contains(&game) {
             found.push(game);
         }
@@ -95,6 +121,15 @@ mod tests {
         let found = find_games(&[steam.clone(), steam]);
         assert_eq!(found.len(), 1);
         assert!(found[0].ends_with("NGU IDLE"));
+    }
+
+    #[test]
+    fn verbatim_prefixes_are_removed_for_display() {
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\C:\Games\NGU")),
+            PathBuf::from(r"C:\Games\NGU")
+        );
+        assert_eq!(plain(PathBuf::from("/users/x")), PathBuf::from("/users/x"));
     }
 
     #[test]

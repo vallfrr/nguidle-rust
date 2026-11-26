@@ -36,7 +36,10 @@ pub fn check_prepared(root: &Path) -> std::result::Result<(), String> {
         return Err(format!("A game file is missing: {missing}."));
     }
     let data = dirs::prepared_dir(root);
-    if let Some(missing) = PREPARED_FILES.iter().find(|name| !data.join(name).is_file()) {
+    if let Some(missing) = PREPARED_FILES
+        .iter()
+        .find(|name| !data.join(name).is_file())
+    {
         return Err(format!("A prepared file is missing: {missing}."));
     }
     match fs::read_to_string(data.join("format")) {
@@ -109,6 +112,10 @@ pub fn prepare_pc(source: &Path, root: &Path, progress: &mut dyn FnMut(&str)) ->
     outside(&source, root)?;
     fs::create_dir_all(root)?;
     let game = dirs::game_dir(root);
+    // A copy that is incomplete or damaged is replaced, never reused.
+    if game.exists() && verified_game(&game).is_err() && game.canonicalize()? != source {
+        fs::remove_dir_all(&game)?;
+    }
     if !game.exists() {
         progress("Copying the game...");
         copy_game(&source, &game, &mut |_| {})?;
@@ -123,6 +130,7 @@ pub fn prepare_pc(source: &Path, root: &Path, progress: &mut dyn FnMut(&str)) ->
         data_dir(&game)?.join("Managed/Assembly-CSharp.dll"),
         staged.join("Assembly-CSharp.dll"),
     )?;
+    fs::write(staged.join("format"), PREPARED_FORMAT.to_string())?;
     replace(&staged, &dirs::prepared_dir(root))?;
     Ok(Report {
         warnings: vec![],
@@ -191,6 +199,33 @@ mod tests {
         fs::write(managed.join("Assembly-CSharp.dll"), b"modified").unwrap();
         let error = verified_game(dir.path()).unwrap_err().to_string();
         assert!(error.contains("supported NGU Idle build"), "{error}");
+    }
+
+    #[test]
+    fn a_complete_folder_is_ready_until_something_goes_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let touch = |path: PathBuf| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"x").unwrap();
+        };
+        for name in manifest().keys() {
+            touch(dirs::game_dir(dir.path()).join("NGUIdle_Data").join(name));
+        }
+        for name in PREPARED_FILES {
+            touch(dirs::prepared_dir(dir.path()).join(name));
+        }
+        touch(dirs::saves_dir(dir.path()).join("slot.txt"));
+        assert!(check_prepared(dir.path())
+            .unwrap_err()
+            .contains("another version"));
+        fs::write(
+            dirs::prepared_dir(dir.path()).join("format"),
+            PREPARED_FORMAT.to_string(),
+        )
+        .unwrap();
+        assert_eq!(check_prepared(dir.path()), Ok(()));
+        fs::remove_file(dirs::prepared_dir(dir.path()).join("audio/Fart.wav")).unwrap();
+        assert!(check_prepared(dir.path()).unwrap_err().contains("Fart.wav"));
     }
 
     #[test]

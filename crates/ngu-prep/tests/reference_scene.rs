@@ -305,6 +305,14 @@ fn both_jobs_prepare_the_real_game() {
     std::fs::write(app.join("saves/keep.txt"), b"x").unwrap();
     ngu_prep::prepare::prepare_pc(&game, &app, &mut |_| {}).unwrap();
     assert!(app.join("saves/keep.txt").is_file());
+    // A damaged copy of the game is replaced and the saves stay.
+    let damaged = app.join("game/NGUIdle_Data/Managed/Assembly-CSharp.dll");
+    std::fs::remove_file(&damaged).unwrap();
+    assert!(ngu_prep::prepare::check_prepared(&app).is_err());
+    ngu_prep::prepare::prepare_pc(&game, &app, &mut |_| {}).unwrap();
+    assert!(damaged.is_file());
+    assert_eq!(ngu_prep::prepare::check_prepared(&app), Ok(()));
+    assert!(app.join("saves/keep.txt").is_file());
 }
 
 #[test]
