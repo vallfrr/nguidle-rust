@@ -4,6 +4,7 @@
 
 pub mod dirs;
 pub mod locate;
+pub mod unity;
 
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
