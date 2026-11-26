@@ -252,3 +252,46 @@ pub fn png_bytes(picture: &Picture) -> Result<Vec<u8>> {
     writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rows_are_flipped_so_the_top_comes_first() {
+        // Two rows of one RGBA32 pixel: Unity stores the bottom row first.
+        let picture = decode(RGBA32, 1, 2, &[1, 1, 1, 255, 2, 2, 2, 255]).unwrap();
+        assert_eq!(&picture.rgba[..4], &[2, 2, 2, 255]);
+    }
+
+    #[test]
+    fn rgb565_scales_each_channel_down_like_pillow() {
+        // Pure white, then the value used by a real texture (r 14, g 36, b 23).
+        let picture = decode(RGB565, 2, 1, &[0xff, 0xff, 0x97, 0x74]).unwrap();
+        assert_eq!(&picture.rgba[..4], &[255, 255, 255, 255]);
+        assert_eq!(&picture.rgba[4..], &[115, 145, 189, 255]);
+        assert!(picture.opaque);
+    }
+
+    #[test]
+    fn dxt1_block_with_two_equal_colours_is_flat() {
+        let mut block = vec![0xff, 0xff, 0xff, 0xff];
+        block.extend([0; 4]);
+        let picture = decode(DXT1, 4, 4, &block).unwrap();
+        assert!(picture.rgba.chunks(4).all(|p| p == [255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn short_data_and_unknown_formats_are_errors() {
+        assert!(decode(DXT5, 4, 4, &[0; 8]).is_err());
+        assert!(decode(99, 1, 1, &[0; 4]).is_err());
+    }
+
+    #[test]
+    fn png_has_three_channels_for_opaque_sources() {
+        let picture = decode(RGB24, 1, 1, &[1, 2, 3]).unwrap();
+        let bytes = png_bytes(&picture).unwrap();
+        assert_eq!(&bytes[1..4], b"PNG");
+        assert_eq!(bytes[25], 2); // PNG colour type: RGB
+    }
+}
