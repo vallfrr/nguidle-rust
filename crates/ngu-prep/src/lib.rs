@@ -4,6 +4,7 @@
 
 pub mod dirs;
 pub mod locate;
+pub mod pack;
 pub mod unity;
 
 use sha2::{Digest, Sha256};
