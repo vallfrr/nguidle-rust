@@ -52,6 +52,9 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-prep/src/dirs.rs` — Per-system data folders for the application (`NGUIdleRustEngine`).
 - `crates/ngu-prep/src/lib.rs` — Verifies the game against the SHA-256 manifest and copies it without touching the original.
 - `crates/ngu-prep/src/locate.rs` — Finds an installed game in Steam, Flatpak, Snap and CrossOver locations.
+- `crates/ngu-prep/src/unity/assets.rs` — Exports textures, fonts, text assets and audio clip records.
+- `crates/ngu-prep/src/unity/export.rs` — Writes the scene file, tag list and asset folders from the game data.
+- `crates/ngu-prep/src/unity/image.rs` — Decodes Unity texture formats to RGBA and writes PNG.
 - `crates/ngu-prep/src/unity/layout.rs` — Builds script field layouts from the game's assemblies using Unity's serialization rules.
 - `crates/ngu-prep/src/unity/mod.rs` — Reads Unity 2019.4 serialized files (header, object table, references).
 - `crates/ngu-prep/src/unity/scene.rs` — Builds the exported scene description and applies the port's interface adjustments.

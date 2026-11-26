@@ -3,6 +3,9 @@
 //! The game's files carry no type trees: engine classes use the layouts in
 //! `builtin.json` and scripts use layouts built from the game's assemblies.
 
+pub mod assets;
+pub mod export;
+pub mod image;
 pub mod layout;
 pub mod scene;
 pub mod typetree;

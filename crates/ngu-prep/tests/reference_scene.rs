@@ -1,6 +1,8 @@
-//! Compares the Rust export with a scene exported by the Python tool.
-//! Needs the game data: set NGU_GAME_DATA and NGU_REFERENCE_SCENE, then run
-//! `cargo test -p ngu-prep --test reference_scene -- --ignored`.
+//! Compares the Rust export with the one made by the Python tools.
+//! Needs the game data: set NGU_GAME_DATA to its `NGUIdle_Data` folder,
+//! NGU_REFERENCE_DIR to a folder exported by `tools/nguprep.py` and, for the
+//! layout test, NGU_ORACLE to the type layouts written by the Python generator.
+//! Then run `cargo test -p ngu-prep --test reference_scene -- --ignored`.
 
 use ngu_prep::unity::scene;
 use serde_json::Value;
@@ -11,7 +13,11 @@ use std::path::PathBuf;
 fn plain_objects_match_the_python_export() {
     let data = PathBuf::from(std::env::var("NGU_GAME_DATA").expect("NGU_GAME_DATA"));
     let reference: Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("NGU_REFERENCE_SCENE").expect("NGU_REFERENCE_SCENE")).unwrap(),
+        &std::fs::read(format!(
+            "{}/scene.json",
+            std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR")
+        ))
+        .unwrap(),
     )
     .unwrap();
     let files = scene::load_files(&data).unwrap();
@@ -34,7 +40,11 @@ fn plain_objects_match_the_python_export() {
 fn scripts_match_the_python_export() {
     let data = PathBuf::from(std::env::var("NGU_GAME_DATA").expect("NGU_GAME_DATA"));
     let reference: Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("NGU_REFERENCE_SCENE").expect("NGU_REFERENCE_SCENE")).unwrap(),
+        &std::fs::read(format!(
+            "{}/scene.json",
+            std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR")
+        ))
+        .unwrap(),
     )
     .unwrap();
     let files = scene::load_files(&data).unwrap();
@@ -119,7 +129,11 @@ fn generated_layouts_match_the_python_generator() {
     )
     .unwrap();
     let reference: Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("NGU_REFERENCE_SCENE").expect("NGU_REFERENCE_SCENE")).unwrap(),
+        &std::fs::read(format!(
+            "{}/scene.json",
+            std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR")
+        ))
+        .unwrap(),
     )
     .unwrap();
     let layouts = layout::Layouts::new(data.join("Managed"));
@@ -166,4 +180,84 @@ fn generated_layouts_match_the_python_generator() {
     }
     println!("{good} layouts identical, {} different", bad.len());
     assert!(bad.is_empty());
+}
+
+fn rgba(path: &std::path::Path) -> (u32, u32, Vec<u8>) {
+    let mut decoder =
+        png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
+    let mut reader = decoder.read_info().unwrap();
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).unwrap();
+    buffer.truncate(info.buffer_size());
+    let pixels = match info.color_type {
+        png::ColorType::Rgb => buffer
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        png::ColorType::Grayscale => buffer.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
+        _ => buffer,
+    };
+    (info.width, info.height, pixels)
+}
+
+#[test]
+#[ignore = "needs local game data"]
+fn textures_fonts_and_texts_match_the_python_export() {
+    let data = PathBuf::from(std::env::var("NGU_GAME_DATA").expect("NGU_GAME_DATA"));
+    let reference_dir =
+        PathBuf::from(std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR"));
+    let reference: Value =
+        serde_json::from_slice(&std::fs::read(reference_dir.join("scene.json")).unwrap()).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let files = scene::load_files(&data).unwrap();
+    let (records, errors) =
+        ngu_prep::unity::assets::export(&files, &data, out.path(), true).unwrap();
+    println!("errors: {errors:?}");
+    let mut wrong = Vec::new();
+    for (key, record) in &records {
+        if record != &reference["objects"][key] {
+            wrong.push(format!(
+                "record {key}: {record} vs {}",
+                reference["objects"][key]
+            ));
+        }
+        let name = key.replace(':', "_");
+        match record["t"].as_str().unwrap() {
+            "Texture2D"
+                if record["w"].as_i64().unwrap() > 0 && record["h"].as_i64().unwrap() > 0 =>
+            {
+                let (a, b) = (
+                    out.path().join(format!("tex/{name}.png")),
+                    reference_dir.join(format!("tex/{name}.png")),
+                );
+                if !a.exists() || rgba(&a) != rgba(&b) {
+                    wrong.push(format!("pixels {key} format {}", record["fmt"]));
+                }
+            }
+            "Font" => {
+                if let Some(file) = record["file"].as_str() {
+                    if std::fs::read(out.path().join("fonts").join(file)).unwrap()
+                        != std::fs::read(reference_dir.join("fonts").join(file)).unwrap()
+                    {
+                        wrong.push(format!("font {key}"));
+                    }
+                }
+            }
+            "TextAsset" => {
+                let file = format!("text/{name}.bin");
+                if std::fs::read(out.path().join(&file)).unwrap()
+                    != std::fs::read(reference_dir.join(&file)).unwrap()
+                {
+                    wrong.push(format!("text {key}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    for line in wrong.iter().take(30) {
+        println!("{line}");
+    }
+    println!("{} records, {} differences", records.len(), wrong.len());
+    assert!(wrong.is_empty() && errors.is_empty());
 }
