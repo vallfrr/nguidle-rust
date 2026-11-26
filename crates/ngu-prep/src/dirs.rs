@@ -70,10 +70,11 @@ mod tests {
             data_root(Os::Linux, home, none),
             Path::new("/users/p/.local/share/NGUIdleRustEngine")
         );
-        let xdg = |name: &str| (name == "XDG_DATA_HOME").then(|| "/x".to_string());
+        let base = std::env::temp_dir();
+        let xdg = |name: &str| (name == "XDG_DATA_HOME").then(|| base.display().to_string());
         assert_eq!(
             data_root(Os::Linux, home, xdg),
-            Path::new("/x/NGUIdleRustEngine")
+            base.join("NGUIdleRustEngine")
         );
         assert_eq!(
             data_root(Os::MacOs, home, none),
