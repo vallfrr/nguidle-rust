@@ -420,13 +420,13 @@ impl Model {
                     .as_deref()
                     .map_or_else(|| "Choose a place".to_owned(), short);
                 if self.choosing_output {
-                    badge(c, "Where should the nguidle folder go?", 86.0);
-                    field(c, &place, 134.0, INK);
+                    badge(c, "Where should the nguidle folder go?", 100.0);
+                    field(c, &place, 146.0, INK);
                 } else {
-                    field(c, &place, 100.0, INK);
+                    field(c, &place, 110.0, INK);
                 }
                 if let Some(problem) = problem {
-                    field(c, problem, 172.0, WARN);
+                    field(c, problem, 184.0, WARN);
                 }
                 for (row, entry) in browser
                     .entries
@@ -435,7 +435,7 @@ impl Model {
                     .take(ROWS)
                     .enumerate()
                 {
-                    let y = 214.0 + row as f32 * 34.0;
+                    let y = 228.0 + row as f32 * 33.0;
                     let name = entry.file_name().map_or_else(
                         || entry.to_string_lossy().into_owned(),
                         |n| n.to_string_lossy().into_owned(),
@@ -447,7 +447,7 @@ impl Model {
                     };
                     button(
                         c,
-                        [180.0, y, 780.0, y + 31.0],
+                        [180.0, y, 780.0, y + 30.0],
                         &name,
                         Action::Open(entry.clone()),
                         &mut hits,
