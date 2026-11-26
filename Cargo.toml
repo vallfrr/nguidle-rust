@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["clr", "crates/ngu-headless", "crates/ngu-desktop", "crates/save-format", "crates/platform-api", "crates/cil-interp"]
+members = ["clr", "crates/ngu-headless", "crates/ngu-desktop", "crates/save-format", "crates/platform-api", "crates/cil-interp", "crates/ngu-prep"]
 
 [profile.release]
 opt-level = 3
