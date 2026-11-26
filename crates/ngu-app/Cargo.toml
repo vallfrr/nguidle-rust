@@ -19,7 +19,3 @@ tempfile = "3"
 [[bin]]
 name = "NGUIdleRustEngine"
 path = "src/bin/NGUIdleRustEngine.rs"
-
-[[bin]]
-name = "nguidle-prep"
-path = "src/bin/nguidle-prep.rs"
