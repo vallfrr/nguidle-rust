@@ -57,7 +57,10 @@ pub fn find_games(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
     for library in libraries {
         let game = library.join("steamapps/common").join(GAME_FOLDER);
-        if !game.join("NGUIdle_Data/Managed/Assembly-CSharp.dll").is_file() {
+        if !game
+            .join("NGUIdle_Data/Managed/Assembly-CSharp.dll")
+            .is_file()
+        {
             continue;
         }
         let game = game.canonicalize().unwrap_or(game);

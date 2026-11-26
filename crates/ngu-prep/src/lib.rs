@@ -24,7 +24,11 @@ pub fn manifest() -> BTreeMap<String, String> {
 /// The `NGUIdle_Data` folder for a game folder, or for the data folder itself.
 pub fn data_dir(selected: &Path) -> Result<PathBuf> {
     let nested = selected.join("NGUIdle_Data");
-    let data = if nested.is_dir() { nested } else { selected.to_path_buf() };
+    let data = if nested.is_dir() {
+        nested
+    } else {
+        selected.to_path_buf()
+    };
     if !data.join("Managed/Assembly-CSharp.dll").is_file() {
         return Err("Select the NGU Idle game folder.".into());
     }
@@ -60,16 +64,14 @@ fn sha256(mut file: impl Read) -> io::Result<String> {
 /// Copies the whole game folder to `destination`, which must not exist and
 /// must not be inside the source. The copy appears at `destination` only
 /// when complete, so an interrupted copy leaves nothing behind.
-pub fn copy_game(
-    source: &Path,
-    destination: &Path,
-    progress: &mut dyn FnMut(usize),
-) -> Result<()> {
+pub fn copy_game(source: &Path, destination: &Path, progress: &mut dyn FnMut(usize)) -> Result<()> {
     let source = source.canonicalize()?;
     if destination.exists() {
         return Err("The destination already exists.".into());
     }
-    let parent = destination.parent().ok_or("The destination has no parent folder.")?;
+    let parent = destination
+        .parent()
+        .ok_or("The destination has no parent folder.")?;
     fs::create_dir_all(parent)?;
     let parent = parent.canonicalize()?;
     if parent.starts_with(&source) {
@@ -77,7 +79,11 @@ pub fn copy_game(
     }
     let name = destination
         .file_name()
-        .filter(|name| Path::new(name).components().all(|c| matches!(c, Component::Normal(_))))
+        .filter(|name| {
+            Path::new(name)
+                .components()
+                .all(|c| matches!(c, Component::Normal(_)))
+        })
         .ok_or("Invalid destination name.")?;
     let staging = parent.join(format!(".{}.partial", name.to_string_lossy()));
     if staging.exists() {
@@ -122,7 +128,11 @@ mod tests {
     fn game(dir: &Path) -> PathBuf {
         let root = dir.join("NGU IDLE");
         fs::create_dir_all(root.join("NGUIdle_Data/Managed")).unwrap();
-        fs::write(root.join("NGUIdle_Data/Managed/Assembly-CSharp.dll"), b"abc").unwrap();
+        fs::write(
+            root.join("NGUIdle_Data/Managed/Assembly-CSharp.dll"),
+            b"abc",
+        )
+        .unwrap();
         fs::write(root.join("NGU IDLE.exe"), b"exe").unwrap();
         root
     }
@@ -153,7 +163,9 @@ mod tests {
         let mut seen = 0;
         copy_game(&source, &target, &mut |n| seen = n).unwrap();
         assert_eq!(seen, 2);
-        assert!(target.join("NGUIdle_Data/Managed/Assembly-CSharp.dll").is_file());
+        assert!(target
+            .join("NGUIdle_Data/Managed/Assembly-CSharp.dll")
+            .is_file());
         assert!(copy_game(&source, &target, &mut |_| {}).is_err());
         assert!(copy_game(&source, &source.join("inside"), &mut |_| {}).is_err());
         assert!(!source.join("inside").exists());
