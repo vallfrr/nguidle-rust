@@ -306,3 +306,82 @@ fn both_jobs_prepare_the_real_game() {
     ngu_prep::prepare::prepare_pc(&game, &app, &mut |_| {}).unwrap();
     assert!(app.join("saves/keep.txt").is_file());
 }
+
+#[test]
+#[ignore = "needs local game data"]
+fn sounds_match_the_python_export() {
+    let game = PathBuf::from(std::env::var("NGU_GAME_FOLDER").expect("NGU_GAME_FOLDER"));
+    let reference_dir =
+        PathBuf::from(std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR"));
+    let player = std::fs::read(game.join("UnityPlayer.dll")).unwrap();
+    let resource = std::fs::read(game.join("NGUIdle_Data/resources.resource")).unwrap();
+    for (name, start, size) in [("Fart", 0, 61024), ("LongFart", 61024, 193952)] {
+        let ours =
+            ngu_prep::unity::audio::bank_to_wav(&resource[start..start + size], &player).unwrap();
+        let expected = std::fs::read(reference_dir.join(format!("audio/{name}.wav"))).unwrap();
+        assert_eq!(ours.len(), expected.len(), "{name}: length");
+        let samples = |bytes: &[u8]| {
+            bytes[44..]
+                .chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                .collect::<Vec<_>>()
+        };
+        let worst = samples(&ours)
+            .iter()
+            .zip(samples(&expected))
+            .map(|(a, b)| (i32::from(*a) - i32::from(b)).abs())
+            .max()
+            .unwrap();
+        println!(
+            "{name}: {} bytes, largest sample difference {worst}",
+            ours.len()
+        );
+        assert!(worst <= 2, "{name}: difference {worst}");
+    }
+}
+
+#[test]
+#[ignore = "needs local game data"]
+fn full_export_matches_the_python_export() {
+    let data = PathBuf::from(std::env::var("NGU_GAME_DATA").expect("NGU_GAME_DATA"));
+    let reference_dir =
+        PathBuf::from(std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR"));
+    let reference: Value =
+        serde_json::from_slice(&std::fs::read(reference_dir.join("scene.json")).unwrap()).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let started = std::time::Instant::now();
+    let summary = ngu_prep::unity::export::export(&data, out.path()).unwrap();
+    println!(
+        "exported {} objects, {} resources in {:?}",
+        summary.objects,
+        summary.resources,
+        started.elapsed()
+    );
+    assert!(summary.errors.is_empty(), "{:?}", summary.errors);
+    let ours: Value =
+        serde_json::from_slice(&std::fs::read(out.path().join("scene.json")).unwrap()).unwrap();
+    assert_eq!(ours["scripts"], reference["scripts"], "scripts differ");
+    assert_eq!(
+        ours["resources"], reference["resources"],
+        "resources differ"
+    );
+    for (key, record) in reference["objects"].as_object().unwrap() {
+        assert_eq!(&ours["objects"][key], record, "object {key} differs");
+    }
+    assert_eq!(
+        ours["objects"].as_object().unwrap().len(),
+        reference["objects"].as_object().unwrap().len()
+    );
+    let tags = |dir: &std::path::Path| {
+        serde_json::from_slice::<Value>(&std::fs::read(dir.join("tags.json")).unwrap()).unwrap()
+    };
+    assert_eq!(tags(out.path()), tags(&reference_dir));
+    for name in ["Fart", "LongFart"] {
+        let file = format!("audio/{name}.wav");
+        let (a, b) = (
+            std::fs::read(out.path().join(&file)).unwrap(),
+            std::fs::read(reference_dir.join(&file)).unwrap(),
+        );
+        assert_eq!(a.len(), b.len(), "{name}");
+    }
+}

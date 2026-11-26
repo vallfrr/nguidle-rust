@@ -16,8 +16,6 @@ pub struct Report {
     pub count: usize,
 }
 
-const AUDIO_NOTICE: &str = "The two sound effects could not be prepared yet.";
-
 /// Checks the folder holds the supported game build and returns its data folder.
 pub fn verified_game(source: &Path) -> Result<PathBuf> {
     let data = data_dir(source)?;
@@ -98,7 +96,7 @@ pub fn prepare_pc(source: &Path, root: &Path, progress: &mut dyn FnMut(&str)) ->
     )?;
     replace(&staged, &dirs::prepared_dir(root))?;
     Ok(Report {
-        warnings: vec![AUDIO_NOTICE.into()],
+        warnings: vec![],
         count: summary.objects,
     })
 }
@@ -137,7 +135,7 @@ pub fn prepare_vita(
         )?;
         fs::rename(&staged, &target)?;
         Ok(Report {
-            warnings: vec![AUDIO_NOTICE.into()],
+            warnings: vec![],
             count,
         })
     })();

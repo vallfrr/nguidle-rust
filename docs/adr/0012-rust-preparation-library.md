@@ -22,3 +22,7 @@ The library keeps no platform code except where the system decides a path (`dirs
 ## Consequences
 
 The Windows registry lookup for Steam is added with the PC application. Until then Windows finds Steam through `ProgramFiles` and `libraryfolders.vdf`, and the player can always choose the folder.
+
+## Sound effects
+
+The two sound effects are FMOD Vorbis banks that refer to their Vorbis setup header by CRC-32. The headers are not downloaded or stored in this repository: they are read from the `UnityPlayer.dll` of the player's own game copy, which holds them. If a different build of the game is used, the lookup fails and preparation stops with a clear message.
