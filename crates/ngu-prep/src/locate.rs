@@ -126,8 +126,8 @@ mod tests {
     #[test]
     fn verbatim_prefixes_are_removed_for_display() {
         assert_eq!(
-            plain(PathBuf::from(r"\\?\C:\Games\NGU")),
-            PathBuf::from(r"C:\Games\NGU")
+            plain(PathBuf::from(r"\\?\Drive\Games\NGU")),
+            PathBuf::from(r"Drive\Games\NGU")
         );
         assert_eq!(plain(PathBuf::from("/users/x")), PathBuf::from("/users/x"));
     }
