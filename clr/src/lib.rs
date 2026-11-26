@@ -1,4 +1,4 @@
-mod host_platform;
+pub mod host_platform;
 pub mod assets;
 pub mod autoplay;
 pub mod bcl;

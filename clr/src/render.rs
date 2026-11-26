@@ -80,7 +80,6 @@ fn read_font(file: &str) -> Option<fontdue::Font> {
     fontdue::Font::from_bytes(data, fontdue::FontSettings::default()).ok()
 }
 
-#[cfg(target_os = "vita")]
 pub(crate) fn prepare_startup_fonts() -> Option<std::thread::JoinHandle<Vec<(String, fontdue::Font)>>> {
     std::thread::Builder::new().name("ngu-fonts".into()).stack_size(512 * 1024).spawn(|| {
         [2487, 2490, 2491, 2492].into_iter().filter_map(|asset| {
@@ -106,7 +105,6 @@ pub struct Renderer {
     /// durations (ms) of the last frame: quad building / software rasterization
     pub t_emit: f32,
     pub t_raster: f32,
-    #[cfg(target_os = "vita")]
     pub(crate) layout_us: u32,
     pub w: usize,
     pub h: usize,
@@ -173,7 +171,6 @@ impl Renderer {
     pub fn new(w: usize, h: usize) -> Renderer {
         Renderer {
             t_emit: 0.0,
-            #[cfg(target_os = "vita")]
             layout_us: 0,
             t_raster: 0.0,
             w,
@@ -273,7 +270,6 @@ impl Renderer {
         f
     }
 
-    #[cfg(target_os = "vita")]
     pub(crate) fn install_fonts(&mut self, fonts: Vec<(String, fontdue::Font)>) {
         self.fonts.extend(fonts.into_iter().map(|(name, font)| (name, Some(Rc::new(font)))));
     }
@@ -306,14 +302,12 @@ impl Renderer {
 
     /// Builds the quad list of the current frame (self.quads).
     pub fn emit(&mut self, vm: &mut Vm, scale: f32, ox: f32, oy: f32) {
-        #[cfg(target_os = "vita")]
-        let layout_start = std::time::Instant::now();
+        let layout_start = crate::host_platform::host_tuning().time_layout.then(std::time::Instant::now);
         if !self.defer_layout {
             self.prepare_layout(vm);
         }
-        #[cfg(target_os = "vita")]
-        {
-            self.layout_us = layout_start.elapsed().as_micros() as u32;
+        if let Some(start) = layout_start {
+            self.layout_us = start.elapsed().as_micros() as u32;
         }
         self.quads.clear();
         self.scale = scale;

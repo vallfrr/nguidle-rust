@@ -41,6 +41,7 @@ documentation of `capi.rs`.
 | `ngu_tex(id, w, h)` / `ngu_tex_release(id)` | pixels of a texture / free the engine's copy after upload |
 | `ngu_atlas(dirty, size)` | the glyph atlas (texture id 1) and whether it changed |
 | `ngu_text_request(buf, cap, max, numeric)` / `ngu_text_submit(text, ok)` | text fields |
+| `ngu_set_host_tuning(bits)` | before `ngu_init`: 1 background autosave, 2 single-writer storage (no hard links), 4 startup fonts on a worker thread, 8 time the layout. All are off by default and none changes what the player sees or what a save contains |
 | `ngu_clock_us`, `ngu_frame_info`, `ngu_layout_us`, `ngu_autoplay_load` | host diagnostics and scripted measurements (not needed by a port) |
 
 ## Data and tools

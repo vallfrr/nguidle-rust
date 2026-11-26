@@ -198,8 +198,8 @@ sample-gap counters to check that the measurement stayed valid.
 
 Set `NGU_TEST_DLL`, `NGU_TEST_ASSETS` and `NGU_TEST_SAVE` for the
 fixture-based tests. The layout regression also uses
-`NGU_TEST_VITA_ASSETS`, a prepared directory containing `ngu.pak` or the
-equivalent loose data and assembly, and `NGU_VITA_SAVE_DIR`, a disposable
+`NGU_TEST_PREPARED_ASSETS`, a prepared directory containing `ngu.pak` or the
+equivalent loose data and assembly, and `NGU_SAVE_DIR`, a disposable
 test directory.
 
 ```sh

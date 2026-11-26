@@ -247,8 +247,7 @@ pub struct Engine {
     pub prefs: HashMap<String, Value>,
     pub assets_dir: String,
     pub save_dir: String,
-    #[cfg(target_os = "vita")]
-    pub(crate) autosave_writer: Option<crate::host_platform::VitaAutosave>,
+    pub(crate) autosave_writer: Option<crate::host_platform::BackgroundAutosave>,
     pub mouse: (f32, f32),
     pub mouse_down: bool,
     pub mouse_down_edge: bool,
@@ -685,15 +684,10 @@ pub fn set_fields(vm: &mut Vm, obj: &Value, ty: u32, d: &serde_json::Map<String,
 
 impl Vm {
     // ---------------------------------------------------------------- life cycle
-    fn profile_vita_frame(&self) -> bool {
-        #[cfg(target_os = "vita")]
-        {
-            static PROFILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            *PROFILE.get_or_init(|| std::env::var_os("NGU_VITA_PROFILE").is_some())
-                && (self.eng.frame < 5 || self.eng.frame % 30 == 0)
-        }
-        #[cfg(not(target_os = "vita"))]
-        false
+    fn profile_frame(&self) -> bool {
+        static PROFILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *PROFILE.get_or_init(|| std::env::var_os("NGU_PROFILE").is_some())
+            && (self.eng.frame < 5 || self.eng.frame % 30 == 0)
     }
 
     pub fn call_msg(&mut self, comp: &Value, name: &'static str) -> R<()> {
@@ -713,7 +707,7 @@ impl Vm {
             }
         };
         if let Some(m) = m {
-            let profile = self.profile_vita_frame().then(|| (self.steps, std::time::Instant::now()));
+            let profile = self.profile_frame().then(|| (self.steps, std::time::Instant::now()));
             if let Err(e) = self.invoke(m, [comp.clone()]) {
                 self.report_exc(name, comp, &e);
             }

@@ -21,7 +21,7 @@ impl Vm {
             }
         }
         let mut remove = vec![];
-        let profile = self.profile_vita_frame();
+        let profile = self.profile_frame();
         for i in due {
             let (owner, method, method_id, repeat, scheduled) = {
                 let v = &mut self.eng.invokes[i];

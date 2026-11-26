@@ -160,15 +160,15 @@ mod tests {
 
 /// PC runner (`clr <dll> autoplay <assets dir> <scenario> <trace.csv> [max frames]`): replays a scenario headless through the
 /// console's C API at a virtual 60 Hz and writes one CSV row per frame (same columns as the Vita trace where they exist).
-/// Needs `NGU_VITA_SAVE_DIR` (disposable save folder); `NGU_FIXED_NOW` makes the save digests repeatable.
+/// Needs `NGU_SAVE_DIR` (disposable save folder); `NGU_FIXED_NOW` makes the save digests repeatable.
 pub fn run_pc(args: &[String]) -> Result<(), String> {
     use crate::capi::*;
     use std::io::Write;
     let [assets, scenario, csv, rest @ ..] = args else { return Err("usage: clr <dll> autoplay <assets> <scenario> <trace.csv> [max frames]".into()) };
     let max: u64 = rest.first().and_then(|m| m.parse().ok()).unwrap_or(60 * 60 * 40);
     let c = |s: &str| std::ffi::CString::new(s).unwrap();
-    if std::env::var_os("NGU_VITA_SAVE_DIR").is_none() {
-        return Err("set NGU_VITA_SAVE_DIR to a disposable folder".into());
+    if std::env::var_os("NGU_SAVE_DIR").is_none() {
+        return Err("set NGU_SAVE_DIR to a disposable folder".into());
     }
     if ngu_init(c(assets).as_ptr(), 960, 544) != 0 || ngu_autoplay_load(c(scenario).as_ptr()) != 0 {
         return Err("init or scenario failed (see the log in the assets folder)".into());

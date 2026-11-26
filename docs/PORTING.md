@@ -43,11 +43,11 @@ just check
 ```
 
 `just new-port <name> [platform] [engine-checkout]` (`tools/new_port.py`, which also takes `--out` and `--tag`) copies
-`templates/port/` next to the engine checkout, pins the engine's newest `v0.x.y` tag, runs `git init`, and adds CI, the hygiene
+`templates/port/` next to the engine checkout, pins the engine's newest `v0.x.y` tag, runs `git init` (it does not commit: make the first commit yourself), and adds CI, the hygiene
 check, `AGENTS.md` and a contract test. `just check` (hygiene, `cargo fmt --check`, Clippy as errors, the contract test) must pass
 at once; run `cargo fmt` after editing. If it does not, that is a bug in the template: report it.
 
-**Developing against a local engine checkout.** Pass the checkout as the third argument:
+**Developing against a local engine checkout.** Use this form when your checkout has no remote or no tags. Pass the checkout as the third argument:
 `just new-port nguidle-switch "Nintendo Switch" ../nguidle-rust`. `Cargo.toml` then points at that folder
 (`clr = { path = ".../clr" }`) instead of a tag. That is for development only: before you publish, change it to
 `clr = { git = "<engine URL>", tag = "<engine.tag>" }`, run `cargo update -p clr` and commit `Cargo.lock`, so that the repository
