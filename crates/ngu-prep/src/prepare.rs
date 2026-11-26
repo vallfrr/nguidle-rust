@@ -16,6 +16,35 @@ pub struct Report {
     pub count: usize,
 }
 
+/// Version of the prepared data layout. A new version asks for a new preparation.
+pub const PREPARED_FORMAT: u32 = 1;
+
+/// Files the PC application needs in `data/`.
+const PREPARED_FILES: [&str; 5] = [
+    "scene.json",
+    "tags.json",
+    "Assembly-CSharp.dll",
+    "audio/Fart.wav",
+    "audio/LongFart.wav",
+];
+
+/// Tells whether the application folder is ready to play. The error says, in
+/// words for the player, what is missing. Saves are never looked at.
+pub fn check_prepared(root: &Path) -> std::result::Result<(), String> {
+    let game = dirs::game_dir(root).join("NGUIdle_Data");
+    if let Some(missing) = manifest().keys().find(|name| !game.join(name).is_file()) {
+        return Err(format!("A game file is missing: {missing}."));
+    }
+    let data = dirs::prepared_dir(root);
+    if let Some(missing) = PREPARED_FILES.iter().find(|name| !data.join(name).is_file()) {
+        return Err(format!("A prepared file is missing: {missing}."));
+    }
+    match fs::read_to_string(data.join("format")) {
+        Ok(text) if text.trim() == PREPARED_FORMAT.to_string() => Ok(()),
+        _ => Err("The prepared files come from another version.".into()),
+    }
+}
+
 /// Checks the folder holds the supported game build and returns its data folder.
 pub fn verified_game(source: &Path) -> Result<PathBuf> {
     let data = data_dir(source)?;
@@ -162,6 +191,13 @@ mod tests {
         fs::write(managed.join("Assembly-CSharp.dll"), b"modified").unwrap();
         let error = verified_game(dir.path()).unwrap_err().to_string();
         assert!(error.contains("supported NGU Idle build"), "{error}");
+    }
+
+    #[test]
+    fn an_empty_folder_is_not_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let reason = check_prepared(dir.path()).unwrap_err();
+        assert!(reason.contains("missing"), "{reason}");
     }
 
     #[test]

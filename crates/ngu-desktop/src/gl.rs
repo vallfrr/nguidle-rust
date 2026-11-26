@@ -683,7 +683,7 @@ impl EventHandler for Stage {
 /// Opens the GPU window and runs the game until it is closed.
 pub fn run_gl(vm: &'static mut Vm, o: Options) {
     let conf = conf::Conf {
-        window_title: "NGU Idle".to_string(),
+        window_title: o.title.clone().unwrap_or_else(|| "NGU Idle".to_string()),
         window_width: o.width as i32,
         window_height: o.height as i32,
         window_resizable: true,

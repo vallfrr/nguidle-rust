@@ -1069,6 +1069,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ngu-app"
+version = "0.1.0"
+dependencies = [
+ "clr",
+ "fontdue",
+ "miniquad",
+ "ngu-desktop",
+ "ngu-prep",
+ "png",
+ "tempfile",
+]
+
+[[package]]
 name = "ngu-desktop"
 version = "0.1.0"
 dependencies = [
