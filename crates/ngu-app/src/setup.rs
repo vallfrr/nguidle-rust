@@ -10,10 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 const INK: [f32; 4] = [0.04, 0.04, 0.08, 1.0];
-const WARN: [f32; 4] = [0.7, 0.05, 0.05, 1.0];
-/// The game's steel-blue panel colour.
-const PANEL: [f32; 4] = [0.4, 0.53, 0.64, 1.0];
-const GREEN: [f32; 4] = [0.6, 0.92, 0.25, 1.0];
+/// The fill colour of the game's energy bar.
+const BAR_GREEN: [f32; 4] = [0.34, 0.81, 0.5, 1.0];
 const SHADOW: [f32; 4] = [0.05, 0.1, 0.18, 1.0];
 const ROWS: usize = 8;
 
@@ -22,7 +20,8 @@ const ROWS: usize = 8;
 pub enum Action {
     FindGame,
     UseGame(PathBuf),
-    Browse,
+    /// Open the system's folder chooser.
+    Pick,
     Open(PathBuf),
     Up,
     UseFolder,
@@ -34,7 +33,9 @@ pub enum Action {
 pub enum Screen {
     Intro,
     Found(Vec<PathBuf>),
-    Browse(Browser, Option<String>),
+    /// A folder the player chose, and whether the game can be used from there.
+    Chosen(PathBuf, Result<(), String>),
+    Browse(Browser),
     Working,
     Failed(String),
     Done,
@@ -88,6 +89,8 @@ pub struct Model {
     pub offset: usize,
     pub job: Arc<Mutex<Job>>,
     pub play: bool,
+    /// Set when the folder chooser must be opened by the window.
+    pub pick: bool,
 }
 
 /// How far along the preparation is, from the step it reports.
@@ -99,6 +102,19 @@ fn progress(step: &str) -> f32 {
         s if s.starts_with("Building") => 0.9,
         _ => 0.05,
     }
+}
+
+/// Whether the game can be used from `dir`, in words for the player.
+fn check_location(dir: &Path) -> Result<(), String> {
+    let data =
+        ngu_prep::data_dir(dir).map_err(|_| "NGU Idle was not found in this folder.".to_owned())?;
+    if ngu_prep::manifest()
+        .keys()
+        .any(|name| !data.join(name).is_file())
+    {
+        return Err("Some game files are missing in this folder.".to_owned());
+    }
+    Ok(())
 }
 
 fn short(path: &Path) -> String {
@@ -134,6 +150,7 @@ impl Model {
             offset: 0,
             job: Arc::default(),
             play: false,
+            pick: false,
         }
     }
 
@@ -155,7 +172,7 @@ impl Model {
         self.game = Some(game);
         self.choosing_output = true;
         self.offset = 0;
-        self.screen = Screen::Browse(Browser::at_roots(self.home.clone()), None);
+        self.screen = Screen::Browse(Browser::at_roots(self.home.clone()));
     }
 
     /// Games found in the usual places.
@@ -173,40 +190,23 @@ impl Model {
                 Kind::Pc => self.start(path),
                 Kind::Vita => self.choose_output(path),
             },
-            Action::Browse => {
-                self.offset = 0;
-                self.screen = Screen::Browse(Browser::at_roots(self.home.clone()), None);
-            }
+            Action::Pick => self.pick = true,
             Action::Open(path) => {
                 self.offset = 0;
-                self.screen = Screen::Browse(Browser::open(&path), None);
+                self.screen = Screen::Browse(Browser::open(&path));
             }
             Action::Up => {
-                if let Screen::Browse(browser, _) = &self.screen {
+                if let Screen::Browse(browser) = &self.screen {
                     self.offset = 0;
-                    self.screen = Screen::Browse(browser.up(self.home.clone()), None);
+                    self.screen = Screen::Browse(browser.up(self.home.clone()));
                 }
             }
             Action::UseFolder => {
-                let Screen::Browse(browser, _) = &self.screen else {
+                let Screen::Browse(browser) = &self.screen else {
                     return;
                 };
-                let Some(dir) = browser.dir.clone() else {
-                    return;
-                };
-                if self.choosing_output {
-                    if let Some(game) = self.game.clone() {
-                        self.start_vita(game, dir);
-                    }
-                } else if ngu_prep::data_dir(&dir).is_ok() {
-                    match self.kind {
-                        Kind::Pc => self.start(dir),
-                        Kind::Vita => self.choose_output(dir),
-                    }
-                } else {
-                    let message =
-                        "This folder is not NGU Idle: its game files are missing.".to_owned();
-                    self.screen = Screen::Browse(Browser::open(&dir), Some(message));
+                if let (Some(dir), Some(game)) = (browser.dir.clone(), self.game.clone()) {
+                    self.start_vita(game, dir);
                 }
             }
             Action::Back => {
@@ -215,6 +215,26 @@ impl Model {
             }
             Action::Play => self.play = true,
         }
+    }
+
+    /// What the folder chooser returned: the folder is checked and shown, nothing starts yet.
+    pub fn picked(&mut self, folder: Option<PathBuf>) {
+        if let Some(folder) = folder {
+            let verdict = check_location(&folder);
+            self.screen = Screen::Chosen(folder, verdict);
+        }
+    }
+
+    /// Where the folder chooser should open: the Steam games folder when there is one.
+    pub fn pick_start(&self) -> Option<PathBuf> {
+        let home = self.home.clone().unwrap_or_default();
+        let roots =
+            ngu_prep::locate::steam_roots(Os::current(), &home, |name| std::env::var(name).ok());
+        roots
+            .into_iter()
+            .map(|root| root.join("steamapps/common"))
+            .find(|path| path.is_dir())
+            .or_else(|| self.home.clone())
     }
 
     /// Runs the Vita preparation on a thread: the `nguidle` folder goes into `output`.
@@ -290,14 +310,22 @@ impl Model {
 
     /// Draw the current screen and return the clickable areas.
     pub fn view(&self, c: &mut Canvas, mouse: (f32, f32), time: f32) -> Vec<Hit> {
+        let _ = time;
         c.image(TEX_BACKDROP, [0.0, 0.0, WIDTH, HEIGHT], [1.0; 4]);
         c.fill([0.0, 0.0, WIDTH, HEIGHT], [0.0, 0.0, 0.0, 0.45]);
-        // The game's own steel-blue panel, inside its bolted frame.
-        c.fill([134.0, 44.0, 826.0, 556.0], PANEL);
+        // The game's own blue panel and bolted frame.
+        c.nine_scaled(
+            TEX_PANEL,
+            50.0,
+            4.0,
+            8.0,
+            [134.0, 44.0, 826.0, 556.0],
+            [1.0; 4],
+        );
         c.nine(
             TEX_FRAME,
             200.0,
-            26.0,
+            20.0,
             [130.0, 40.0, 830.0, 560.0],
             [1.0; 4],
         );
@@ -305,6 +333,10 @@ impl Model {
         c.text_centered(Face::Title, 44, heading, WIDTH / 2.0 + 2.0, 66.0, SHADOW);
         c.text_centered(Face::Title, 44, heading, WIDTH / 2.0, 64.0, [1.0; 4]);
         let mut hits = Vec::new();
+        // The game's sprites have a 4 pixel border; drawn twice as big they stay crisp.
+        let sprite = |c: &mut Canvas, tex: u32, rect: [f32; 4], tint: [f32; 4]| {
+            c.nine_scaled(tex, 50.0, 4.0, 8.0, rect, tint);
+        };
         let button =
             |c: &mut Canvas, rect: [f32; 4], label: &str, action: Action, hits: &mut Vec<Hit>| {
                 let inside = mouse.0 >= rect[0]
@@ -316,7 +348,7 @@ impl Model {
                 } else {
                     [1.0; 4]
                 };
-                c.nine(TEX_BUTTON, 50.0, 14.0, rect, tint);
+                sprite(c, TEX_BUTTON, rect, tint);
                 // Folder names and paths read better in the plain font.
                 let plain = matches!(action, Action::Open(_)) || label.contains(['/', '\\']);
                 let (face, size) = if plain {
@@ -341,19 +373,19 @@ impl Model {
                 y += 26.0;
             }
         };
-        // A white field with a black border, like the game's input fields.
+        // A white field, like the game's input fields.
         let field = |c: &mut Canvas, text: &str, y: f32, colour: [f32; 4]| {
-            c.boxed([190.0, y, 770.0, y + 36.0], [1.0; 4]);
-            c.text_middle(Face::Body, 20, text, WIDTH / 2.0, y + 18.0, colour);
+            sprite(c, TEX_BUTTON, [180.0, y, 780.0, y + 40.0], [1.0; 4]);
+            c.text_middle(Face::Body, 20, text, WIDTH / 2.0, y + 20.0, colour);
         };
-        // A green label, like the game's "WTF do I do?" button.
-        let badge = |c: &mut Canvas, text: &str, y: f32| {
-            c.boxed([250.0, y, 710.0, y + 40.0], GREEN);
-            c.text_middle(Face::Title, 24, text, WIDTH / 2.0, y + 20.0, INK);
+        // A coloured label: green for good news, red for bad, like the game's own buttons.
+        let badge = |c: &mut Canvas, tex: u32, text: &str, y: f32| {
+            sprite(c, tex, [190.0, y, 770.0, y + 46.0], [1.0; 4]);
+            c.text_middle(Face::Title, 26, text, WIDTH / 2.0, y + 23.0, INK);
         };
         match &self.screen {
             Screen::Intro => {
-                c.image(TEX_CAT, [330.0, 120.0, 630.0, 320.0], [1.0; 4]);
+                c.image(TEX_CAT, [330.0, 110.0, 630.0, 310.0], [1.0; 4]);
                 let first = if self.kind == Kind::Vita {
                     "This prepares NGU Idle for your PS Vita: it writes a folder named nguidle to copy next to the nguidle.vpk.".to_owned()
                 } else if self.reason.is_empty() {
@@ -364,69 +396,107 @@ impl Model {
                         self.reason
                     )
                 };
-                body(c, &first, 336.0, INK);
+                body(c, &first, 330.0, INK);
                 body(
                     c,
                     "Your original game and your saves are only read, never changed.",
-                    410.0,
+                    404.0,
                     INK,
                 );
                 button(
                     c,
-                    [340.0, 470.0, 620.0, 525.0],
+                    [340.0, 460.0, 620.0, 516.0],
                     "Find my game",
                     Action::FindGame,
                     &mut hits,
                 );
             }
-            Screen::Found(games) => {
-                if games.is_empty() {
-                    body(c, "NGU Idle was not found in the usual Steam places. Please choose its folder.", 190.0, INK);
-                } else if games.len() == 1 {
-                    badge(c, "Found NGU Idle on your computer!", 150.0);
-                    field(c, &short(&games[0]), 210.0, INK);
-                    button(
-                        c,
-                        [300.0, 290.0, 660.0, 345.0],
-                        "Use this game",
-                        Action::UseGame(games[0].clone()),
-                        &mut hits,
-                    );
-                } else {
-                    badge(c, "Several copies were found. Choose one:", 130.0);
-                    for (i, game) in games.iter().take(5).enumerate() {
-                        let y = 190.0 + i as f32 * 58.0;
-                        button(
-                            c,
-                            [180.0, y, 780.0, y + 48.0],
-                            &short(game),
-                            Action::UseGame(game.clone()),
-                            &mut hits,
-                        );
-                    }
-                }
+            Screen::Found(games) if games.len() == 1 => {
+                badge(c, TEX_GOOD, "Found NGU Idle on your computer!", 150.0);
+                field(c, &short(&games[0]), 214.0, INK);
                 button(
                     c,
-                    [300.0, 480.0, 660.0, 535.0],
+                    [300.0, 320.0, 660.0, 376.0],
+                    "Use this game",
+                    Action::UseGame(games[0].clone()),
+                    &mut hits,
+                );
+                button(
+                    c,
+                    [300.0, 400.0, 660.0, 456.0],
                     "Choose a folder",
-                    Action::Browse,
+                    Action::Pick,
                     &mut hits,
                 );
             }
-            Screen::Browse(browser, problem) => {
+            Screen::Found(games) if games.is_empty() => {
+                badge(c, TEX_BAD, "NGU Idle was not found", 150.0);
+                body(
+                    c,
+                    "It is not in the usual Steam places. Please choose its folder.",
+                    230.0,
+                    INK,
+                );
+                button(
+                    c,
+                    [300.0, 320.0, 660.0, 376.0],
+                    "Choose a folder",
+                    Action::Pick,
+                    &mut hits,
+                );
+            }
+            Screen::Found(games) => {
+                badge(c, TEX_GOOD, "Several copies were found. Choose one:", 130.0);
+                for (i, game) in games.iter().take(4).enumerate() {
+                    let y = 200.0 + i as f32 * 58.0;
+                    button(
+                        c,
+                        [180.0, y, 780.0, y + 48.0],
+                        &short(game),
+                        Action::UseGame(game.clone()),
+                        &mut hits,
+                    );
+                }
+                button(
+                    c,
+                    [300.0, 450.0, 660.0, 506.0],
+                    "Choose a folder",
+                    Action::Pick,
+                    &mut hits,
+                );
+            }
+            Screen::Chosen(path, verdict) => {
+                match verdict {
+                    Ok(()) => badge(c, TEX_GOOD, "This location is valid", 150.0),
+                    Err(_) => badge(c, TEX_BAD, "This location is not valid", 150.0),
+                }
+                field(c, &short(path), 214.0, INK);
+                if let Err(why) = verdict {
+                    body(c, why, 272.0, INK);
+                } else {
+                    button(
+                        c,
+                        [300.0, 320.0, 660.0, 376.0],
+                        "Use this game",
+                        Action::UseGame(path.clone()),
+                        &mut hits,
+                    );
+                }
+                button(
+                    c,
+                    [300.0, 400.0, 660.0, 456.0],
+                    "Choose a folder",
+                    Action::Pick,
+                    &mut hits,
+                );
+            }
+            Screen::Browse(browser) => {
                 let place = browser
                     .dir
                     .as_deref()
                     .map_or_else(|| "Choose a place".to_owned(), short);
-                if self.choosing_output {
-                    badge(c, "Where should the nguidle folder go?", 100.0);
-                    field(c, &place, 146.0, INK);
-                } else {
-                    field(c, &place, 110.0, INK);
-                }
-                if let Some(problem) = problem {
-                    field(c, problem, 184.0, WARN);
-                }
+                badge(c, TEX_GOOD, "Where should the nguidle folder go?", 114.0);
+                field(c, &place, 172.0, INK);
                 for (row, entry) in browser
                     .entries
                     .iter()
@@ -434,7 +504,7 @@ impl Model {
                     .take(ROWS)
                     .enumerate()
                 {
-                    let y = 228.0 + row as f32 * 33.0;
+                    let y = 226.0 + row as f32 * 31.0;
                     let name = entry.file_name().map_or_else(
                         || entry.to_string_lossy().into_owned(),
                         |n| n.to_string_lossy().into_owned(),
@@ -446,17 +516,17 @@ impl Model {
                     };
                     button(
                         c,
-                        [180.0, y, 780.0, y + 30.0],
+                        [180.0, y, 780.0, y + 28.0],
                         &name,
                         Action::Open(entry.clone()),
                         &mut hits,
                     );
                 }
-                button(c, [150.0, 505.0, 330.0, 550.0], "Up", Action::Up, &mut hits);
+                button(c, [180.0, 482.0, 380.0, 524.0], "Up", Action::Up, &mut hits);
                 if browser.dir.is_some() {
                     button(
                         c,
-                        [570.0, 505.0, 810.0, 550.0],
+                        [540.0, 482.0, 780.0, 524.0],
                         "Use this folder",
                         Action::UseFolder,
                         &mut hits,
@@ -464,60 +534,60 @@ impl Model {
                 }
             }
             Screen::Working => {
-                badge(c, "Preparing your game...", 170.0);
-                body(c, "This takes about a minute, please wait.", 236.0, INK);
+                badge(c, TEX_GOOD, "Preparing your game...", 150.0);
+                body(c, "This takes about a minute, please wait.", 226.0, INK);
                 let text = self.job.lock().unwrap().text.clone();
-                field(c, &text, 300.0, INK);
-                // The game's own bar: a white box with a black border and a green fill.
+                field(c, &text, 280.0, INK);
+                // The game's bar: a white box with a coloured fill, the same pictures.
+                sprite(c, TEX_BUTTON, [230.0, 350.0, 730.0, 394.0], [1.0; 4]);
                 let done = progress(&text);
-                let pulse = 0.9 + 0.1 * (time * 4.0).sin();
-                c.boxed([230.0, 370.0, 730.0, 410.0], [1.0; 4]);
-                c.fill(
-                    [232.0, 372.0, 232.0 + 496.0 * done, 408.0],
-                    [0.35 * pulse, 0.8 * pulse, 0.4 * pulse, 1.0],
+                c.image(
+                    TEX_FILL,
+                    [238.0, 358.0, 238.0 + 484.0 * done, 386.0],
+                    BAR_GREEN,
                 );
             }
             Screen::Failed(message) => {
-                badge(c, "Something went wrong", 140.0);
-                let mut y = 210.0;
-                for line in c.wrap(Face::Body, 20, message, 540.0).into_iter().take(6) {
-                    field(c, &line, y, WARN);
-                    y += 42.0;
+                badge(c, TEX_BAD, "Something went wrong", 130.0);
+                let mut y = 200.0;
+                for line in c.wrap(Face::Body, 20, message, 560.0).into_iter().take(5) {
+                    field(c, &line, y, INK);
+                    y += 46.0;
                 }
                 button(
                     c,
-                    [340.0, 470.0, 620.0, 525.0],
+                    [340.0, 450.0, 620.0, 506.0],
                     "Back",
                     Action::Back,
                     &mut hits,
                 );
             }
             Screen::Done => {
-                c.image(TEX_CAT, [330.0, 110.0, 630.0, 310.0], [1.0; 4]);
+                c.image(TEX_CAT, [330.0, 100.0, 630.0, 300.0], [1.0; 4]);
                 if self.kind == Kind::Vita {
                     let place = self.output.as_deref().map_or_else(String::new, short);
-                    badge(c, "Done!", 320.0);
+                    badge(c, TEX_GOOD, "Done!", 312.0);
                     body(
                         c,
                         "Copy this folder into ux0:data on your PS Vita:",
-                        372.0,
+                        374.0,
                         INK,
                     );
-                    field(c, &place, 404.0, INK);
+                    field(c, &place, 402.0, INK);
                 } else {
-                    badge(c, "Everything is ready. Have fun!", 330.0);
+                    badge(c, TEX_GOOD, "Everything is ready. Have fun!", 312.0);
                     if !cfg!(target_os = "macos") {
                         body(
                             c,
                             "A shortcut named NGU Idle Rust Engine is added to your desktop.",
-                            385.0,
+                            374.0,
                             INK,
                         );
                     }
                 }
                 button(
                     c,
-                    [340.0, 460.0, 620.0, 515.0],
+                    [340.0, 456.0, 620.0, 512.0],
                     if self.kind == Kind::Vita {
                         "Close"
                     } else {
@@ -549,7 +619,7 @@ impl Model {
     pub fn back(&mut self) {
         if matches!(
             self.screen,
-            Screen::Found(_) | Screen::Browse(..) | Screen::Failed(_)
+            Screen::Found(_) | Screen::Chosen(..) | Screen::Browse(_) | Screen::Failed(_)
         ) {
             self.choosing_output = false;
             self.screen = Screen::Intro;
@@ -557,7 +627,7 @@ impl Model {
     }
 
     pub fn scroll(&mut self, notches: f32) {
-        if let Screen::Browse(browser, _) = &self.screen {
+        if let Screen::Browse(browser) = &self.screen {
             let last = browser.entries.len().saturating_sub(ROWS);
             self.offset = if notches > 0.0 {
                 self.offset.saturating_sub(1)
@@ -591,6 +661,11 @@ impl App {
 impl EventHandler for App {
     fn update(&mut self) {
         self.model.poll();
+        if self.model.pick {
+            self.model.pick = false;
+            let chosen = crate::dialog::pick_folder(self.model.pick_start());
+            self.model.picked(chosen);
+        }
         if self.model.play {
             self.model.finish();
             window::quit();
@@ -612,11 +687,17 @@ impl EventHandler for App {
         self.gpu.draw(&quads, &mut self.atlas);
     }
 
-    /// The window keeps the view's proportions: its size changes in both directions or not at all.
+    /// The window keeps the view's proportions and takes only the sizes in `sizes::SIZES`.
     fn resize_event(&mut self, width: f32, height: f32) {
-        let wanted = (width * HEIGHT / WIDTH).round();
-        if (wanted - height).abs() > 1.0 {
-            window::set_window_size(width as u32, wanted as u32);
+        // On Windows the drag itself is held to the allowed sizes; here the rest is corrected
+        // once the size is known (other systems, maximising).
+        let (w, h) = if cfg!(windows) {
+            (width as u32, (width * HEIGHT / WIDTH).round() as u32)
+        } else {
+            crate::sizes::nearest(width)
+        };
+        if (w as f32 - width).abs() > 1.0 || (h as f32 - height).abs() > 1.0 {
+            window::set_window_size(w, h);
         }
     }
 
@@ -645,7 +726,7 @@ impl EventHandler for App {
                         Action::FindGame
                             | Action::Play
                             | Action::UseGame(_)
-                            | Action::Browse
+                            | Action::Pick
                             | Action::Back
                     ) {
                         self.model.apply(first);
@@ -684,7 +765,9 @@ fn open(model: Model) {
         },
         ..Default::default()
     };
+    let title = conf.window_title.clone();
     miniquad::start(conf, move || {
+        crate::sizes::lock_while_dragging(&title);
         let art = Art::load();
         let gpu = Gpu::new(&art);
         let fonts = Fonts {
@@ -739,14 +822,35 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_that_is_not_the_game_is_refused_with_a_message() {
+    fn a_chosen_folder_is_checked_and_only_a_valid_one_offers_to_use_it() {
         let (mut model, dir) = model();
-        model.screen = Screen::Browse(Browser::open(dir.path()), None);
-        model.apply(Action::UseFolder);
-        let Screen::Browse(_, Some(message)) = &model.screen else {
-            panic!("expected a message")
+        // Cancelling the chooser changes nothing.
+        model.picked(None);
+        assert!(matches!(model.screen, Screen::Intro));
+        // A folder that is not the game is called not valid, with a reason, and offers no start.
+        model.picked(Some(dir.path().to_path_buf()));
+        let Screen::Chosen(_, Err(why)) = &model.screen else {
+            panic!("expected a refusal")
         };
-        assert!(message.contains("not NGU Idle"));
+        assert!(why.contains("not found"));
+        let hits = draw(&model);
+        assert!(hits.iter().all(|h| !matches!(h.action, Action::UseGame(_))));
+        assert!(hits.iter().any(|h| h.action == Action::Pick));
+        // A folder with every game file is valid and offers to use it.
+        let data = dir.path().join("NGUIdle_Data");
+        for name in ngu_prep::manifest().keys() {
+            let file = data.join(name);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"x").unwrap();
+        }
+        model.picked(Some(dir.path().to_path_buf()));
+        assert!(matches!(model.screen, Screen::Chosen(_, Ok(()))));
+        assert!(draw(&model)
+            .iter()
+            .any(|h| matches!(h.action, Action::UseGame(_))));
+        // Choosing a folder asks the window for the system chooser.
+        model.apply(Action::Pick);
+        assert!(model.pick);
     }
 
     #[test]
@@ -801,7 +905,7 @@ mod tests {
         assert_eq!(model.game.as_deref(), Some(Path::new("some game")));
         // Choosing the output starts the job; a game that is not there fails clearly.
         let dir = tempfile::tempdir().unwrap();
-        model.screen = Screen::Browse(Browser::open(dir.path()), None);
+        model.screen = Screen::Browse(Browser::open(dir.path()));
         model.apply(Action::UseFolder);
         for _ in 0..200 {
             model.poll();

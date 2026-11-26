@@ -36,11 +36,29 @@ pub struct Art {
     pub button: Image,
     pub backdrop: Image,
     pub cat: Image,
+    pub panel: Image,
+    pub good: Image,
+    pub bad: Image,
+    pub fill: Image,
     pub title: Font,
     pub body: Font,
 }
 
 impl Art {
+    /// The pictures in texture-number order, starting at `TEX_FRAME`.
+    pub fn pictures(&self) -> [&Image; 8] {
+        [
+            &self.frame,
+            &self.button,
+            &self.backdrop,
+            &self.cat,
+            &self.panel,
+            &self.good,
+            &self.bad,
+            &self.fill,
+        ]
+    }
+
     pub fn load() -> Art {
         let font =
             |bytes: &[u8]| Font::from_bytes(bytes, FontSettings::default()).expect("embedded font");
@@ -49,6 +67,10 @@ impl Art {
             button: decode(include_bytes!("../../../assets/ui/button.png")),
             backdrop: decode(include_bytes!("../../../assets/ui/backdrop.png")),
             cat: decode(include_bytes!("../../../assets/ui/cat.png")),
+            panel: decode(include_bytes!("../../../assets/ui/panel.png")),
+            good: decode(include_bytes!("../../../assets/ui/good.png")),
+            bad: decode(include_bytes!("../../../assets/ui/bad.png")),
+            fill: decode(include_bytes!("../../../assets/ui/fill.png")),
             title: font(include_bytes!("../../../assets/ui/title.ttf")),
             body: font(include_bytes!("../../../assets/ui/body.ttf")),
         }
@@ -63,6 +85,7 @@ mod tests {
     fn embedded_files_load() {
         let art = Art::load();
         assert_eq!((art.frame.width, art.frame.height), (200, 200));
+        assert_eq!((art.panel.width, art.fill.width), (50, 192));
         assert_eq!((art.backdrop.width, art.backdrop.height), (960, 600));
         assert_eq!(art.frame.rgba.len(), 200 * 200 * 4);
         assert!(art.title.horizontal_line_metrics(20.0).is_some());

@@ -35,10 +35,11 @@ pub fn raster(quads: &[Quad], art: &Art, atlas: &Atlas) -> Image {
     for q in quads {
         let image = match q.tex {
             TEX_ATLAS => &glyphs,
-            TEX_FRAME => &art.frame,
-            TEX_BUTTON => &art.button,
-            TEX_BACKDROP => &art.backdrop,
-            TEX_CAT => &art.cat,
+            t if t >= TEX_FRAME => art
+                .pictures()
+                .get((t - TEX_FRAME) as usize)
+                .copied()
+                .unwrap_or(&white),
             _ => &white,
         };
         let (x0, y0, x1, y1) = (q.p[0][0], q.p[0][1], q.p[2][0], q.p[2][1]);
