@@ -290,7 +290,12 @@ impl Node {
             while *at < rows.len() && rows[*at].0 > level {
                 children.push(build(rows, at));
             }
-            Node { ty, name, flags, children }
+            Node {
+                ty,
+                name,
+                flags,
+                children,
+            }
         }
         build(rows, &mut 0)
     }

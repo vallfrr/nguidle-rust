@@ -230,7 +230,10 @@ pub fn behaviours(
             let file_id = i32::from_le_bytes(reference[..4].try_into().unwrap());
             let path_id = i64::from_le_bytes(reference[4..].try_into().unwrap());
             let key = format!("{}:{path_id}", file.file_name(file_id));
-            let info = scripts.iter().find(|(k, _)| *k == key).map(|(_, info)| info);
+            let info = scripts
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, info)| info);
             let mut fields = match info.and_then(layout) {
                 Some(node) => Reader::new(bytes, file)
                     .value(&node, true)
@@ -244,7 +247,10 @@ pub fn behaviours(
             record.insert("t".into(), "MonoBehaviour".into());
             record.insert("script".into(), info.map_or(Value::Null, ScriptInfo::json));
             record.insert("d".into(), fields);
-            out.insert(format!("{}:{}", file.name, object.path_id), Value::Object(record));
+            out.insert(
+                format!("{}:{}", file.name, object.path_id),
+                Value::Object(record),
+            );
         }
     }
     Ok(out)
@@ -258,13 +264,17 @@ pub fn fit_card_labels(objects: &mut Map<String, Value>) {
         if record["script"]["cls"] != "Text" {
             continue;
         }
-        let Some(text) = record["d"].as_object() else { continue };
+        let Some(text) = record["d"].as_object() else {
+            continue;
+        };
         let name = text
             .get("m_GameObject")
             .and_then(|g| field(objects, g))
             .and_then(|g| g.get("m_Name"))
             .and_then(Value::as_str);
-        if matches!(name, Some("Total Mana Text" | "Mayo Gen Text")) && text.contains_key("m_FontData") {
+        if matches!(name, Some("Total Mana Text" | "Mayo Gen Text"))
+            && text.contains_key("m_FontData")
+        {
             targets.push(key.clone());
         }
     }
