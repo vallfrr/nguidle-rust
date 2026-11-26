@@ -24,17 +24,36 @@ fn main() {
         ("failed", Screen::Failed("This is not the supported NGU Idle build (1.260). Wrong SHA-256: Managed/Assembly-CSharp.dll".into())),
         ("done", Screen::Done),
     ];
+    let mut vita = Model::vita();
+    let vita_screens: Vec<(&str, Screen)> =
+        vec![("vita-intro", Screen::Intro), ("vita-done", Screen::Done)];
+    for (name, screen) in vita_screens {
+        vita.screen = screen;
+        vita.output = Some(PathBuf::from("Documents/nguidle"));
+        write(&out, name, &ngu_app::preview::screen(&vita, &art, 0.3));
+    }
+    vita.choosing_output = true;
+    vita.screen = Screen::Browse(Browser::open(&out), None);
+    write(
+        &out,
+        "vita-output",
+        &ngu_app::preview::screen(&vita, &art, 0.3),
+    );
     for (name, screen) in screens {
         model.screen = screen;
         let picture = ngu_app::preview::screen(&model, &art, 0.3);
-        let file = std::fs::File::create(out.join(format!("{name}.png"))).unwrap();
-        let mut encoder = png::Encoder::new(file, picture.width, picture.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .unwrap()
-            .write_image_data(&picture.rgba)
-            .unwrap();
+        write(&out, name, &picture);
     }
+}
+
+fn write(out: &std::path::Path, name: &str, picture: &ngu_app::art::Image) {
+    let file = std::fs::File::create(out.join(format!("{name}.png"))).unwrap();
+    let mut encoder = png::Encoder::new(file, picture.width, picture.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&picture.rgba)
+        .unwrap();
 }
