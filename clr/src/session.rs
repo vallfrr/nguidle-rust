@@ -119,6 +119,28 @@ pub struct TextField {
     pub rect: [f32; 4],
 }
 
+/// A control the player can reach with the focus, for tests.
+#[derive(Clone, Debug)]
+pub struct InspectedControl {
+    /// The text under the control.
+    pub label: String,
+    /// Left, top, right and bottom in game coordinates.
+    pub rect: [f32; 4],
+    /// The kind of control (button, toggle, field...).
+    pub kind: &'static str,
+}
+
+/// What the player can see and reach right now, for tests of a port.
+#[derive(Clone, Debug)]
+pub struct Inspection {
+    /// Every menu root with `true` when the port hides it.
+    pub menus: Vec<(String, bool)>,
+    /// Visible texts with their rectangle in game coordinates.
+    pub text: Vec<([f32; 4], String)>,
+    /// The controls the focus can reach.
+    pub controls: Vec<InspectedControl>,
+}
+
 /// The running game. See the [module documentation](self).
 pub struct Session {
     vm: Vm,
@@ -207,6 +229,33 @@ impl Session {
             numeric: r.numeric,
             rect,
         })
+    }
+
+    /// Run scripted steps (the format of [`crate::script`]), for tests of a port.
+    pub fn run_script(&mut self, steps: &[String]) {
+        crate::script::run_steps(&mut self.vm, steps);
+    }
+
+    /// The menus, texts and controls on screen, for tests of a port.
+    pub fn inspect(&mut self) -> Inspection {
+        let menus = crate::dev::menu_roots(&self.vm)
+            .iter()
+            .filter_map(|node| crate::unity::with_go(node, |go| (go.name.clone(), go.port_hidden)))
+            .collect();
+        let text = focus::visible_texts(&mut self.vm);
+        let controls = focus::collect(&mut self.vm)
+            .into_iter()
+            .map(|node| InspectedControl {
+                label: node.label,
+                rect: node.rect,
+                kind: node.kind,
+            })
+            .collect();
+        Inspection {
+            menus,
+            text,
+            controls,
+        }
     }
 
     /// Whether the home (save picker) screen is showing.

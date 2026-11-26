@@ -9,6 +9,8 @@
 
 - Remove the compile-time `target_os = "vita"` code from the engine. A host chooses its tuning at run time with `host_platform::set_host_tuning` or the C function `ngu_set_host_tuning` (background autosave, single-writer storage, startup fonts worker, layout timing). `ngu_layout_us` is always available. Migration: a Vita-like host calls `ngu_set_host_tuning(15)` before `ngu_init`; the environment variables `NGU_VITA_SAVE_DIR`, `NGU_VITA_PROFILE` and `NGU_TEST_VITA_ASSETS` become `NGU_SAVE_DIR`, `NGU_PROFILE` and `NGU_TEST_PREPARED_ASSETS`.
 
+- Add `Session::run_script` and `Session::inspect` (menus, visible texts, reachable controls) so a port's own tests no longer need `Session::vm()`.
+
 ## [0.5.0]
 
 - Add the documented platform interface (`platform-api::Engine`, `Action`, `Pointer`, `MouseButton`, `FixedStep`), including keys, the mouse wheel, secondary buttons and `reset_input` and `clr::session::Session`, a safe implementation that hosts the whole game.
