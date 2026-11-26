@@ -261,3 +261,22 @@ fn textures_fonts_and_texts_match_the_python_export() {
     println!("{} records, {} differences", records.len(), wrong.len());
     assert!(wrong.is_empty() && errors.is_empty());
 }
+
+#[test]
+#[ignore = "needs local game data"]
+fn archive_matches_the_python_archive() {
+    let data = PathBuf::from(std::env::var("NGU_GAME_DATA").expect("NGU_GAME_DATA"));
+    let reference_dir =
+        PathBuf::from(std::env::var("NGU_REFERENCE_DIR").expect("NGU_REFERENCE_DIR"));
+    let expected =
+        std::fs::read(std::env::var("NGU_REFERENCE_PAK").expect("NGU_REFERENCE_PAK")).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let pak = out.path().join("ngu.pak");
+    ngu_prep::pack::pack(
+        &reference_dir,
+        &data.join("Managed/Assembly-CSharp.dll"),
+        &pak,
+    )
+    .unwrap();
+    assert!(std::fs::read(&pak).unwrap() == expected, "archives differ");
+}
