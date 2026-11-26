@@ -56,6 +56,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-prep/src/locate.rs` — Finds an installed game in Steam, Flatpak, Snap and CrossOver locations.
 - `crates/ngu-prep/src/prepare.rs` — The PC and Vita preparation jobs: verify, copy, export, pack.
 - `crates/ngu-prep/src/unity/assets.rs` — Exports textures, fonts, text assets and audio clip records.
+- `crates/ngu-prep/src/unity/audio.rs` — Decodes the FMOD Vorbis sound effects, using the setup headers found in the game's own player library.
 - `crates/ngu-prep/src/unity/export.rs` — Writes the scene file, tag list and asset folders from the game data.
 - `crates/ngu-prep/src/unity/image.rs` — Decodes Unity texture formats to RGBA and writes PNG.
 - `crates/ngu-prep/src/unity/layout.rs` — Builds script field layouts from the game's assemblies using Unity's serialization rules.

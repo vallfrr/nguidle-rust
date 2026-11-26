@@ -82,7 +82,12 @@ pub fn export(
                     record["d"] = json!({});
                     record
                 }
-                AUDIO_CLIP => json!({"t": "AudioClip", "name": name}),
+                AUDIO_CLIP => {
+                    if let Err(e) = sound(&value, data_dir, &out.join("audio")) {
+                        errors.push(format!("{key}: sound: {e}"));
+                    }
+                    json!({"t": "AudioClip", "name": name})
+                }
                 _ => {
                     write(
                         &out.join("text").join(format!("{}.bin", file_key(&key))),
@@ -95,6 +100,32 @@ pub fn export(
         }
     }
     Ok((records, errors))
+}
+
+/// Decodes one sound effect from its resource file to `folder/<name>.wav`.
+fn sound(value: &Value, data_dir: &Path, folder: &Path) -> Result<()> {
+    if value["m_CompressionFormat"].as_i64() != Some(1) {
+        return Err("Only Vorbis sounds are supported.".into());
+    }
+    let resource = &value["m_Resource"];
+    let (offset, size) = (
+        resource["m_Offset"].as_u64().unwrap_or(0) as usize,
+        resource["m_Size"].as_u64().unwrap_or(0) as usize,
+    );
+    let source = resource["m_Source"].as_str().unwrap_or("");
+    let name = source.rsplit(['/', '\\']).next().unwrap_or(source);
+    let bank = fs::read(data_dir.join(name)).map_err(|e| format!("{source}: {e}"))?;
+    let bank = bank
+        .get(offset..offset + size)
+        .ok_or("The sound lies outside its file.")?;
+    let player = data_dir
+        .parent()
+        .map(|game| game.join("UnityPlayer.dll"))
+        .ok_or("No game folder.")?;
+    let player = fs::read(&player).map_err(|e| format!("{}: {e}", player.display()))?;
+    let wav = super::audio::bank_to_wav(bank, &player)?;
+    let file = value["m_Name"].as_str().unwrap_or("sound");
+    write(&folder.join(format!("{file}.wav")), &wav)
 }
 
 /// Pixel data of a texture, inline or in a streamed resource file.
