@@ -302,6 +302,11 @@ impl Model {
                         || entry.to_string_lossy().into_owned(),
                         |n| n.to_string_lossy().into_owned(),
                     );
+                    let name = if name.chars().count() > 60 {
+                        format!("{}...", name.chars().take(57).collect::<String>())
+                    } else {
+                        name
+                    };
                     button(
                         c,
                         [180.0, y, 780.0, y + 34.0],
@@ -374,6 +379,16 @@ impl Model {
         }
     }
 
+    /// The Escape key: one step back on screens where that makes sense, never while working.
+    pub fn back(&mut self) {
+        if matches!(
+            self.screen,
+            Screen::Found(_) | Screen::Browse(..) | Screen::Failed(_)
+        ) {
+            self.screen = Screen::Intro;
+        }
+    }
+
     pub fn scroll(&mut self, notches: f32) {
         if let Screen::Browse(browser, _) = &self.screen {
             let last = browser.entries.len().saturating_sub(ROWS);
@@ -395,6 +410,7 @@ struct App {
     hits: Vec<Hit>,
     mouse: (f32, f32),
     started: std::time::Instant,
+    atlas_scale: f32,
 }
 
 impl App {
@@ -418,7 +434,14 @@ impl EventHandler for App {
 
     fn draw(&mut self) {
         let time = self.started.elapsed().as_secs_f32();
-        let mut canvas = Canvas::new(&mut self.atlas, &self.fonts);
+        let (w, h) = window::screen_size();
+        let scale = (view(w, h).0 * 8.0).round() / 8.0;
+        if scale != self.atlas_scale {
+            // Text is rasterised for the current window size, so it stays sharp.
+            self.atlas = Atlas::default();
+            self.atlas_scale = scale;
+        }
+        let mut canvas = Canvas::new(&mut self.atlas, &self.fonts).with_scale(scale);
         self.hits = self.model.view(&mut canvas, self.mouse, time);
         let quads = std::mem::take(&mut canvas.quads);
         self.gpu.draw(&quads, &mut self.atlas);
@@ -441,12 +464,16 @@ impl EventHandler for App {
 
     fn key_down_event(&mut self, key: KeyCode, _mods: KeyMods, _repeat: bool) {
         match key {
-            KeyCode::Escape => self.model.apply(Action::Back),
+            KeyCode::Escape => self.model.back(),
             KeyCode::Enter | KeyCode::KpEnter => {
                 if let Some(first) = self.hits.first().map(|h| h.action.clone()) {
                     if matches!(
                         first,
-                        Action::FindGame | Action::Play | Action::UseGame(_) | Action::Back
+                        Action::FindGame
+                            | Action::Play
+                            | Action::UseGame(_)
+                            | Action::Browse
+                            | Action::Back
                     ) {
                         self.model.apply(first);
                     }
@@ -489,6 +516,7 @@ pub fn run(root: PathBuf, reason: String) {
             hits: Vec::new(),
             mouse: (-1.0, -1.0),
             started: std::time::Instant::now(),
+            atlas_scale: 1.0,
         })
     });
 }
@@ -563,6 +591,20 @@ mod tests {
         }
         assert!(matches!(model.screen, Screen::Failed(_)));
         assert!(!dir.path().join("app").exists());
+    }
+
+    #[test]
+    fn escape_goes_back_but_never_interrupts_the_preparation() {
+        let (mut model, _dir) = model();
+        model.screen = Screen::Working;
+        model.back();
+        assert!(matches!(model.screen, Screen::Working));
+        model.screen = Screen::Found(vec![]);
+        model.back();
+        assert!(matches!(model.screen, Screen::Intro));
+        model.screen = Screen::Done;
+        model.back();
+        assert!(matches!(model.screen, Screen::Done));
     }
 
     #[test]

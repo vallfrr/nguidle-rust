@@ -126,6 +126,8 @@ pub struct Canvas<'a> {
     pub quads: Vec<Quad>,
     pub atlas: &'a mut Atlas,
     pub fonts: &'a Fonts,
+    /// Window pixels per view pixel: text is rasterised at this scale so it stays sharp.
+    pub scale: f32,
 }
 
 fn quad(rect: [f32; 4], uv: [f32; 4], tex: u32, col: [f32; 4]) -> Quad {
@@ -147,6 +149,28 @@ impl<'a> Canvas<'a> {
             quads: Vec::new(),
             atlas,
             fonts,
+            scale: 1.0,
+        }
+    }
+
+    /// The same canvas for a window that shows the view `scale` times larger.
+    pub fn with_scale(mut self, scale: f32) -> Self {
+        self.scale = scale.max(0.5);
+        self
+    }
+
+    /// A glyph measured in view pixels, rasterised at the window's scale.
+    fn glyph(&mut self, face: Face, size: u32, c: char) -> Glyph {
+        let px = ((size as f32 * self.scale).round() as u32).max(1);
+        let k = px as f32 / size as f32;
+        let g = self.atlas.glyph(self.fonts, face, px, c);
+        Glyph {
+            uv: g.uv,
+            width: g.width / k,
+            height: g.height / k,
+            left: g.left / k,
+            top: g.top / k,
+            advance: g.advance / k,
         }
     }
 
@@ -184,7 +208,7 @@ impl<'a> Canvas<'a> {
     /// Width of `text` on one line.
     pub fn measure(&mut self, face: Face, size: u32, text: &str) -> f32 {
         text.chars()
-            .map(|c| self.atlas.glyph(self.fonts, face, size, c).advance)
+            .map(|c| self.glyph(face, size, c).advance)
             .sum()
     }
 
@@ -220,7 +244,7 @@ impl<'a> Canvas<'a> {
         let baseline = (y + ascent).round();
         let mut pen = x;
         for c in text.chars() {
-            let g = self.atlas.glyph(self.fonts, face, size, c);
+            let g = self.glyph(face, size, c);
             if g.width > 0.0 {
                 let (gx, gy) = ((pen + g.left).round(), baseline - g.top - g.height);
                 self.quads.push(quad(
@@ -304,5 +328,17 @@ mod tests {
         assert_eq!(canvas.quads.len(), 4);
         assert!(canvas.atlas.dirty);
         assert!(canvas.quads.iter().all(|q| q.tex == TEX_ATLAS));
+    }
+
+    #[test]
+    fn text_is_laid_out_in_view_pixels_whatever_the_window_scale() {
+        let (mut atlas, fonts) = parts();
+        let one = Canvas::new(&mut atlas, &fonts).measure(Face::Body, 20, "Hello world");
+        let (mut atlas, fonts) = parts();
+        let two =
+            Canvas::new(&mut atlas, &fonts)
+                .with_scale(2.0)
+                .measure(Face::Body, 20, "Hello world");
+        assert!((one - two).abs() < 2.0, "{one} vs {two}");
     }
 }
