@@ -33,10 +33,17 @@ pub fn load_files(data_dir: &Path) -> Result<Vec<SerializedFile>> {
         })
         .collect();
     names.sort();
-    names
+    let mut files = names
         .iter()
         .map(|n| SerializedFile::open(&data_dir.join(n)))
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    for name in ["unity default resources", "unity_builtin_extra"] {
+        let path = data_dir.join("Resources").join(name);
+        if path.is_file() {
+            files.push(SerializedFile::open(&path)?);
+        }
+    }
+    Ok(files)
 }
 
 /// `{"t": class, "d": fields}` for every plain engine object, keyed `file:id`.
@@ -161,5 +168,122 @@ pub fn hide_unavailable_online_ui(objects: &mut Map<String, Value>) {
         {
             go.insert("m_PortHidden".into(), Value::Bool(true));
         }
+    }
+}
+
+/// Script identity of a MonoBehaviour class, as stored in its MonoScript.
+#[derive(Debug, Clone)]
+pub struct ScriptInfo {
+    pub namespace: String,
+    pub class: String,
+    pub assembly: String,
+}
+
+impl ScriptInfo {
+    /// `Assembly.dll|Namespace.Class`, the key for layouts.
+    pub fn key(&self) -> String {
+        match self.namespace.is_empty() {
+            true => format!("{}|{}", self.assembly, self.class),
+            false => format!("{}|{}.{}", self.assembly, self.namespace, self.class),
+        }
+    }
+
+    fn json(&self) -> Value {
+        serde_json::json!({ "ns": self.namespace, "cls": self.class, "asm": self.assembly })
+    }
+}
+
+/// Every MonoScript of the game, keyed `file:pathid`.
+pub fn scripts(files: &[SerializedFile]) -> Result<Vec<(String, ScriptInfo)>> {
+    const MONO_SCRIPT: i32 = 115;
+    let layout = builtin(MONO_SCRIPT).ok_or("Missing MonoScript layout")?;
+    let mut out = Vec::new();
+    for file in files {
+        for object in file.objects.iter().filter(|o| o.class_id == MONO_SCRIPT) {
+            let value = Reader::new(file.bytes(object), file).value(layout, true)?;
+            let text = |name: &str| value[name].as_str().unwrap_or("").to_owned();
+            out.push((
+                format!("{}:{}", file.name, object.path_id),
+                ScriptInfo {
+                    namespace: text("m_Namespace"),
+                    class: text("m_ClassName"),
+                    assembly: text("m_AssemblyName"),
+                },
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// MonoBehaviour records. `layout` returns the field layout of a script class,
+/// or `None` when it cannot be built (the record then keeps no fields).
+pub fn behaviours(
+    files: &[SerializedFile],
+    scripts: &[(String, ScriptInfo)],
+    layout: &dyn Fn(&ScriptInfo) -> Option<std::rc::Rc<super::typetree::Node>>,
+) -> Result<Map<String, Value>> {
+    let mut out = Map::new();
+    for file in files {
+        for object in file.objects.iter().filter(|o| o.class_id == 114) {
+            let bytes = file.bytes(object);
+            let reference = bytes.get(16..28).ok_or("Short MonoBehaviour")?;
+            let file_id = i32::from_le_bytes(reference[..4].try_into().unwrap());
+            let path_id = i64::from_le_bytes(reference[4..].try_into().unwrap());
+            let key = format!("{}:{path_id}", file.file_name(file_id));
+            let info = scripts
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, info)| info);
+            let mut fields = match info.and_then(layout) {
+                Some(node) => Reader::new(bytes, file)
+                    .value(&node, true)
+                    .map_err(|e| format!("{}:{} ({}): {e}", file.name, object.path_id, key))?,
+                None => Value::Object(Map::new()),
+            };
+            if let Value::Object(map) = &mut fields {
+                map.shift_remove("m_Script");
+            }
+            let mut record = Map::new();
+            record.insert("t".into(), "MonoBehaviour".into());
+            record.insert("script".into(), info.map_or(Value::Null, ScriptInfo::json));
+            record.insert("d".into(), fields);
+            out.insert(
+                format!("{}:{}", file.name, object.path_id),
+                Value::Object(record),
+            );
+        }
+    }
+    Ok(out)
+}
+
+/// Two score labels are drawn smaller than the original so they fit the
+/// port's font.
+pub fn fit_card_labels(objects: &mut Map<String, Value>) {
+    let mut targets = Vec::new();
+    for (key, record) in objects.iter() {
+        if record["script"]["cls"] != "Text" {
+            continue;
+        }
+        let Some(text) = record["d"].as_object() else {
+            continue;
+        };
+        let name = text
+            .get("m_GameObject")
+            .and_then(|g| field(objects, g))
+            .and_then(|g| g.get("m_Name"))
+            .and_then(Value::as_str);
+        if matches!(name, Some("Total Mana Text" | "Mayo Gen Text"))
+            && text.contains_key("m_FontData")
+        {
+            targets.push(key.clone());
+        }
+    }
+    for key in targets {
+        let font = &mut objects.get_mut(&key).unwrap()["d"]["m_FontData"];
+        let size = font["m_FontSize"].clone();
+        let small = size.as_i64().unwrap_or(10).min(10);
+        font["m_BestFit"] = Value::Bool(true);
+        font["m_MinSize"] = small.into();
+        font["m_MaxSize"] = size;
     }
 }

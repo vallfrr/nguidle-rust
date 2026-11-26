@@ -279,3 +279,24 @@ mod tests {
         assert!(builtin(99_999).is_none());
     }
 }
+
+impl Node {
+    /// Builds a tree from `(level, type, name, flags)` rows in document order.
+    pub fn from_flat(rows: &[(usize, String, String, u64)]) -> Node {
+        fn build(rows: &[(usize, String, String, u64)], at: &mut usize) -> Node {
+            let (level, ty, name, flags) = rows[*at].clone();
+            *at += 1;
+            let mut children = Vec::new();
+            while *at < rows.len() && rows[*at].0 > level {
+                children.push(build(rows, at));
+            }
+            Node {
+                ty,
+                name,
+                flags,
+                children,
+            }
+        }
+        build(rows, &mut 0)
+    }
+}
