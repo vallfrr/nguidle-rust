@@ -5,7 +5,6 @@
 //! files embedded in the program (`assets/ui`). Later launches play the game directly.
 
 pub mod art;
-pub mod browse;
 pub mod canvas;
 pub mod dialog;
 pub mod gpu;

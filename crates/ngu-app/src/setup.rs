@@ -1,7 +1,6 @@
 //! The setup window: finds the game, asks the player when needed, prepares it.
 
 use crate::art::Art;
-use crate::browse::Browser;
 use crate::canvas::*;
 use crate::gpu::{view, Gpu};
 use miniquad::{window, EventHandler, KeyCode, KeyMods, MouseButton};
@@ -13,7 +12,6 @@ const INK: [f32; 4] = [0.04, 0.04, 0.08, 1.0];
 /// The fill colour of the game's energy bar.
 const BAR_GREEN: [f32; 4] = [0.34, 0.81, 0.5, 1.0];
 const SHADOW: [f32; 4] = [0.05, 0.1, 0.18, 1.0];
-const ROWS: usize = 8;
 
 /// What a click on a widget does.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,9 +20,6 @@ pub enum Action {
     UseGame(PathBuf),
     /// Open the system's folder chooser.
     Pick,
-    Open(PathBuf),
-    Up,
-    UseFolder,
     Back,
     Play,
 }
@@ -35,7 +30,8 @@ pub enum Screen {
     Found(Vec<PathBuf>),
     /// A folder the player chose, and whether the game can be used from there.
     Chosen(PathBuf, Result<(), String>),
-    Browse(Browser),
+    /// Vita: waiting for the output folder to be chosen.
+    Output,
     Working,
     Failed(String),
     Done,
@@ -86,7 +82,6 @@ pub struct Model {
     pub reason: String,
     pub root: PathBuf,
     pub home: Option<PathBuf>,
-    pub offset: usize,
     pub job: Arc<Mutex<Job>>,
     pub play: bool,
     /// Set when the folder chooser must be opened by the window.
@@ -147,7 +142,6 @@ impl Model {
             reason,
             root,
             home,
-            offset: 0,
             job: Arc::default(),
             play: false,
             pick: false,
@@ -171,8 +165,7 @@ impl Model {
     fn choose_output(&mut self, game: PathBuf) {
         self.game = Some(game);
         self.choosing_output = true;
-        self.offset = 0;
-        self.screen = Screen::Browse(Browser::at_roots(self.home.clone()));
+        self.screen = Screen::Output;
     }
 
     /// Games found in the usual places.
@@ -191,24 +184,6 @@ impl Model {
                 Kind::Vita => self.choose_output(path),
             },
             Action::Pick => self.pick = true,
-            Action::Open(path) => {
-                self.offset = 0;
-                self.screen = Screen::Browse(Browser::open(&path));
-            }
-            Action::Up => {
-                if let Screen::Browse(browser) = &self.screen {
-                    self.offset = 0;
-                    self.screen = Screen::Browse(browser.up(self.home.clone()));
-                }
-            }
-            Action::UseFolder => {
-                let Screen::Browse(browser) = &self.screen else {
-                    return;
-                };
-                if let (Some(dir), Some(game)) = (browser.dir.clone(), self.game.clone()) {
-                    self.start_vita(game, dir);
-                }
-            }
             Action::Back => {
                 self.choosing_output = false;
                 self.screen = Screen::Intro;
@@ -219,14 +194,32 @@ impl Model {
 
     /// What the folder chooser returned: the folder is checked and shown, nothing starts yet.
     pub fn picked(&mut self, folder: Option<PathBuf>) {
-        if let Some(folder) = folder {
+        let Some(folder) = folder else { return };
+        if self.choosing_output {
+            // Vita: the chosen folder receives the nguidle folder, so the job starts at once.
+            if let Some(game) = self.game.clone() {
+                self.start_vita(game, folder);
+            }
+        } else {
             let verdict = check_location(&folder);
             self.screen = Screen::Chosen(folder, verdict);
         }
     }
 
+    /// The title of the folder chooser for what is being asked.
+    pub fn pick_title(&self) -> &'static str {
+        if self.choosing_output {
+            "Choose where to create the nguidle folder"
+        } else {
+            "Choose the NGU Idle folder"
+        }
+    }
+
     /// Where the folder chooser should open: the Steam games folder when there is one.
     pub fn pick_start(&self) -> Option<PathBuf> {
+        if self.choosing_output {
+            return self.home.clone();
+        }
         let home = self.home.clone().unwrap_or_default();
         let roots =
             ngu_prep::locate::steam_roots(Os::current(), &home, |name| std::env::var(name).ok());
@@ -350,7 +343,7 @@ impl Model {
                 };
                 sprite(c, TEX_BUTTON, rect, tint);
                 // Folder names and paths read better in the plain font.
-                let plain = matches!(action, Action::Open(_)) || label.contains(['/', '\\']);
+                let plain = label.contains(['/', '\\']);
                 let (face, size) = if plain {
                     (Face::Body, 20)
                 } else {
@@ -490,48 +483,21 @@ impl Model {
                     &mut hits,
                 );
             }
-            Screen::Browse(browser) => {
-                let place = browser
-                    .dir
-                    .as_deref()
-                    .map_or_else(|| "Choose a place".to_owned(), short);
-                badge(c, TEX_GOOD, "Where should the nguidle folder go?", 114.0);
-                field(c, &place, 172.0, INK);
-                for (row, entry) in browser
-                    .entries
-                    .iter()
-                    .skip(self.offset)
-                    .take(ROWS)
-                    .enumerate()
-                {
-                    let y = 226.0 + row as f32 * 31.0;
-                    let name = entry.file_name().map_or_else(
-                        || entry.to_string_lossy().into_owned(),
-                        |n| n.to_string_lossy().into_owned(),
-                    );
-                    let name = if name.chars().count() > 60 {
-                        format!("{}...", name.chars().take(57).collect::<String>())
-                    } else {
-                        name
-                    };
-                    button(
-                        c,
-                        [180.0, y, 780.0, y + 28.0],
-                        &name,
-                        Action::Open(entry.clone()),
-                        &mut hits,
-                    );
-                }
-                button(c, [180.0, 482.0, 380.0, 524.0], "Up", Action::Up, &mut hits);
-                if browser.dir.is_some() {
-                    button(
-                        c,
-                        [540.0, 482.0, 780.0, 524.0],
-                        "Use this folder",
-                        Action::UseFolder,
-                        &mut hits,
-                    );
-                }
+            Screen::Output => {
+                badge(c, TEX_GOOD, "Where should the nguidle folder go?", 150.0);
+                body(
+                    c,
+                    "A folder named nguidle will be created in the place you choose, ready to copy to your PS Vita.",
+                    230.0,
+                    INK,
+                );
+                button(
+                    c,
+                    [300.0, 320.0, 660.0, 376.0],
+                    "Choose a folder",
+                    Action::Pick,
+                    &mut hits,
+                );
             }
             Screen::Working => {
                 badge(c, TEX_GOOD, "Preparing your game...", 150.0);
@@ -619,21 +585,10 @@ impl Model {
     pub fn back(&mut self) {
         if matches!(
             self.screen,
-            Screen::Found(_) | Screen::Chosen(..) | Screen::Browse(_) | Screen::Failed(_)
+            Screen::Found(_) | Screen::Chosen(..) | Screen::Output | Screen::Failed(_)
         ) {
             self.choosing_output = false;
             self.screen = Screen::Intro;
-        }
-    }
-
-    pub fn scroll(&mut self, notches: f32) {
-        if let Screen::Browse(browser) = &self.screen {
-            let last = browser.entries.len().saturating_sub(ROWS);
-            self.offset = if notches > 0.0 {
-                self.offset.saturating_sub(1)
-            } else {
-                (self.offset + 1).min(last)
-            };
         }
     }
 }
@@ -663,7 +618,8 @@ impl EventHandler for App {
         self.model.poll();
         if self.model.pick {
             self.model.pick = false;
-            let chosen = crate::dialog::pick_folder(self.model.pick_start());
+            let chosen =
+                crate::dialog::pick_folder(self.model.pick_title(), self.model.pick_start());
             self.model.picked(chosen);
         }
         if self.model.play {
@@ -710,10 +666,6 @@ impl EventHandler for App {
             let at = self.logical(x, y);
             self.model.click(&self.hits, at);
         }
-    }
-
-    fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
-        self.model.scroll(y);
     }
 
     fn key_down_event(&mut self, key: KeyCode, _mods: KeyMods, _repeat: bool) {
@@ -901,12 +853,16 @@ mod tests {
         assert_eq!(model.kind.title(), "NGU Idle Vita Prep");
         assert!(!draw(&model).is_empty());
         model.apply(Action::UseGame(PathBuf::from("some game")));
-        assert!(model.choosing_output && matches!(model.screen, Screen::Browse(..)));
+        assert!(model.choosing_output && matches!(model.screen, Screen::Output));
         assert_eq!(model.game.as_deref(), Some(Path::new("some game")));
+        assert!(draw(&model).iter().any(|h| h.action == Action::Pick));
+        assert!(model.pick_title().contains("nguidle"));
+        // Cancelling the chooser changes nothing.
+        model.picked(None);
+        assert!(matches!(model.screen, Screen::Output));
         // Choosing the output starts the job; a game that is not there fails clearly.
         let dir = tempfile::tempdir().unwrap();
-        model.screen = Screen::Browse(Browser::open(dir.path()));
-        model.apply(Action::UseFolder);
+        model.picked(Some(dir.path().to_path_buf()));
         for _ in 0..200 {
             model.poll();
             if !matches!(model.screen, Screen::Working) {
