@@ -235,6 +235,8 @@ pub fn png_bytes(picture: &Picture) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, picture.width as u32, picture.height as u32);
     encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Best);
+    encoder.set_adaptive_filter(png::AdaptiveFilterType::Adaptive);
     let data: Vec<u8>;
     if picture.opaque {
         encoder.set_color(png::ColorType::Rgb);
