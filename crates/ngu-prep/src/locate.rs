@@ -28,7 +28,9 @@ pub fn plain(path: PathBuf) -> PathBuf {
 /// The Steam folder the Windows registry names, read with the system's own `reg` tool.
 #[cfg(windows)]
 fn registry_steam() -> Option<PathBuf> {
+    use std::os::windows::process::CommandExt;
     let out = std::process::Command::new("reg")
+        .creation_flags(0x0800_0000) // no console window flashing
         .args(["query", r"HKCU\Software\Valve\Steam", "/v", "SteamPath"])
         .output()
         .ok()?;
