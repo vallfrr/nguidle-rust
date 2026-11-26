@@ -42,6 +42,25 @@ pub struct Hit {
     pub action: Action,
 }
 
+/// Which program the window belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// NGUIdleRustEngine: prepares the game for this computer, then plays it.
+    Pc,
+    /// nguidle-prep: writes the `nguidle` folder for a PS Vita.
+    Vita,
+}
+
+impl Kind {
+    /// Title of the window and heading of the panel.
+    pub fn title(self) -> &'static str {
+        match self {
+            Kind::Pc => crate::NAME,
+            Kind::Vita => "nguidle-prep",
+        }
+    }
+}
+
 /// Progress shared with the preparation thread.
 #[derive(Default)]
 pub struct Job {
@@ -51,6 +70,12 @@ pub struct Job {
 
 /// Everything the setup window knows, apart from graphics.
 pub struct Model {
+    pub kind: Kind,
+    /// The game chosen for a Vita preparation, while the output folder is being chosen.
+    pub game: Option<PathBuf>,
+    pub choosing_output: bool,
+    /// Where the Vita folder was written.
+    pub output: Option<PathBuf>,
     pub screen: Screen,
     /// Why the setup is shown (empty on the very first launch).
     pub reason: String,
@@ -83,6 +108,10 @@ impl Model {
         let home =
             std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
         Model {
+            kind: Kind::Pc,
+            game: None,
+            choosing_output: false,
+            output: None,
             screen: Screen::Intro,
             reason,
             root,
@@ -91,6 +120,21 @@ impl Model {
             job: Arc::default(),
             play: false,
         }
+    }
+
+    /// The model of the Vita preparation program.
+    pub fn vita() -> Model {
+        let mut model = Model::new(PathBuf::new(), String::new());
+        model.kind = Kind::Vita;
+        model
+    }
+
+    /// Vita: the game is chosen, now where to put the `nguidle` folder.
+    fn choose_output(&mut self, game: PathBuf) {
+        self.game = Some(game);
+        self.choosing_output = true;
+        self.offset = 0;
+        self.screen = Screen::Browse(Browser::at_roots(self.home.clone()), None);
     }
 
     /// Games found in the usual places.
@@ -104,7 +148,10 @@ impl Model {
     pub fn apply(&mut self, action: Action) {
         match action {
             Action::FindGame => self.screen = Screen::Found(self.detect()),
-            Action::UseGame(path) => self.start(path),
+            Action::UseGame(path) => match self.kind {
+                Kind::Pc => self.start(path),
+                Kind::Vita => self.choose_output(path),
+            },
             Action::Browse => {
                 self.offset = 0;
                 self.screen = Screen::Browse(Browser::at_roots(self.home.clone()), None);
@@ -126,8 +173,15 @@ impl Model {
                 let Some(dir) = browser.dir.clone() else {
                     return;
                 };
-                if ngu_prep::data_dir(&dir).is_ok() {
-                    self.start(dir);
+                if self.choosing_output {
+                    if let Some(game) = self.game.clone() {
+                        self.start_vita(game, dir);
+                    }
+                } else if ngu_prep::data_dir(&dir).is_ok() {
+                    match self.kind {
+                        Kind::Pc => self.start(dir),
+                        Kind::Vita => self.choose_output(dir),
+                    }
                 } else {
                     let message =
                         "This folder is not NGU Idle. Open the folder that contains NGU IDLE.exe."
@@ -135,9 +189,33 @@ impl Model {
                     self.screen = Screen::Browse(Browser::open(&dir), Some(message));
                 }
             }
-            Action::Back => self.screen = Screen::Intro,
+            Action::Back => {
+                self.choosing_output = false;
+                self.screen = Screen::Intro;
+            }
             Action::Play => self.play = true,
         }
+    }
+
+    /// Runs the Vita preparation on a thread: the `nguidle` folder goes into `output`.
+    fn start_vita(&mut self, game: PathBuf, output: PathBuf) {
+        self.screen = Screen::Working;
+        self.choosing_output = false;
+        self.output = Some(output.join("nguidle"));
+        let job = Arc::new(Mutex::new(Job {
+            text: "Starting...".into(),
+            result: None,
+        }));
+        self.job = job.clone();
+        std::thread::spawn(move || {
+            let progress = job.clone();
+            let result = ngu_prep::prepare::prepare_vita(&game, &output, &mut |text| {
+                progress.lock().unwrap().text = text.to_owned()
+            })
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+            job.lock().unwrap().result = Some(result);
+        });
     }
 
     fn start(&mut self, game: PathBuf) {
@@ -183,7 +261,7 @@ impl Model {
             [130.0, 40.0, 830.0, 560.0],
             [1.0; 4],
         );
-        c.text_centered(Face::Title, 40, crate::NAME, WIDTH / 2.0, 62.0, INK);
+        c.text_centered(Face::Title, 40, self.kind.title(), WIDTH / 2.0, 62.0, INK);
         let mut hits = Vec::new();
         let button =
             |c: &mut Canvas, rect: [f32; 4], label: &str, action: Action, hits: &mut Vec<Hit>| {
@@ -224,7 +302,9 @@ impl Model {
         match &self.screen {
             Screen::Intro => {
                 c.image(TEX_CAT, [330.0, 120.0, 630.0, 320.0], [1.0; 4]);
-                let first = if self.reason.is_empty() {
+                let first = if self.kind == Kind::Vita {
+                    "This prepares NGU Idle for your PS Vita: it writes a folder named nguidle to copy next to the nguidle.vpk.".to_owned()
+                } else if self.reason.is_empty() {
                     "Welcome! NGU Idle must be set up once before you can play.".to_owned()
                 } else {
                     format!(
@@ -286,7 +366,12 @@ impl Model {
                     .dir
                     .as_deref()
                     .map_or_else(|| "Choose a place".to_owned(), short);
-                body(c, &place, 112.0, INK);
+                if self.choosing_output {
+                    body(c, "Where should the nguidle folder be created?", 100.0, INK);
+                    body(c, &place, 128.0, INK);
+                } else {
+                    body(c, &place, 112.0, INK);
+                }
                 if let Some(problem) = problem {
                     body(c, problem, 140.0, WARN);
                 }
@@ -352,11 +437,26 @@ impl Model {
             }
             Screen::Done => {
                 c.image(TEX_CAT, [330.0, 120.0, 630.0, 320.0], [1.0; 4]);
-                body(c, "Everything is ready. Have fun!", 350.0, INK);
+                if self.kind == Kind::Vita {
+                    let place = self.output.as_deref().map_or_else(String::new, short);
+                    body(
+                        c,
+                        "Done! Copy this folder into ux0:data on your PS Vita:",
+                        340.0,
+                        INK,
+                    );
+                    body(c, &place, 400.0, INK);
+                } else {
+                    body(c, "Everything is ready. Have fun!", 350.0, INK);
+                }
                 button(
                     c,
                     [340.0, 440.0, 620.0, 495.0],
-                    "Play",
+                    if self.kind == Kind::Vita {
+                        "Close"
+                    } else {
+                        "Play"
+                    },
                     Action::Play,
                     &mut hits,
                 );
@@ -385,6 +485,7 @@ impl Model {
             self.screen,
             Screen::Found(_) | Screen::Browse(..) | Screen::Failed(_)
         ) {
+            self.choosing_output = false;
             self.screen = Screen::Intro;
         }
     }
@@ -425,8 +526,10 @@ impl EventHandler for App {
     fn update(&mut self) {
         self.model.poll();
         if self.model.play {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(exe).spawn();
+            if self.model.kind == Kind::Pc {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
             }
             window::quit();
         }
@@ -487,8 +590,19 @@ impl EventHandler for App {
 
 /// Opens the setup window. `reason` explains why it is shown (empty on a first launch).
 pub fn run(root: PathBuf, reason: String) {
+    let mut model = Model::new(root, reason);
+    model.kind = Kind::Pc;
+    open(model);
+}
+
+/// Opens the Vita preparation window.
+pub fn run_vita() {
+    open(Model::vita());
+}
+
+fn open(model: Model) {
     let conf = miniquad::conf::Conf {
-        window_title: crate::NAME.to_owned(),
+        window_title: model.kind.title().to_owned(),
         window_width: 960,
         window_height: 600,
         window_resizable: true,
@@ -508,7 +622,7 @@ pub fn run(root: PathBuf, reason: String) {
             body: Art::load().body,
         };
         Box::new(App {
-            model: Model::new(root, reason),
+            model,
             art,
             atlas: Atlas::default(),
             fonts,
@@ -605,6 +719,32 @@ mod tests {
         model.screen = Screen::Done;
         model.back();
         assert!(matches!(model.screen, Screen::Done));
+    }
+
+    #[test]
+    fn the_vita_program_asks_for_the_game_then_for_the_output_folder() {
+        let mut model = Model::vita();
+        assert_eq!(model.kind.title(), "nguidle-prep");
+        assert!(!draw(&model).is_empty());
+        model.apply(Action::UseGame(PathBuf::from("some game")));
+        assert!(model.choosing_output && matches!(model.screen, Screen::Browse(..)));
+        assert_eq!(model.game.as_deref(), Some(Path::new("some game")));
+        // Choosing the output starts the job; a game that is not there fails clearly.
+        let dir = tempfile::tempdir().unwrap();
+        model.screen = Screen::Browse(Browser::open(dir.path()), None);
+        model.apply(Action::UseFolder);
+        for _ in 0..200 {
+            model.poll();
+            if !matches!(model.screen, Screen::Working) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(matches!(model.screen, Screen::Failed(_)));
+        assert!(!dir.path().join("nguidle").exists());
+        model.back();
+        model.apply(Action::Back);
+        assert!(!model.choosing_output && matches!(model.screen, Screen::Intro));
     }
 
     #[test]
