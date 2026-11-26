@@ -1,0 +1,150 @@
+name: Release
+
+# A tag starting with v builds every PC file and drafts a pre-release with their SHA-256.
+# Run by hand (Actions, Release, Run workflow) to build the files as artifacts without a release.
+
+"on":
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Build
+        run: cargo +1.100.0 build --release --locked -p ngu-app --bin NGUIdleRustEngine
+      - name: Name the file
+        run: |
+          mkdir dist
+          cp target/release/NGUIdleRustEngine.exe dist/NGUIdleRustEngine-windows.exe
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: files-windows
+          path: dist/*
+
+  linux:
+    name: Linux
+    # The oldest runner keeps the binary usable on older distributions.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: Install Rust
+        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Build
+        run: cargo +1.100.0 build --release --locked -p ngu-app --bin NGUIdleRustEngine
+      - name: Name the binary
+        run: |
+          mkdir dist
+          cp target/release/NGUIdleRustEngine dist/NGUIdleRustEngine-linux
+          chmod +x dist/NGUIdleRustEngine-linux
+      - name: Make the AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp dist/NGUIdleRustEngine-linux AppDir/usr/bin/NGUIdleRustEngine
+          cp assets/ui/cat.png AppDir/NGUIdleRustEngine.png
+          ln -s usr/bin/NGUIdleRustEngine AppDir/AppRun
+          printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=NGUIdleRustEngine' \
+            'Exec=NGUIdleRustEngine' 'Icon=NGUIdleRustEngine' 'Categories=Game;' > AppDir/NGUIdleRustEngine.desktop
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir dist/NGUIdleRustEngine-linux-x86_64.AppImage
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: files-linux
+          path: dist/*
+
+  macos:
+    name: macOS
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install 1.100.0 --profile minimal --target x86_64-apple-darwin --target aarch64-apple-darwin
+      - name: Build both processors
+        run: |
+          for target in x86_64-apple-darwin aarch64-apple-darwin; do
+            cargo +1.100.0 build --release --locked --target "$target" -p ngu-app --bin NGUIdleRustEngine
+          done
+      - name: Join them into one universal binary
+        run: |
+          mkdir dist
+          lipo -create -output dist/NGUIdleRustEngine-macos \
+            target/x86_64-apple-darwin/release/NGUIdleRustEngine \
+            target/aarch64-apple-darwin/release/NGUIdleRustEngine
+          chmod +x dist/NGUIdleRustEngine-macos
+      - name: Make the app bundle
+        run: |
+          app=NGUIdleRustEngine.app
+          mkdir -p "$app/Contents/MacOS"
+          cp dist/NGUIdleRustEngine-macos "$app/Contents/MacOS/NGUIdleRustEngine"
+          printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict>' \
+            '<key>CFBundleName</key><string>NGUIdleRustEngine</string>' \
+            '<key>CFBundleExecutable</key><string>NGUIdleRustEngine</string>' \
+            '<key>CFBundleIdentifier</key><string>io.github.vallfrr.nguidlerustengine</string>' \
+            '<key>CFBundlePackageType</key><string>APPL</string>' \
+            '<key>NSHighResolutionCapable</key><true/>' \
+            '</dict></plist>' > "$app/Contents/Info.plist"
+          ditto -c -k --keepParent "$app" dist/NGUIdleRustEngine-macos-app.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: files-macos
+          path: dist/*
+
+  draft:
+    name: Draft the pre-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: files-*
+          path: dist
+          merge-multiple: true
+      - name: Write the notes
+        run: |
+          {
+            echo "You need to own NGU Idle on Steam (version 1.260)."
+            echo
+            echo "Source tag: ${GITHUB_REF_NAME}"
+            echo
+            echo "SHA-256"
+            echo
+            echo '```'
+            (cd dist && sha256sum * )
+            echo '```'
+          } > notes.md
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --draft --prerelease --title "${GITHUB_REF_NAME}" --notes-file notes.md
