@@ -49,9 +49,9 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/unity/schedule.rs` — Managed delayed invocations and coroutines.
 - `clr/src/vm/specializations.rs` — Game-specific VM accelerators.
 - `crates/cil-interp/src/lib.rs` — Host-independent frame execution and scalar arithmetic.
-- `crates/ngu-prep/src/dirs.rs` � Per-system data folders for the application (`NGUIdleRustEngine`).
-- `crates/ngu-prep/src/lib.rs` � Verifies the game against the SHA-256 manifest and copies it without touching the original.
-- `crates/ngu-prep/src/locate.rs` � Finds an installed game in Steam, Flatpak, Snap and CrossOver locations.
+- `crates/ngu-prep/src/dirs.rs` — Per-system data folders for the application (`NGUIdleRustEngine`).
+- `crates/ngu-prep/src/lib.rs` — Verifies the game against the SHA-256 manifest and copies it without touching the original.
+- `crates/ngu-prep/src/locate.rs` — Finds an installed game in Steam, Flatpak, Snap and CrossOver locations.
 - `crates/platform-api/src/lib.rs` — Platform interface: the engine trait, draw target, actions, fixed-step time and triangle batching.
 - `crates/save-format/src/lib.rs` — Independent reader and writer for the MS-NRBF wire format.
 - `clr/src/host_platform.rs` — Host tuning chosen at run time: file publication and background autosaves.
