@@ -23,18 +23,21 @@ foreach ($destination in $out, $target) {
     }
 }
 
-& $Python (Join-Path $PSScriptRoot 'verify_game_data.py') $game
-if ($LASTEXITCODE -ne 0) { throw 'Game data verification failed.' }
-& $Python (Join-Path $PSScriptRoot 'nguprep.py') --game-data $game --out $out
-if ($LASTEXITCODE -ne 0) { throw 'Game data extraction failed.' }
+$env:CARGO_TARGET_DIR = $target
+Push-Location -LiteralPath $repo
+try {
+    cargo run --locked --release -p ngu-prep --bin ngu-prepare -- export $game $out
+    if ($LASTEXITCODE -ne 0) { throw 'Game data verification or extraction failed.' }
+} finally {
+    Pop-Location
+}
 if (!$SkipMilestoneIcons) {
     & $Python (Join-Path $PSScriptRoot 'fetch-achievement-icons.py') $out
     if ($LASTEXITCODE -ne 0) { Write-Warning 'Steam achievement icons are temporarily unavailable. The game will show text in their place.' }
 }
 if ($ExtractOnly) { return }
 
-$env:CARGO_TARGET_DIR = $target
-$dll = Join-Path $game 'Managed/Assembly-CSharp.dll'
+$dll = Join-Path $out 'Assembly-CSharp.dll'
 Push-Location -LiteralPath $repo
 try {
     cargo build --locked --release --package ngu-desktop --bin ngu-window

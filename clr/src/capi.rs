@@ -116,7 +116,7 @@ fn st() -> Option<&'static mut State> {
 
 /// Load the game and open its home screen. Call once, first, on the thread that will make every other call.
 ///
-/// * `data_dir`: NUL-terminated path of the folder prepared with `tools/nguprep.py` (or holding `ngu.pak`). It must
+/// * `data_dir`: NUL-terminated path of the folder prepared with `ngu-prepare export` (or holding `ngu.pak`). It must
 ///   hold `Assembly-CSharp.dll`. Saves go to `<data_dir>/save` unless `NGU_SAVE_DIR` names another folder.
 /// * `dev_w`, `dev_h`: output size in device pixels; the game keeps its 960 x 600 proportions, centred, and reflows
 ///   to extra width.

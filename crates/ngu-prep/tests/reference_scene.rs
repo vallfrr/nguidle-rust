@@ -1,6 +1,6 @@
 //! Compares the Rust export with the one made by the Python tools.
 //! Needs the game data: set NGU_GAME_DATA to its `NGUIdle_Data` folder,
-//! NGU_REFERENCE_DIR to a folder exported by `tools/nguprep.py` and, for the
+//! NGU_REFERENCE_DIR to a folder exported earlier by the former Python tool and, for the
 //! layout test, NGU_ORACLE to the type layouts written by the Python generator.
 //! Then run `cargo test -p ngu-prep --test reference_scene -- --ignored`.
 

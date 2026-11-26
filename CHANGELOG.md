@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Remove the Python preparation tools (`tools/nguprep.py`, `tools/pack.py`, `tools/verify_game_data.py`, their tests and `tools/requirements-prep.txt`). `ngu-prepare` (crate `ngu-prep`) does their jobs: `verify GAME_FOLDER`, `export GAME_FOLDER OUTPUT` (prepared folder), `vita` and `web`, next to `pc`. `just prepare-data` and `just verify-data` call it; `just pack-data` becomes `just vita-data`. Migration: pass the NGU IDLE folder (with `UnityPlayer.dll`, needed to decode the sounds), not only `NGUIdle_Data`; the optional icon script now needs only `tools/requirements-icons.txt` (Pillow).
+
 - Run the original assembly through the interpreter on all builds. Remove the translator and use local replay references to check saves, game state and number formatting.
 
 - Add the PC window budgets (`budgets.json`) and `tools/pc_budget.py` / `just pc-perf` to check them (manual: needs a display and game data).
