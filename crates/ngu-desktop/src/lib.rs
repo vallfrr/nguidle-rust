@@ -30,11 +30,13 @@ pub struct Options {
     pub max_frames: Option<u64>,
     /// write a PNG capture of the last frame
     pub screenshot: Option<String>,
+    /// window title (default: the game's name)
+    pub title: Option<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { width: 1280, height: 800, fps: 60, max_frames: None, screenshot: None }
+        Options { width: 1280, height: 800, fps: 60, max_frames: None, screenshot: None, title: None }
     }
 }
 

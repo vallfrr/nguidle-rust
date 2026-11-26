@@ -11,6 +11,8 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = {".c", ".h", ".js", ".mjs", ".md", ".ps1", ".py", ".rs", ".sh", ".toml", ".yml", ".yaml"}
 BUILD_ARTIFACTS = {".assets", ".dll", ".exe", ".pak", ".pyc", ".ress", ".vpk", ".wasm"}
+MEDIA = {".gif", ".ico", ".jpeg", ".jpg", ".ogg", ".otf", ".png", ".ttf", ".wav", ".webp"}
+UI_MANIFEST = "assets/ui/MANIFEST.txt"
 LOCAL_FOLDERS = {"build", "out", "target", "toolchains", "venvs", "work"}
 WORKSTATION_PATH = re.compile(r"(?<![\w\x5c])(?:[A-Z]:[\\/]|/(?:mnt/[a-z]/|home/|Users/))")
 FRENCH = re.compile(
@@ -56,6 +58,35 @@ def check_base():
     return base if exists.returncode == 0 else "HEAD^"
 
 
+def listed_ui_files():
+    """Interface files the project keeps, from the single manifest: name -> sha256."""
+    manifest = ROOT / UI_MANIFEST
+    listed = {}
+    if manifest.is_file():
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            digest, _, name = line.partition(" ")
+            if name:
+                listed["assets/ui/" + name.lstrip("*").strip()] = digest
+    return listed
+
+
+def check_media(tracked, new, problems):
+    """Pictures, fonts and sounds are allowed only as listed interface files or project screenshots."""
+    import hashlib
+
+    listed = listed_ui_files()
+    for name in sorted(tracked | new):
+        path = ROOT / name
+        if path.suffix.lower() in MEDIA and path.is_file() and name not in listed and not name.startswith("docs/img/"):
+            problems.append(f"{name}: media file that is not listed in {UI_MANIFEST}")
+    for name, digest in listed.items():
+        path = ROOT / name
+        if not path.is_file():
+            problems.append(f"{name}: listed in {UI_MANIFEST} but missing")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            problems.append(f"{name}: does not match {UI_MANIFEST}")
+
+
 def main():
     base = check_base()
     tracked = names("ls-files", "-z")
@@ -95,6 +126,8 @@ def main():
                 for target in LINK.findall(line):
                     if broken_link(path, target):
                         problems.append(f"{name}: broken relative link to {target}")
+
+    check_media(tracked, new, problems)
 
     if problems:
         print("\n".join(dict.fromkeys(problems)), file=sys.stderr)

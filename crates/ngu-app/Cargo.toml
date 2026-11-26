@@ -1,0 +1,21 @@
+[package]
+name = "ngu-app"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "NGUIdleRustEngine: the PC application. First launch prepares the game, later launches play it."
+
+[dependencies]
+clr = { path = "../../clr" }
+fontdue = "0.9"
+miniquad = "0.4"
+ngu-desktop = { path = "../ngu-desktop" }
+ngu-prep = { path = "../ngu-prep" }
+png = "0.17"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "NGUIdleRustEngine"
+path = "src/bin/NGUIdleRustEngine.rs"

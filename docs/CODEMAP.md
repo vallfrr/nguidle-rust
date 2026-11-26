@@ -35,6 +35,16 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/unity_api.rs` — UnityEngine.* / UnityEngine.UI.* / Steam / Kartridge intrinsics (stubs).
 - `clr/src/value.rs` — Value model of the CIL interpreter (dynamic typing).
 - `clr/src/vm.rs` — Virtual machine: type registry, calls, execution loop, exceptions.
+- `crates/ngu-app/examples/preview.rs` — Writes a picture of each setup screen for review.
+- `crates/ngu-app/src/art.rs` — The interface pictures and fonts embedded in the program.
+- `crates/ngu-app/src/bin/NGUIdleRustEngine.rs` — The PC application: sets up on the first launch, plays afterwards.
+- `crates/ngu-app/src/browse.rs` — Folder browsing drawn in the window, without a system dialog.
+- `crates/ngu-app/src/canvas.rs` — Quads, nine-slice frames and text for the setup window.
+- `crates/ngu-app/src/gpu.rs` — Draws the setup window's quads with miniquad.
+- `crates/ngu-app/src/lib.rs` — The application library.
+- `crates/ngu-app/src/play.rs` — Opens the game window on the prepared data.
+- `crates/ngu-app/src/preview.rs` — Software drawing of the setup screens, for pictures and tests.
+- `crates/ngu-app/src/setup.rs` — The setup screens and what each click does.
 - `crates/ngu-desktop/src/actions.rs` — High-level actions (keyboard, mouse, gamepad) applied to the game: focus navigation and confirmation.
 - `crates/ngu-desktop/src/bin/ngu-window.rs` — Starts the desktop window executable.
 - `crates/ngu-desktop/src/gl.rs` — Renders engine quads through the desktop GPU window.
