@@ -258,6 +258,43 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Text centred on `(x, y)` both ways: `y` is the middle of the capital letters, so the
+    /// text sits in the middle of a button whatever the font.
+    pub fn text_middle(
+        &mut self,
+        face: Face,
+        size: u32,
+        text: &str,
+        x: f32,
+        y: f32,
+        col: [f32; 4],
+    ) {
+        let font = self.fonts.get(face);
+        let caps = font.metrics('H', size as f32).height as f32;
+        let ascent = font
+            .horizontal_line_metrics(size as f32)
+            .map_or(size as f32, |m| m.ascent);
+        let width = self.measure(face, size, text);
+        // `text` puts the baseline at top + ascent; the capitals then span baseline - caps..baseline.
+        self.text(
+            face,
+            size,
+            text,
+            x - width / 2.0,
+            y + caps / 2.0 - ascent,
+            col,
+        );
+    }
+
+    /// A rectangle with a black border, like the game's input fields and bars.
+    pub fn boxed(&mut self, rect: [f32; 4], fill: [f32; 4]) {
+        self.fill(rect, [0.0, 0.0, 0.0, 1.0]);
+        self.fill(
+            [rect[0] + 2.0, rect[1] + 2.0, rect[2] - 2.0, rect[3] - 2.0],
+            fill,
+        );
+    }
+
     /// Text centred on `x`.
     pub fn text_centered(
         &mut self,
@@ -318,6 +355,36 @@ mod tests {
             lines.join(" "),
             "one two three four five six seven eight nine ten"
         );
+    }
+
+    #[test]
+    fn text_in_the_middle_is_centred_on_both_axes() {
+        let (mut atlas, fonts) = parts();
+        let mut canvas = Canvas::new(&mut atlas, &fonts);
+        canvas.text_middle(Face::Title, 24, "Play", 100.0, 50.0, [1.0; 4]);
+        let top = canvas
+            .quads
+            .iter()
+            .map(|q| q.p[0][1])
+            .fold(f32::MAX, f32::min);
+        let bottom = canvas
+            .quads
+            .iter()
+            .map(|q| q.p[2][1])
+            .fold(f32::MIN, f32::max);
+        let left = canvas
+            .quads
+            .iter()
+            .map(|q| q.p[0][0])
+            .fold(f32::MAX, f32::min);
+        let right = canvas
+            .quads
+            .iter()
+            .map(|q| q.p[2][0])
+            .fold(f32::MIN, f32::max);
+        // "Play" has a descender, so allow it below the middle of the capitals.
+        assert!(((top + bottom) / 2.0 - 50.0).abs() < 6.0, "{top} {bottom}");
+        assert!(((left + right) / 2.0 - 100.0).abs() < 3.0, "{left} {right}");
     }
 
     #[test]

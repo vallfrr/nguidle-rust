@@ -25,7 +25,7 @@ pub fn run(root: &Path) {
         ngu_desktop::Options {
             height: 720,
             fps: 60,
-            title: Some(crate::NAME.to_owned()),
+            title: Some("NGU Idle Rust Engine".to_owned()),
             ..Default::default()
         },
     );

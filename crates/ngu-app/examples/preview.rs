@@ -19,7 +19,7 @@ fn main() {
         ("found", Screen::Found(found.clone())),
         ("found-none", Screen::Found(vec![])),
         ("found-many", Screen::Found(vec![found[0].clone(), PathBuf::from("Library/steamapps/common/NGU IDLE")])),
-        ("browse", Screen::Browse(Browser::open(&out), Some("This folder is not NGU Idle. Open the folder that contains NGU IDLE.exe.".into()))),
+        ("browse", Screen::Browse(Browser::open(&out), Some("This folder is not NGU Idle: its game files are missing.".into()))),
         ("working", Screen::Working),
         ("failed", Screen::Failed("This is not the supported NGU Idle build (1.260). Wrong SHA-256: Managed/Assembly-CSharp.dll".into())),
         ("done", Screen::Done),
@@ -40,6 +40,7 @@ fn main() {
         &ngu_app::preview::screen(&vita, &art, 0.3),
     );
     for (name, screen) in screens {
+        model.job.lock().unwrap().text = "Preparing the game data...".into();
         model.screen = screen;
         let picture = ngu_app::preview::screen(&model, &art, 0.3);
         write(&out, name, &picture);
