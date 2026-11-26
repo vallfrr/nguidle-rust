@@ -61,6 +61,9 @@ pub struct Reader<'a> {
     /// Above zero while inside a pair: the Python exporter leaves those
     /// references as they are.
     pairs: usize,
+    /// Raw bytes of strings, binary blobs and byte arrays, by field name.
+    blobs: Vec<(String, std::ops::Range<usize>)>,
+    last: Option<std::ops::Range<usize>>,
 }
 
 type Result<T> = std::result::Result<T, String>;
@@ -72,11 +75,19 @@ impl<'a> Reader<'a> {
             pos: 0,
             file,
             pairs: 0,
+            blobs: Vec::new(),
+            last: None,
         }
     }
 
     pub fn position(&self) -> usize {
         self.pos
+    }
+
+    /// Raw bytes of the first string, blob or byte array with this field name.
+    pub fn blob(&self, name: &str) -> Option<&'a [u8]> {
+        let (_, range) = self.blobs.iter().find(|(n, _)| n == name)?;
+        Some(&self.data[range.clone()])
     }
 
     fn take(&mut self, count: usize) -> Result<&'a [u8]> {
@@ -105,7 +116,9 @@ impl<'a> Reader<'a> {
     fn string(&mut self) -> Result<Value> {
         let length = self.int()?;
         if length > 0 && length as usize <= self.data.len() - self.pos {
+            let start = self.pos;
             let bytes = self.take(length as usize)?;
+            self.last = Some(start..start + length as usize);
             self.align();
             return Ok(Value::String(String::from_utf8_lossy(bytes).into_owned()));
         }
@@ -136,7 +149,9 @@ impl<'a> Reader<'a> {
             "string" => self.string()?,
             "TypelessData" => {
                 let length = self.int()?;
+                let start = self.pos;
                 let bytes = self.take(usize::try_from(length).map_err(|_| "Negative length")?)?;
+                self.last = Some(start..start + bytes.len());
                 serde_json::json!({ "$bytes": bytes.len() })
             }
             _ => return Ok(None),
@@ -162,7 +177,11 @@ impl<'a> Reader<'a> {
     /// Reads one value. `own_align` is false for elements of an array whose
     /// element type is aligned: such arrays align once, after the last element.
     pub fn value(&mut self, node: &Node, own_align: bool) -> Result<Value> {
+        self.last = None;
         let value = if let Some(value) = self.primitive(&node.ty)? {
+            if let Some(range) = self.last.take() {
+                self.blobs.push((node.name.clone(), range));
+            }
             value
         } else if node.children.first().is_some_and(|c| c.ty == "Array") {
             let array = &node.children[0];
@@ -171,6 +190,16 @@ impl<'a> Reader<'a> {
                 return Err("Negative length in type tree".into());
             }
             let element = &array.children[1];
+            if element.ty == "char" && !element.aligned() {
+                let start = self.pos;
+                self.take(size as usize)?;
+                self.blobs
+                    .push((node.name.clone(), start..start + size as usize));
+                if array.aligned() || node.aligned() {
+                    self.align();
+                }
+                return Ok(serde_json::json!({ "$bytes": size }));
+            }
             let mut items = Vec::new();
             for _ in 0..size {
                 items.push(self.value(element, !element.aligned())?);
