@@ -15,7 +15,7 @@ mod dotnet_random;
 pub mod focus;
 pub mod input;
 pub mod layout;
-#[cfg(feature = "legacy-vita-save")]
+#[cfg(feature = "legacy-save")]
 pub mod legacy_save;
 pub mod profile;
 pub mod lower;

@@ -1,4 +1,4 @@
-#[cfg(feature = "legacy-vita-save")]
+#[cfg(feature = "legacy-save")]
 use clr::bcl_core::{b64_dec, b64_enc};
 use clr::value::Value;
 use clr::{serial, Vm};
@@ -45,7 +45,7 @@ fn round_trips_an_object_field() {
     assert!(matches!(first_field(&decoded), Value::I32(-42)));
 }
 
-#[cfg(feature = "legacy-vita-save")]
+#[cfg(feature = "legacy-save")]
 fn legacy_object(name: &str, fields: &[(&str, Vec<u8>)]) -> Vec<u8> {
     fn sized(bytes: &mut Vec<u8>, value: &[u8]) {
         bytes.extend(u32::try_from(value.len()).unwrap().to_le_bytes());
@@ -63,7 +63,7 @@ fn legacy_object(name: &str, fields: &[(&str, Vec<u8>)]) -> Vec<u8> {
     bytes
 }
 
-#[cfg(feature = "legacy-vita-save")]
+#[cfg(feature = "legacy-save")]
 fn legacy_string(text: &str) -> Vec<u8> {
     let mut bytes = vec![6];
     bytes.extend(u32::try_from(text.len()).unwrap().to_le_bytes());
@@ -72,7 +72,7 @@ fn legacy_string(text: &str) -> Vec<u8> {
 }
 
 #[test]
-#[cfg(feature = "legacy-vita-save")]
+#[cfg(feature = "legacy-save")]
 fn legacy_conversion_checks_the_digest_and_preserves_the_payload() {
     use md5::{Digest, Md5};
 
