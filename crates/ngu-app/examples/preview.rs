@@ -1,7 +1,6 @@
 //! Writes a picture of each setup screen: `cargo run -p ngu-app --example preview -- OUTPUT_FOLDER`.
 
 use ngu_app::art::Art;
-use ngu_app::browse::Browser;
 use ngu_app::setup::{Model, Screen};
 use std::path::PathBuf;
 
@@ -34,7 +33,7 @@ fn main() {
         write(&out, name, &ngu_app::preview::screen(&vita, &art, 0.3));
     }
     vita.choosing_output = true;
-    vita.screen = Screen::Browse(Browser::open(&out));
+    vita.screen = Screen::Output;
     write(
         &out,
         "vita-output",

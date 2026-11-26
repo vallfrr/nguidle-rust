@@ -39,7 +39,6 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-app/src/art.rs` — The interface pictures and fonts embedded in the program.
 - `crates/ngu-app/src/bin/nguidle-prep.rs` — The Vita preparation program: writes the nguidle folder.
 - `crates/ngu-app/src/bin/NGUIdleRustEngine.rs` — The PC application: sets up on the first launch, plays afterwards.
-- `crates/ngu-app/src/browse.rs` — Folder browsing drawn in the window, without a system dialog.
 - `crates/ngu-app/src/canvas.rs` — Quads, nine-slice frames and text for the setup window.
 - `crates/ngu-app/src/dialog.rs` — The system's folder chooser.
 - `crates/ngu-app/src/gpu.rs` — Draws the setup window's quads with miniquad.

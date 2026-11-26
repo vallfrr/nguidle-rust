@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 /// Asks the player for a folder, starting at `start` when it exists. `None` means they cancelled.
-pub fn pick_folder(start: Option<PathBuf>) -> Option<PathBuf> {
-    let mut dialog = rfd::FileDialog::new().set_title("Choose the NGU Idle folder");
+pub fn pick_folder(title: &str, start: Option<PathBuf>) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new().set_title(title);
     if let Some(start) = start.filter(|path| path.is_dir()) {
         dialog = dialog.set_directory(start);
     }
