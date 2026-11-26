@@ -52,7 +52,9 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-prep/src/dirs.rs` — Per-system data folders for the application (`NGUIdleRustEngine`).
 - `crates/ngu-prep/src/lib.rs` — Verifies the game against the SHA-256 manifest and copies it without touching the original.
 - `crates/ngu-prep/src/pack.rs` — Writes the single-file archive the Vita reads.
+- `crates/ngu-prep/src/bin/ngu-prepare.rs` — Developer command line for the two preparation jobs.
 - `crates/ngu-prep/src/locate.rs` — Finds an installed game in Steam, Flatpak, Snap and CrossOver locations.
+- `crates/ngu-prep/src/prepare.rs` — The PC and Vita preparation jobs: verify, copy, export, pack.
 - `crates/ngu-prep/src/unity/assets.rs` — Exports textures, fonts, text assets and audio clip records.
 - `crates/ngu-prep/src/unity/export.rs` — Writes the scene file, tag list and asset folders from the game data.
 - `crates/ngu-prep/src/unity/image.rs` — Decodes Unity texture formats to RGBA and writes PNG.
