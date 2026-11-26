@@ -280,3 +280,29 @@ fn archive_matches_the_python_archive() {
     .unwrap();
     assert!(std::fs::read(&pak).unwrap() == expected, "archives differ");
 }
+
+#[test]
+#[ignore = "needs local game data"]
+fn both_jobs_prepare_the_real_game() {
+    let game = PathBuf::from(std::env::var("NGU_GAME_FOLDER").expect("NGU_GAME_FOLDER"));
+    let out = tempfile::tempdir().unwrap();
+    let vita =
+        ngu_prep::prepare::prepare_vita(&game, &out.path().join("vita"), &mut |_| {}).unwrap();
+    assert!(out.path().join("vita/nguidle/ngu.pak").is_file());
+    assert!(vita.count > 3000, "{}", vita.count);
+    let app = out.path().join("app");
+    ngu_prep::prepare::prepare_pc(&game, &app, &mut |_| {}).unwrap();
+    for file in [
+        "game/NGUIdle_Data/Managed/Assembly-CSharp.dll",
+        "data/scene.json",
+        "data/tags.json",
+        "data/Assembly-CSharp.dll",
+    ] {
+        assert!(app.join(file).is_file(), "{file}");
+    }
+    // A second run replaces the data and keeps the copy and the saves.
+    std::fs::create_dir_all(app.join("saves")).unwrap();
+    std::fs::write(app.join("saves/keep.txt"), b"x").unwrap();
+    ngu_prep::prepare::prepare_pc(&game, &app, &mut |_| {}).unwrap();
+    assert!(app.join("saves/keep.txt").is_file());
+}
