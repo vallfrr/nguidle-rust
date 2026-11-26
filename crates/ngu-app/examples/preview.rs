@@ -19,7 +19,7 @@ fn main() {
         ("found", Screen::Found(found.clone())),
         ("found-none", Screen::Found(vec![])),
         ("found-many", Screen::Found(vec![found[0].clone(), PathBuf::from("Library/steamapps/common/NGU IDLE")])),
-        ("browse", Screen::Browse(Browser::open(&out), Some("This folder is not NGU Idle. Open the folder that contains NGU IDLE.exe.".into()))),
+        ("browse", Screen::Browse(Browser::open(&out), Some("This folder is not NGU Idle: its game files are missing.".into()))),
         ("working", Screen::Working),
         ("failed", Screen::Failed("This is not the supported NGU Idle build (1.260). Wrong SHA-256: Managed/Assembly-CSharp.dll".into())),
         ("done", Screen::Done),

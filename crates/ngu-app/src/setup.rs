@@ -205,8 +205,7 @@ impl Model {
                     }
                 } else {
                     let message =
-                        "This folder is not NGU Idle. Open the folder that contains NGU IDLE.exe."
-                            .to_owned();
+                        "This folder is not NGU Idle: its game files are missing.".to_owned();
                     self.screen = Screen::Browse(Browser::open(&dir), Some(message));
                 }
             }
