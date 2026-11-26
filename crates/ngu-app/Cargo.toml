@@ -12,6 +12,7 @@ miniquad = "0.4"
 ngu-desktop = { path = "../ngu-desktop" }
 ngu-prep = { path = "../ngu-prep" }
 png = "0.17"
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 
 [dev-dependencies]
 tempfile = "3"

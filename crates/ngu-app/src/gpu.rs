@@ -1,7 +1,7 @@
 //! Draws a quad list with miniquad, scaled into the window like the game's own view.
 
 use crate::art::{Art, Image};
-use crate::canvas::{Atlas, ATLAS, HEIGHT, WIDTH};
+use crate::canvas::{is_sprite, Atlas, ATLAS, HEIGHT, TEX_FRAME, WIDTH};
 use clr::platform_api::Quad;
 use miniquad::*;
 
@@ -106,31 +106,38 @@ impl Gpu {
             BufferUsage::Immutable,
             BufferSource::slice(&idx),
         );
-        let mut upload = |image: &Image| {
+        let mut upload = |image: &Image, filter: FilterMode| {
             let id =
                 ctx.new_texture_from_rgba8(image.width as u16, image.height as u16, &image.rgba);
             ctx.texture_set_wrap(id, TextureWrap::Clamp, TextureWrap::Clamp);
-            ctx.texture_set_filter(id, FilterMode::Linear, MipmapFilterMode::None);
+            ctx.texture_set_filter(id, filter, MipmapFilterMode::None);
             id
         };
-        let white = upload(&Image {
-            width: 1,
-            height: 1,
-            rgba: vec![255; 4],
-        });
-        let atlas = upload(&Image {
-            width: ATLAS as u32,
-            height: ATLAS as u32,
-            rgba: vec![0; ATLAS * ATLAS * 4],
-        });
-        let textures = vec![
-            white,
-            atlas,
-            upload(&art.frame),
-            upload(&art.button),
-            upload(&art.backdrop),
-            upload(&art.cat),
-        ];
+        let white = upload(
+            &Image {
+                width: 1,
+                height: 1,
+                rgba: vec![255; 4],
+            },
+            FilterMode::Linear,
+        );
+        let atlas = upload(
+            &Image {
+                width: ATLAS as u32,
+                height: ATLAS as u32,
+                rgba: vec![0; ATLAS * ATLAS * 4],
+            },
+            FilterMode::Linear,
+        );
+        let mut textures = vec![white, atlas];
+        for (i, picture) in art.pictures().into_iter().enumerate() {
+            let filter = if is_sprite(TEX_FRAME + i as u32) {
+                FilterMode::Nearest
+            } else {
+                FilterMode::Linear
+            };
+            textures.push(upload(picture, filter));
+        }
         Gpu {
             ctx,
             pipeline,

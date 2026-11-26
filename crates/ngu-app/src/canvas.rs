@@ -15,6 +15,18 @@ pub const TEX_FRAME: u32 = 2;
 pub const TEX_BUTTON: u32 = 3;
 pub const TEX_BACKDROP: u32 = 4;
 pub const TEX_CAT: u32 = 5;
+pub const TEX_PANEL: u32 = 6;
+pub const TEX_GOOD: u32 = 7;
+pub const TEX_BAD: u32 = 8;
+pub const TEX_FILL: u32 = 9;
+
+/// Pictures drawn with crisp pixels (the game's interface sprites), not smoothed.
+pub fn is_sprite(tex: u32) -> bool {
+    matches!(
+        tex,
+        TEX_FRAME | TEX_BUTTON | TEX_PANEL | TEX_GOOD | TEX_BAD | TEX_FILL
+    )
+}
 
 pub const ATLAS: usize = 1024;
 
@@ -138,7 +150,7 @@ fn quad(rect: [f32; 4], uv: [f32; 4], tex: u32, col: [f32; 4]) -> Quad {
         uv: [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
         col,
         tex,
-        nearest: false,
+        nearest: is_sprite(tex),
         clip: [i32::MIN / 2, i32::MIN / 2, i32::MAX / 2, i32::MAX / 2],
     }
 }
@@ -188,8 +200,21 @@ impl<'a> Canvas<'a> {
     /// A picture whose corners keep their size (`slice` pixels of a `size`-pixel square) and whose
     /// edges and middle stretch.
     pub fn nine(&mut self, tex: u32, size: f32, slice: f32, rect: [f32; 4], col: [f32; 4]) {
+        self.nine_scaled(tex, size, slice, slice, rect, col);
+    }
+
+    /// Like `nine`, with the corners drawn `border` pixels wide on screen.
+    pub fn nine_scaled(
+        &mut self,
+        tex: u32,
+        size: f32,
+        slice: f32,
+        border: f32,
+        rect: [f32; 4],
+        col: [f32; 4],
+    ) {
         let [x0, y0, x1, y1] = rect;
-        let edge = slice.min((x1 - x0) / 2.0).min((y1 - y0) / 2.0);
+        let edge = border.min((x1 - x0) / 2.0).min((y1 - y0) / 2.0);
         let xs = [x0, x0 + edge, x1 - edge, x1];
         let ys = [y0, y0 + edge, y1 - edge, y1];
         let t = [0.0, slice / size, 1.0 - slice / size, 1.0];
@@ -283,15 +308,6 @@ impl<'a> Canvas<'a> {
             x - width / 2.0,
             y + caps / 2.0 - ascent,
             col,
-        );
-    }
-
-    /// A rectangle with a black border, like the game's input fields and bars.
-    pub fn boxed(&mut self, rect: [f32; 4], fill: [f32; 4]) {
-        self.fill(rect, [0.0, 0.0, 0.0, 1.0]);
-        self.fill(
-            [rect[0] + 2.0, rect[1] + 2.0, rect[2] - 2.0, rect[3] - 2.0],
-            fill,
         );
     }
 

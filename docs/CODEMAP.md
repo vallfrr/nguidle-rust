@@ -41,10 +41,12 @@ This index covers first-party tracked Rust source files. The source file names i
 - `crates/ngu-app/src/bin/NGUIdleRustEngine.rs` — The PC application: sets up on the first launch, plays afterwards.
 - `crates/ngu-app/src/browse.rs` — Folder browsing drawn in the window, without a system dialog.
 - `crates/ngu-app/src/canvas.rs` — Quads, nine-slice frames and text for the setup window.
+- `crates/ngu-app/src/dialog.rs` — The system's folder chooser.
 - `crates/ngu-app/src/gpu.rs` — Draws the setup window's quads with miniquad.
 - `crates/ngu-app/src/install.rs` — Copies the program to the application folder and adds the desktop shortcut.
 - `crates/ngu-app/src/lib.rs` — The application library.
 - `crates/ngu-app/src/play.rs` — Opens the game window on the prepared data.
+- `crates/ngu-app/src/sizes.rs` — The fixed window sizes and the Windows drag lock.
 - `crates/ngu-app/src/preview.rs` — Software drawing of the setup screens, for pictures and tests.
 - `crates/ngu-app/src/setup.rs` — The setup screens and what each click does.
 - `crates/ngu-desktop/src/actions.rs` — High-level actions (keyboard, mouse, gamepad) applied to the game: focus navigation and confirmation.
