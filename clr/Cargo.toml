@@ -13,7 +13,7 @@ name = "clr"
 path = "src/main.rs"
 
 [features]
-legacy-vita-save = []
+legacy-save = []
 
 [dependencies]
 cil-interp = { path = "../crates/cil-interp" }

@@ -11,6 +11,8 @@
 
 - Add `Session::run_script` and `Session::inspect` (menus, visible texts, reachable controls) so a port's own tests no longer need `Session::vm()`.
 
+- Rename the `legacy-vita-save` feature to `legacy-save` and the `convert-vita-save` command to `convert-legacy-save`: the engine carries no platform name. Migration: use the new names.
+
 ## [0.5.0]
 
 - Add the documented platform interface (`platform-api::Engine`, `Action`, `Pointer`, `MouseButton`, `FixedStep`), including keys, the mouse wheel, secondary buttons and `reset_input` and `clr::session::Session`, a safe implementation that hosts the whole game.
