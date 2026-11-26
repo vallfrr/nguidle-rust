@@ -12,7 +12,6 @@ check:
     cargo test --locked --workspace --features clr/legacy-save
     cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
     {{python}} -B -m ruff check --select E9,F63,F7,F82 .github/repo-check.py tools
-    {{python}} -B -m unittest discover -s tools -p test_verify_game_data.py
     {{python}} -B -m unittest discover -s tools/oracle -p test_compare_scenario.py
     {{python}} -B -m unittest discover -s tools -p test_new_port.py
     {{python}} -B -m unittest discover -s tools -p test_pc_budget.py
@@ -44,13 +43,15 @@ check-components:
     cargo test --locked -p save-format
 
 verify-data directory:
-    {{python}} -B tools/verify_game_data.py "{{directory}}"
+    cargo run --locked --release -q -p ngu-prep --bin ngu-prepare -- verify "{{directory}}"
 
-prepare-data directory output: (verify-data directory)
-    {{python}} -B tools/nguprep.py --game-data "{{directory}}" --out "{{output}}"
+# Prepared folder for a port or a developer: a game folder in, a prepared folder out.
+prepare-data directory output:
+    cargo run --locked --release -q -p ngu-prep --bin ngu-prepare -- export "{{directory}}" "{{output}}"
 
-pack-data directory assembly output:
-    {{python}} -B tools/pack.py "{{directory}}" "{{assembly}}" "{{output}}"
+# The Vita data: writes <output>/nguidle/ngu.pak.
+vita-data directory output:
+    cargo run --locked --release -q -p ngu-prep --bin ngu-prepare -- vita "{{directory}}" "{{output}}"
 
 # Manual: the PC window against the budgets in budgets.json. Needs a display and prepared game data; build ngu-window first
 # (cargo build --release -p ngu-desktop --bin ngu-window).

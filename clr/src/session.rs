@@ -34,7 +34,7 @@ use std::rc::Rc;
 /// Where the game's data and the player's profile are, and how large the output is.
 #[derive(Clone, Debug)]
 pub struct SessionConfig {
-    /// Folder prepared with `tools/nguprep.py` from the player's own game files; it also holds
+    /// Folder prepared with `ngu-prepare export` from the player's own game files; it also holds
     /// `Assembly-CSharp.dll` (or an `ngu.pak` that contains it).
     pub data_dir: PathBuf,
     /// Folder for the player's saves. Created if missing.

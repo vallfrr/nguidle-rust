@@ -32,7 +32,7 @@ Not yet compared: unlocked menus (needs an advanced save in the original: A1b), 
 Method: `tools/screens.sh ultimate do,dev/ultimate.steps`, step `s,<file>` writes our save, the original loads it as its autosave, `tools/orig.ps1` captures the 18 menus reachable from the menu column, `tools/pairs.py` builds side-by-side sheets.
 | difference | cause | state |
 |---|---|---|
-| menus with the top input bar sat 40 px too high (titles hidden) | custom tags were exported as ids (`Tag20000`): `GetChild(0).tag == "Menu"` never matched, so every menu used the big anchor instead of the small one | **fixed** (`tags.json` exported by `nguprep.py`, tag names resolved) |
+| menus with the top input bar sat 40 px too high (titles hidden) | custom tags were exported as ids (`Tag20000`): `GetChild(0).tag == "Menu"` never matched, so every menu used the big anchor instead of the small one | **fixed** (`tags.json` exported by the preparation step, tag names resolved) |
 | Adventure and Beard menus raised an exception on refresh | `Dropdown.options`, `OptionData`, `captionText` unimplemented | **fixed** |
 | our save was not accepted by the original | home-made save format | **fixed**: real BinaryFormatter format |
 | decimal separator `157.5` vs `157,5` | the original follows the system culture (Windows in French); WSL runs with the invariant culture | not a bug (see A11) |

@@ -46,10 +46,10 @@ documentation of `capi.rs`.
 
 ## Data and tools
 
-* **Prepared data**: a folder produced by `tools/nguprep.py` from the player's installation, with `Assembly-CSharp.dll`
-  copied in, or the single `NGUPAK1` file produced by `tools/pack.py` (`ngu.pak`). It is only valid for the engine
+* **Prepared data**: a folder produced by `ngu-prepare export` from the player's installation, with `Assembly-CSharp.dll`
+  copied in, or the single `NGUPAK1` file produced by `ngu-prepare vita` (`ngu.pak`). It is only valid for the engine
   revision whose tools produced it. Commands: [PORTING.md](PORTING.md), step 3.
-* **Tools** a port may call: `tools/verify_game_data.py`, `tools/nguprep.py`, `tools/pack.py`, `tools/new_port.py`
+* **Tools** a port may call: `ngu-prepare verify|export|vita` (crate `ngu-prep`), `tools/new_port.py`
   (`just new-port`), `tools/fetch-achievement-icons.py` (optional). Their command lines are stable within `0.x`.
 * **Saves** are the game's own files in the save folder; the format is the game's, readable by `save-format`.
 

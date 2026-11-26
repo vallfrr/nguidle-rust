@@ -51,6 +51,7 @@ pub fn check_prepared(root: &Path) -> std::result::Result<(), String> {
 /// Checks the folder holds the supported game build and returns its data folder.
 pub fn verified_game(source: &Path) -> Result<PathBuf> {
     let data = data_dir(source)?;
+    require_player(&data)?;
     let problems = verify(&data, &manifest());
     if !problems.is_empty() {
         return Err(format!(
@@ -65,6 +66,17 @@ pub fn verified_game(source: &Path) -> Result<PathBuf> {
         .into());
     }
     Ok(data)
+}
+
+/// The sounds are decoded with data found in the game's own `UnityPlayer.dll`, which sits next to
+/// `NGUIdle_Data`: the whole game folder is needed, not only the data folder.
+pub fn require_player(data: &Path) -> Result<PathBuf> {
+    let player = data
+        .parent()
+        .map(|game| game.join("UnityPlayer.dll"))
+        .filter(|path| path.is_file())
+        .ok_or("UnityPlayer.dll was not found next to NGUIdle_Data. Choose the NGU IDLE folder, the one that contains NGUIdle.exe.")?;
+    Ok(player)
 }
 
 fn outside(game: &Path, output: &Path) -> Result<()> {
@@ -181,9 +193,120 @@ pub fn prepare_vita(
     result
 }
 
+/// Prepares the data in `output` without copying the game: the folder a port or a developer
+/// uses, with `Assembly-CSharp.dll` copied in. The original folder is only read.
+pub fn export_data(source: &Path, output: &Path, progress: &mut dyn FnMut(&str)) -> Result<Report> {
+    let source = source.canonicalize()?;
+    progress("Checking the game files...");
+    let data = verified_game(&source)?;
+    outside(&source, output)?;
+    let parent = output.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(parent)?;
+    progress("Preparing the game data...");
+    let staged = fresh(&parent.join(".export.partial"))?;
+    let summary = unity::export::export(&data, &staged)?;
+    if !summary.errors.is_empty() {
+        return Err(format!("Preparation failed: {}", summary.errors.join("; ")).into());
+    }
+    fs::copy(
+        data.join("Managed/Assembly-CSharp.dll"),
+        staged.join("Assembly-CSharp.dll"),
+    )?;
+    replace(&staged, output)?;
+    Ok(Report {
+        warnings: vec![],
+        count: summary.objects,
+    })
+}
+
+/// Copies the files of the supported build from `data` (and the game's `UnityPlayer.dll`) into
+/// `destination`, laid out like the game folder, refusing names that leave `data`. The copy is
+/// complete and verified, or absent.
+fn snapshot_files(data: &Path, destination: &Path, names: &[String]) -> Result<()> {
+    let data = data.canonicalize()?;
+    let player = require_player(&data)?;
+    let staged = fresh(&destination.with_extension("partial"))?;
+    let staged_data = staged.join("NGUIdle_Data");
+    for name in names {
+        let original = data.join(name).canonicalize()?;
+        if !original.starts_with(&data) {
+            return Err(format!("Game data path escapes the mount: {name}").into());
+        }
+        let target = staged_data.join(name);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&original, &target)?;
+    }
+    fs::copy(player, staged.join("UnityPlayer.dll"))?;
+    let problems = verify(&staged_data, &manifest());
+    if !problems.is_empty() {
+        return Err(problems.join("; ").into());
+    }
+    fs::rename(&staged, destination)?;
+    Ok(())
+}
+
+/// Web build cache: `output/game-data` holds a verified copy of the supported files laid out
+/// like the game folder (kept when it is still intact) and `output/assets` the prepared data
+/// made from that copy. `source` is the game folder.
+pub fn prepare_web(source: &Path, output: &Path, progress: &mut dyn FnMut(&str)) -> Result<Report> {
+    let source = source.canonicalize()?;
+    progress("Checking the game files...");
+    let data = data_dir(&source)?;
+    require_player(&data)?;
+    let snapshot = output.join("game-data");
+    fs::create_dir_all(output)?;
+    if snapshot.is_dir() {
+        if !verify(&snapshot.join("NGUIdle_Data"), &manifest()).is_empty() {
+            return Err(format!(
+                "Cached game data is invalid. Replace the build cache at {}.",
+                snapshot.display()
+            )
+            .into());
+        }
+    } else {
+        progress("Copying the game files...");
+        let names: Vec<String> = manifest().into_keys().collect();
+        snapshot_files(&data, &snapshot, &names)?;
+    }
+    progress("Preparing the game data...");
+    let staged = fresh(&output.join(".assets.partial"))?;
+    let summary = unity::export::export(&data_dir(&snapshot)?, &staged)?;
+    if !summary.errors.is_empty() {
+        return Err(format!("Preparation failed: {}", summary.errors.join("; ")).into());
+    }
+    replace(&staged, &output.join("assets"))?;
+    Ok(Report {
+        warnings: vec![],
+        count: summary.objects,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_developer_and_web_jobs_refuse_a_folder_that_is_not_the_game() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out");
+        assert!(export_data(dir.path(), &out, &mut |_| {}).is_err());
+        assert!(prepare_web(dir.path(), &out, &mut |_| {}).is_err());
+        assert!(!out.join("assets").exists());
+    }
+
+    #[test]
+    fn a_snapshot_with_a_missing_file_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(dir.path().join("UnityPlayer.dll"), b"x").unwrap();
+        let target = dir.path().join("copy");
+        let names = vec!["Managed/Assembly-CSharp.dll".to_owned()];
+        assert!(snapshot_files(&data, &target, &names).is_err());
+        assert!(!target.exists());
+    }
 
     #[test]
     fn rejects_a_folder_that_is_not_the_game() {
@@ -197,6 +320,9 @@ mod tests {
         let managed = dir.path().join("NGUIdle_Data/Managed");
         fs::create_dir_all(&managed).unwrap();
         fs::write(managed.join("Assembly-CSharp.dll"), b"modified").unwrap();
+        let error = verified_game(dir.path()).unwrap_err().to_string();
+        assert!(error.contains("UnityPlayer.dll"), "{error}");
+        fs::write(dir.path().join("UnityPlayer.dll"), b"x").unwrap();
         let error = verified_game(dir.path()).unwrap_err().to_string();
         assert!(error.contains("supported NGU Idle build"), "{error}");
     }

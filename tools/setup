@@ -34,7 +34,7 @@ def main():
         (workspace.build / relative).mkdir(parents=True, exist_ok=True)
     install_rust(REPO / "rust-toolchain.toml")
     uv = shutil.which("uv") if os.name != "nt" else None
-    requirements = str(REPO / "tools/requirements-prep.txt")
+    requirements = str(REPO / "tools/requirements-icons.txt")
     if not workspace.python.is_file():
         flags = ["--without-pip"] if uv else []
         run(sys.executable, "-m", "venv", *flags, str(workspace.prep))

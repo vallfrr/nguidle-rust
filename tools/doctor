@@ -59,13 +59,9 @@ def main():
 
     rust(REPO / "rust-toolchain.toml")
     report(sys.version_info >= (3, 11), "Python", sys.version.split()[0])
-    ok, packages = command(str(workspace.python), "-c",
-        "from importlib.metadata import version; import UnityPy; "
-        "print('UnityPy=' + version('UnityPy') + '; TypeTreeGeneratorAPI=' + version('TypeTreeGeneratorAPI'))")
-    report(ok and packages == "UnityPy=1.25.4; TypeTreeGeneratorAPI=0.0.10",
-        "Asset preparation", packages or "Run tools/setup")
-    ok, manifest = command(sys.executable, str(REPO / "tools/verify_game_data.py"), str(workspace.game), timeout=90)
-    report(ok, "Steam Windows 1.260 manifest", manifest or "Set NGU_GAME_DIR to NGUIdle_Data")
+    ok, manifest = command("cargo", "run", "--locked", "--release", "-q", "-p", "ngu-prep", "--bin", "ngu-prepare",
+        "--", "verify", str(workspace.game), timeout=900)
+    report(ok, "Steam Windows 1.260 manifest", manifest or "Set NGU_GAME_DIR to the NGU IDLE folder")
     existing = next((path for path in (workspace.build, workspace.home, *workspace.home.parents) if path.exists()))
     free = shutil.disk_usage(existing).free / 1024**3
     ram = memory_bytes() / 1024**3

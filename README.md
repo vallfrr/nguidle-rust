@@ -18,7 +18,7 @@ You need to own NGU Idle on Steam (version 1.260).
 |---|---|
 | `clr/` | engine (scene, UI, layout, rendering, input, developer mode) and interpreter |
 | `crates/ngu-desktop` | PC window |
-| `tools/` | game data extraction (`nguprep.py`), build and comparison scripts |
+| `tools/` | build and comparison scripts (game data preparation is the `ngu-prep` crate) |
 | `docs/` | architecture, audit, status, developer mode ([`docs/DEV.md`](docs/DEV.md)) |
 
 ## Prepare the Windows build

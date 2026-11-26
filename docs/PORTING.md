@@ -96,13 +96,14 @@ reflows to the extra width. Use any size; call `resize` when it changes.
 From the engine checkout, with the player's Steam installation of NGU Idle (Windows build 1.260), read-only:
 
 ```text
-python tools/verify_game_data.py "<install>/NGUIdle_Data"
-python tools/nguprep.py --game-data "<install>/NGUIdle_Data" --out <prepared>
-cp "<install>/NGUIdle_Data/Managed/Assembly-CSharp.dll" <prepared>/        # or: python tools/pack.py <prepared> <dll> <folder>/ngu.pak
+cargo run --release -p ngu-prep --bin ngu-prepare -- verify "<install>"
+cargo run --release -p ngu-prep --bin ngu-prepare -- export "<install>" <prepared>
+cargo run --release -p ngu-prep --bin ngu-prepare -- vita "<install>" <folder>      # or: <folder>/nguidle/ngu.pak
 ```
 
-`verify_game_data.py` checks the files against the known build. `nguprep.py` extracts sprites, fonts, sounds, texts
-and the scene description to `<prepared>`. A prepared folder only works with the engine revision whose tools made it:
+`<install>` is the NGU IDLE folder (the one with `NGUIdle.exe`). `verify` checks the files against the known build.
+`export` extracts sprites, fonts, sounds, texts and the scene description to `<prepared>` and copies `Assembly-CSharp.dll`
+in (`just verify-data`, `just prepare-data` and `just vita-data` run the same commands). A prepared folder only works with the engine revision whose tools made it:
 re-prepare after changing the engine pin. Never commit it. `Session::open` and `ngu_init` take this folder (or the
 folder containing `ngu.pak`). Sounds are `<prepared>/audio/<clip>.wav`.
 
@@ -151,7 +152,7 @@ and `just check`, and re-prepare your data.
 | message or symptom | meaning and fix |
 |---|---|
 | `cargo fmt --check` fails in `just check` | format with `cargo fmt`: the format check is part of the port's checks |
-| `Assembly-CSharp.dll not found in ...` | the prepared folder lacks the DLL: copy it in or use `pack.py` (step 3) |
+| `Assembly-CSharp.dll not found in ...` | the prepared folder lacks the DLL: use `ngu-prepare export` or `ngu-prepare vita` (step 3) |
 | `the game scene could not be loaded` | data prepared by another engine revision: prepare again with this revision's tools |
 | `the save menu could not start` | the save folder is missing or read-only |
 | blank or garbled text | the glyph atlas (texture id 1) was not uploaded again after `atlas_changed()` |

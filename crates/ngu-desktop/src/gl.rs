@@ -402,7 +402,7 @@ impl EventHandler for Stage {
                 }
             }
         }
-        // sounds requested by the game (AudioSource.Play): `audio/<clip>.wav` extracted by nguprep
+        // sounds requested by the game (AudioSource.Play): `audio/<clip>.wav` extracted by the preparation step
         for name in std::mem::take(&mut self.vm.eng.sound_queue) {
             #[cfg(windows)]
             if let (Some((_, h)), Some(bytes)) = (self.audio.as_ref(), clr::assets::read(&format!("audio/{name}.wav"))) {

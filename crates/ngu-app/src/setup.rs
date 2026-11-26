@@ -109,6 +109,8 @@ fn check_location(dir: &Path) -> Result<(), String> {
     {
         return Err("Some game files are missing in this folder.".to_owned());
     }
+    ngu_prep::prepare::require_player(&data)
+        .map_err(|_| "UnityPlayer.dll is missing: choose the NGU IDLE folder.".to_owned())?;
     Ok(())
 }
 
@@ -788,13 +790,19 @@ mod tests {
         let hits = draw(&model);
         assert!(hits.iter().all(|h| !matches!(h.action, Action::UseGame(_))));
         assert!(hits.iter().any(|h| h.action == Action::Pick));
-        // A folder with every game file is valid and offers to use it.
+        // A game folder without the player library is refused too.
         let data = dir.path().join("NGUIdle_Data");
         for name in ngu_prep::manifest().keys() {
             let file = data.join(name);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, b"x").unwrap();
         }
+        model.picked(Some(dir.path().to_path_buf()));
+        assert!(
+            matches!(&model.screen, Screen::Chosen(_, Err(why)) if why.contains("UnityPlayer"))
+        );
+        // With every file it is valid and offers to use it.
+        std::fs::write(dir.path().join("UnityPlayer.dll"), b"x").unwrap();
         model.picked(Some(dir.path().to_path_buf()));
         assert!(matches!(model.screen, Screen::Chosen(_, Ok(()))));
         assert!(draw(&model)

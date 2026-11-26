@@ -26,3 +26,7 @@ The Windows registry lookup for Steam is added with the PC application. Until th
 ## Sound effects
 
 The two sound effects are FMOD Vorbis banks that refer to their Vorbis setup header by CRC-32. The headers are not downloaded or stored in this repository: they are read from the `UnityPlayer.dll` of the player's own game copy, which holds them. If a different build of the game is used, the lookup fails and preparation stops with a clear message.
+
+## Python tools removed
+
+The reference comparison passed on the real game, so `tools/nguprep.py`, `tools/pack.py`, `tools/verify_game_data.py`, their tests and `tools/requirements-prep.txt` are removed. `ngu-prepare` has the jobs they had: `verify`, `export` (a prepared folder for ports and developers), `vita` and `web` (the web image's build cache), next to `pc`. Python stays for development scripts and for the optional Steam achievement icons (`tools/fetch-achievement-icons.py`, needing only Pillow, `tools/requirements-icons.txt`). The sound decoding reads `UnityPlayer.dll`, so every job needs the whole game folder, not only `NGUIdle_Data`.
