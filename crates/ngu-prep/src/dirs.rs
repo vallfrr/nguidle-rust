@@ -64,11 +64,11 @@ mod tests {
 
     #[test]
     fn follows_each_system_convention() {
-        let home = Path::new("/home/p");
+        let home = Path::new("/users/p");
         let none = |_: &str| None;
         assert_eq!(
             data_root(Os::Linux, home, none),
-            Path::new("/home/p/.local/share/NGUIdleRustEngine")
+            Path::new("/users/p/.local/share/NGUIdleRustEngine")
         );
         let xdg = |name: &str| (name == "XDG_DATA_HOME").then(|| "/x".to_string());
         assert_eq!(
@@ -77,7 +77,7 @@ mod tests {
         );
         assert_eq!(
             data_root(Os::MacOs, home, none),
-            Path::new("/home/p/Library/Application Support/NGUIdleRustEngine")
+            Path::new("/users/p/Library/Application Support/NGUIdleRustEngine")
         );
         let local = |name: &str| (name == "LOCALAPPDATA").then(|| "/L".to_string());
         assert_eq!(

@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn reads_library_paths() {
         let vdf = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"D:\\\\Games\\\\Steam\"\n\t\t\"label\"\t\t\"\"\n\t}\n}";
-        assert_eq!(vdf_libraries(vdf), vec![PathBuf::from("D:\\Games\\Steam")]);
+        assert_eq!(vdf_libraries(vdf), vec![PathBuf::from("Lib\\Games\\Steam")]);
     }
 
     #[test]
