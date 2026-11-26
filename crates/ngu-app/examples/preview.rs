@@ -13,12 +13,12 @@ fn main() {
         out.join("app"),
         "A game file is missing: Managed/Assembly-CSharp.dll.".into(),
     );
-    let found = vec![PathBuf::from("C:/Games/Steam/steamapps/common/NGU IDLE")];
+    let found = vec![PathBuf::from("Games/Steam/steamapps/common/NGU IDLE")];
     let screens: Vec<(&str, Screen)> = vec![
         ("intro", Screen::Intro),
         ("found", Screen::Found(found.clone())),
         ("found-none", Screen::Found(vec![])),
-        ("found-many", Screen::Found(vec![found[0].clone(), PathBuf::from("D:/Library/steamapps/common/NGU IDLE")])),
+        ("found-many", Screen::Found(vec![found[0].clone(), PathBuf::from("Library/steamapps/common/NGU IDLE")])),
         ("browse", Screen::Browse(Browser::open(&out), Some("This folder is not NGU Idle. Open the folder that contains NGU IDLE.exe.".into()))),
         ("working", Screen::Working),
         ("failed", Screen::Failed("This is not the supported NGU Idle build (1.260). Wrong SHA-256: Managed/Assembly-CSharp.dll".into())),
