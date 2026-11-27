@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fix: a float `+ - * /` directly followed by an integer conversion is computed in double precision, like the original runtime. `(int)((float)22560 * 0.9f)` is 20,303 in the original and was 20,304 here, which shifted the beast-quest timer by one second per threshold passed (ADR 0014). Found by comparing offline progress with the original.
+
 - Add `tools/guard-frames.sh` (what each interpreter shortcut is worth per frame on the console scenarios) and the evidence table of `docs/GUARDS.md`.
 
 - `NGU_GUARD_OFF=3,12` disables only those interpreter shortcuts; `NGU_GUARD_TABLE=1 tools/longrun.sh` plays once per shortcut with only it disabled and prints what each is worth (extra interpreted instructions, time) and whether the final save changes.

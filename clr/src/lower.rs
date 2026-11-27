@@ -300,6 +300,19 @@ impl Vm {
                 }
             }
         }
+        // The original runtime computes `(int)(float * float)` in double precision: widen the operation before an integer conversion.
+        for i in 0..ops.len().saturating_sub(1) {
+            if !matches!(ops[i + 1], Op::Conv(Ty::I8 | Ty::U8 | Ty::I16 | Ty::U16 | Ty::I32 | Ty::U32 | Ty::I64 | Ty::U64)) {
+                continue;
+            }
+            ops[i] = match ops[i] {
+                Op::Add => Op::WideArith(0),
+                Op::Sub => Op::WideArith(1),
+                Op::Mul => Op::WideArith(2),
+                Op::Div(false) => Op::WideArith(3),
+                _ => continue,
+            };
+        }
         // innermost handlers first
         eh.sort_by_key(|h| (h.try_end - h.try_start, h.try_start));
         let dbg = if std::env::var("CLR_DBG").is_ok() { Some(body.instructions.iter().map(|i| i.show(&prog.res)).collect()) } else { None };

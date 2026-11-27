@@ -107,6 +107,15 @@ impl Vm {
                     }
                     push!(if *u { arith(&a, &b, ArOp::DivUn) } else { arith(&a, &b, ArOp::Div) });
                 }
+                Op::WideArith(o) => {
+                    let b = pop!();
+                    let a = pop!();
+                    let ar = || match o { 0 => ArOp::Add, 1 => ArOp::Sub, 2 => ArOp::Mul, _ => ArOp::Div };
+                    push!(match (&a, &b) {
+                        (Value::F32(x), Value::F32(y)) => Value::F64(cil_interp::arith_f64(f64::from(*x), f64::from(*y), ar())),
+                        _ => arith(&a, &b, ar()),
+                    });
+                }
                 Op::Rem(u) => {
                     let b = pop!();
                     let a = pop!();
