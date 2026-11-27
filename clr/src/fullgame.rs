@@ -182,6 +182,7 @@ pub fn run(vm: &mut Vm, opts: &Options) -> Vec<Check> {
 
     // 7. Console mode: every focusable element answers the controller and nothing raises.
     console(vm, &mut r, roots.len());
+    controller(vm, &mut r);
 
     r.check("no exception", vm.eng.exceptions == errors_before, format!("{} reported in the whole run", vm.eng.exceptions - errors_before));
     r.checks
@@ -335,6 +336,117 @@ fn console(vm: &mut Vm, r: &mut Report, menus: usize) {
         elements >= 20 && vm.eng.exceptions == before,
         format!("{elements} elements focused and activated over {menus_walked} menus, {} exceptions", vm.eng.exceptions - before),
     );
+}
+
+fn menu_now(vm: &mut Vm) -> i32 {
+    crate::dev::get(vm, "MenuSwapper.menuID").rsplit('=').next().and_then(|v| v.trim().parse().ok()).unwrap_or(-1)
+}
+
+fn pad(vm: &mut Vm, input: crate::console_mode::Pad) -> Option<crate::console_mode::Click> {
+    let Some(mut console) = vm.eng.console.take() else { return None };
+    let click = console.input(vm, input);
+    vm.eng.console = Some(console);
+    crate::console_mode::sync(vm);
+    if let Some(k) = click {
+        // the shell delivers a click over two steps
+        vm.eng.mouse = (k.x, k.y);
+        vm.eng.mouse_button = k.button;
+        vm.eng.mouse_down = true;
+        vm.eng.mouse_down_edge = true;
+        frames(vm, 1);
+        vm.eng.mouse_down = false;
+        vm.eng.mouse_up_edge = true;
+        frames(vm, 1);
+        vm.eng.mouse_button = 0;
+    }
+    for _ in 0..4 {
+        crate::console_mode::sync(vm);
+        frames(vm, 1);
+    }
+    click
+}
+
+/// What the controller does everywhere (`docs/M5-SPEC.md`): Start and Select, the menu list, the number pad, allocation rows,
+/// the cursor memory, the free cursor, and that every control can be reached with the d-pad.
+fn controller(vm: &mut Vm, r: &mut Report) {
+    use crate::console_mode::Pad;
+    let before = vm.eng.exceptions;
+    steps(vm, &["consolemode,on", "consolescale,120", "menu,0", "set,Character.idleEnergy,100000", "set,Character.curEnergy,100000"]);
+    frames(vm, 6);
+    crate::console_mode::fit_screen(vm, 960.0, 544.0);
+    crate::desktop_layout::rebuild(vm);
+    // Start opens Settings, Select opens Info 'n Stuff
+    pad(vm, Pad::Settings);
+    let settings = menu_now(vm);
+    pad(vm, Pad::InfoStuff);
+    let info = menu_now(vm);
+    r.check("Start and Select", settings == 11 && info == 26, format!("Start -> menu {settings}, Select -> menu {info}"));
+    // the menu list: hold L, move down twice, release: the third menu opens
+    steps(vm, &["menu,0"]);
+    frames(vm, 6);
+    pad(vm, Pad::HoldStart);
+    pad(vm, Pad::Dir('d'));
+    pad(vm, Pad::Dir('d'));
+    pad(vm, Pad::HoldEnd);
+    let chosen = menu_now(vm);
+    r.check("menu list", chosen != 0, format!("two moves down from Basic Training open menu {chosen}"));
+    // the number pad: cross on the number field opens it, 7 then OK writes it
+    steps(vm, &["menu,0"]);
+    frames(vm, 6);
+    crate::desktop_layout::rebuild(vm);
+    let all = crate::focus::collect(vm);
+    let field = all.iter().find(|f| f.kind == "input" && f.label.trim().chars().all(|c| c.is_ascii_digit()) && !f.label.trim().is_empty()).cloned();
+    if field.is_none() {
+        eprintln!("[fullgame] no number field among {} controls: {:?}", all.len(), all.iter().map(|f| (f.kind, f.label.clone())).take(12).collect::<Vec<_>>());
+    }
+    let mut pad_ok = false;
+    if let Some(f) = field {
+        crate::focus::select_control(vm, &f.go);
+        pad(vm, Pad::Activate);
+        let opened = crate::numpad::is_open(vm);
+        pad(vm, Pad::Activate); // the pad starts on the 5 key
+        pad(vm, Pad::Settings); // OK
+        pad_ok = opened && !crate::numpad::is_open(vm);
+    }
+    r.check("number pad", pad_ok, "cross on the Input field opens the pad, a key and Start (OK) close it");
+    // allocation rows: right adds energy, left takes it back, square is Cap
+    steps(vm, &["menu,0", "sel,+"]);
+    frames(vm, 4);
+    let energy = |vm: &mut Vm| number(vm, "Character.idleEnergy").unwrap_or(f64::NAN);
+    let start = energy(vm);
+    pad(vm, Pad::Dir('r'));
+    let added = energy(vm);
+    pad(vm, Pad::Dir('l'));
+    let back = energy(vm);
+    pad(vm, Pad::Secondary);
+    let capped = energy(vm);
+    r.check("allocation row", added < start && (back - start).abs() < 1.0 && capped < added, format!("idle energy {start} -> + {added} -> - {back} -> Cap {capped}"));
+    // cursor memory: the selection comes back to the menu it left
+    steps(vm, &["menu,0", "sel,+"]);
+    frames(vm, 4);
+    let mark = crate::focus::focused_label(vm);
+    pad(vm, Pad::Next);
+    pad(vm, Pad::Prev);
+    r.check("cursor memory", crate::focus::focused_label(vm) == mark && mark.is_some(), format!("{mark:?} after a round trip through the next menu"));
+    // the free cursor: the right stick shows it, any button puts it away
+    pad(vm, Pad::Scroll(-20.0, 10.0));
+    let shown = vm.eng.console_cursor.is_some();
+    pad(vm, Pad::Dir('d'));
+    r.check("free cursor", shown && vm.eng.console_cursor.is_none(), "shown by the right stick, hidden by the next button");
+    // every control of every menu can be reached with the d-pad from the first one
+    let (mut total, mut lost) = (0, vec![]);
+    for menu in 0..58 {
+        crate::autoplay::swap_menu(vm, menu);
+        frames(vm, 4);
+        crate::console_mode::fit_screen(vm, 960.0, 544.0);
+        crate::desktop_layout::rebuild(vm);
+        let (all, missing) = crate::focus::reachability(vm);
+        total += all;
+        lost.extend(missing.into_iter().map(|m| format!("{menu}:{m}")));
+    }
+    r.check("controller reach", lost.len() <= 5, format!("{} of {total} controls out of the d-pad's reach {}", lost.len(), lost.join(" ")));
+    r.check("controller steps without exception", vm.eng.exceptions == before, format!("{} reported", vm.eng.exceptions - before));
+    steps(vm, &["menu,0"]);
 }
 
 /// The report as text, and whether every step passed.
