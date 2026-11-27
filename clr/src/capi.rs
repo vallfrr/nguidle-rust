@@ -33,6 +33,13 @@ struct State {
     touch_down: bool,
     pad_focus: bool,
     pad_click: Option<((f32, f32), bool)>,
+    /// mouse button of the pad click in progress (0 left, 1 right)
+    pad_button: i32,
+    /// device size in pixels and what the layout was last fitted to
+    dev_w: f32,
+    dev_h: f32,
+    console_on: bool,
+    gamepad: crate::gamepad::Decoder,
     accumulator: f64,
     was_at_title: bool,
     benchmark: bool,
@@ -179,7 +186,8 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
     unsafe {
         STATE = Some(State {
             vm, rend, draw: TriangleList { vertices: Vec::with_capacity(1 << 16), batches: vec![] }, scale, ox, oy,
-            touch_down: false, pad_focus: false, pad_click: None, accumulator: 0.0, was_at_title: true,
+            touch_down: false, pad_focus: false, pad_click: None, pad_button: 0, dev_w: dev_w as f32, dev_h: dev_h as f32,
+            console_on: false, gamepad: Default::default(), accumulator: 0.0, was_at_title: true,
             benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
             slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
             frame_target_ms: timing_ms("NGU_FRAME_MS", 12.0),
@@ -203,6 +211,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         Some(s) => s,
         None => return,
     };
+    fit_console(s);
     let (x, y, down) = autoplay_input(s, x, y, down);
     let touch_now = down != 0;
     let instr0 = s.vm.steps;
@@ -219,6 +228,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         s.vm.eng.mouse_down = press;
         s.vm.eng.mouse_down_edge = press;
         s.vm.eng.mouse_up_edge = !press;
+        s.vm.eng.mouse_button = s.pad_button;
         if press { s.pad_click = Some((at, false)); }
     } else if touch || s.touch_down {
         if s.pad_focus { crate::focus::clear(&mut s.vm); }
@@ -227,6 +237,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         s.vm.eng.mouse_down = touch;
         s.vm.eng.mouse_down_edge = touch && !s.touch_down;
         s.vm.eng.mouse_up_edge = !touch && s.touch_down;
+        s.vm.eng.mouse_button = 0;
         s.touch_down = touch;
     } else {
         s.vm.eng.mouse = if s.pad_focus {
@@ -236,7 +247,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         };
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
-    s.vm.eng.pad_hover = s.pad_focus && !touch;
+    s.vm.eng.pad_hover = s.pad_focus && !touch && crate::console_mode::tooltips_on(&s.vm);
     // A frame this long is a suspended console (the timer of the host may or may not have stopped meanwhile): the game
     // counts a quarter of a second of it and the rest, measured on the wall clock, is applied as offline progress.
     let dt = if dt > SUSPENDED_AFTER { 0.25 } else { dt };
@@ -333,6 +344,19 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
     if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() { return 0; }
     let Some(action) = char::from_u32(action) else { return 0 };
     s.pad_focus = true;
+    if s.vm.eng.console.is_some() {
+        let pad = match action {
+            'u' | 'd' | 'l' | 'r' => crate::console_mode::Pad::Dir(action),
+            'a' => crate::console_mode::Pad::Activate,
+            'b' => crate::console_mode::Pad::Back,
+            'p' => crate::console_mode::Pad::Prev,
+            'n' => crate::console_mode::Pad::Next,
+            _ => return 0,
+        };
+        let before = s.vm.eng.focus.clone();
+        apply_console_pad(s, pad);
+        return i32::from(!crate::unity::same(&before, &s.vm.eng.focus));
+    }
     let (click, moved) = crate::focus::pad_action(&mut s.vm, action, true);
     if let Some(at) = click { s.pad_click = Some((at, true)); }
     i32::from(moved)
@@ -351,8 +375,79 @@ fn scroll_action(s: &mut State, dx: f32, dy: f32) {
     s.need_emit = true;
     if !s.touch_down && s.vm.eng.text_req.is_none() {
         s.pad_focus = true;
-        crate::focus::scroll(&mut s.vm, dx, dy);
+        if s.vm.eng.console.is_some() {
+            apply_console_pad(s, crate::console_mode::Pad::Scroll(dx, dy));
+        } else {
+            crate::focus::scroll(&mut s.vm, dx, dy);
+        }
     }
+}
+
+/// Fits the picture to the device: the PC proportions, or the console mode's scale when it is on.
+fn fit_console(s: &mut State) {
+    let on = crate::console_mode::sync(&mut s.vm);
+    if on {
+        let (k, rows, width) = crate::console_mode::fit_screen(&mut s.vm, s.dev_w, s.dev_h);
+        s.scale = k;
+        s.ox = 0.0;
+        s.oy = ((s.dev_h - rows * k) / 2.0).max(0.0);
+        s.vm.eng.desktop_layout.set_width(width);
+    } else if s.console_on {
+        s.scale = (s.dev_w / 960.0).min(s.dev_h / 600.0);
+        s.ox = 0.0;
+        s.oy = (s.dev_h - 600.0 * s.scale) * 0.5;
+        s.vm.eng.desktop_layout.set_width(s.dev_w / s.scale);
+    }
+    s.console_on = on;
+}
+
+/// Applies one decoded gamepad event of the console mode; a click it asks for is delivered by the next frames.
+fn apply_console_pad(s: &mut State, pad: crate::console_mode::Pad) {
+    let Some(mut console) = s.vm.eng.console.take() else { return };
+    let click = console.input(&mut s.vm, pad);
+    s.vm.eng.console = Some(console);
+    if let Some(c) = click {
+        s.pad_button = c.button;
+        s.pad_click = Some(((c.x, c.y), true));
+    }
+}
+
+/// One frame of gamepad state: `buttons` is a set of `ngu_gamepad` button bits (1 cross, 2 circle, 4 square, 8 triangle,
+/// 16 L, 32 R, 64 start, 128 select, 256 up, 512 down, 1024 left, 2048 right), the sticks are in -1..1 with x to the
+/// right and y towards the bottom, `dt` is the time since the previous call. Call it once per display frame, before
+/// [`ngu_frame`]. The engine decodes taps and holds of L and R, repeats and dead zones, and acts on them (the console mode
+/// or the plain focus navigation). Returns 1 when the selection moved.
+#[no_mangle]
+pub extern "C" fn ngu_gamepad(buttons: u32, lx: f32, ly: f32, rx: f32, ry: f32, dt: f32) -> i32 {
+    let Some(s) = st() else { return 0 };
+    let before = s.vm.eng.focus.clone();
+    let console = s.vm.eng.console.is_some();
+    let dropdown = s.vm.dropdown_is_open();
+    let state = crate::gamepad::State { buttons, left: (lx, ly), right: (rx, ry) };
+    let events = s.gamepad.update(state, dt, dropdown, console);
+    for pad in events {
+        use crate::console_mode::Pad;
+        finish_tick(s);
+        s.need_emit = true;
+        if s.touch_down || s.pad_click.is_some() || s.vm.eng.text_req.is_some() {
+            continue;
+        }
+        s.pad_focus = true;
+        if console {
+            apply_console_pad(s, pad);
+            continue;
+        }
+        match pad {
+            Pad::Dir(d) => drop(pad_action(s, d as u32)),
+            Pad::Activate => drop(pad_action(s, 'a' as u32)),
+            Pad::Back => drop(pad_action(s, 'b' as u32)),
+            Pad::Prev => drop(pad_action(s, 'p' as u32)),
+            Pad::Next => drop(pad_action(s, 'n' as u32)),
+            Pad::Scroll(dx, dy) => scroll_action(s, dx, dy),
+            _ => {}
+        }
+    }
+    i32::from(!crate::unity::same(&before, &s.vm.eng.focus))
 }
 
 /// Build the frame's triangle list and return its number of batches. Read it with [`ngu_batches`] and
@@ -397,7 +492,7 @@ pub extern "C" fn ngu_vertices() -> *const NguVertex {
 }
 
 /// Choose the host tuning, a bit set of `HostTuning::*` values: 1 background autosave, 2 single-writer storage (no hard
-/// links), 4 startup fonts on a worker thread, 8 time the layout. Call it before [`ngu_init`]; it applies to the whole
+/// links), 4 startup fonts on a worker thread, 8 time the layout, 16 console mode always on (no on / off setting). Call it before [`ngu_init`]; it applies to the whole
 /// process. A host that never calls it gets the defaults (all off).
 #[no_mangle]
 pub extern "C" fn ngu_set_host_tuning(bits: u32) {

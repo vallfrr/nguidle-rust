@@ -15,9 +15,14 @@ use crate::Vm;
 
 const PREF: &str = "nguConsoleMode";
 const SCALE_PREF: &str = "nguConsoleScale";
+/// Scale a console starts with when the player has not chosen one.
+const DEFAULT_CONSOLE_SCALE: i32 = 120;
 /// Scale steps, in percent of the PC size.
-pub const SCALES: [i32; 3] = [100, 110, 120];
+pub const SCALES: [i32; 4] = [100, 110, 120, 130];
 const TAG: &str = "PortConsoleMode";
+/// Menu numbers (`MenuSwapper.swapMenu`) of Settings and of Info 'n Stuff.
+const SETTINGS_MENU: i32 = 11;
+const INFO_MENU: i32 = 26;
 /// Narrowest logical width the PC layout handles without squeezing the page sideways (player column + page).
 const MIN_WIDTH: f32 = 834.0;
 /// Margin kept around the selection when a part scrolls to it, and the step of a d-pad press at a scroll edge.
@@ -35,7 +40,7 @@ pub(crate) struct Switch {
 }
 
 pub fn enabled(vm: &Vm) -> bool {
-    matches!(vm.eng.prefs.get(PREF), Some(Value::I32(1)))
+    crate::host_platform::host_tuning().console_always || matches!(vm.eng.prefs.get(PREF), Some(Value::I32(1)))
 }
 
 pub fn set_enabled(vm: &mut Vm, on: bool) {
@@ -44,10 +49,17 @@ pub fn set_enabled(vm: &mut Vm, on: bool) {
     refresh(vm);
 }
 
+/// Whether the selected controls show their information (tooltips): always outside the console mode, with the triangle
+/// toggle inside it.
+pub fn tooltips_on(vm: &Vm) -> bool {
+    vm.eng.console.as_ref().map_or(true, |c| c.info)
+}
+
 /// The chosen scale in percent (100 when unset or not one of `SCALES`).
 pub fn scale(vm: &Vm) -> i32 {
     match vm.eng.prefs.get(SCALE_PREF) {
         Some(Value::I32(s)) if SCALES.contains(s) => *s,
+        _ if crate::host_platform::host_tuning().console_always => DEFAULT_CONSOLE_SCALE,
         _ => 100,
     }
 }
@@ -106,9 +118,13 @@ pub(crate) fn prepare(vm: &mut Vm) {
         with_go(&node, |g| g.tag = TAG.into());
         captions.push(t);
     };
-    // the column is 160 x 480 under its title
-    caption(vm, "Console Mode Text", "Console Mode", 40.0);
-    caption(vm, "Console Scale Text", "Console Scale", 108.0);
+    // the column is 160 x 480 under its title; a console has no on / off choice, only the scale
+    let always = crate::host_platform::host_tuning().console_always;
+    let scale_shift = if always { -68.0 } else { 0.0 };
+    if !always {
+        caption(vm, "Console Mode Text", "Console Mode", 40.0);
+    }
+    caption(vm, "Console Scale Text", "Console Scale", 108.0 + scale_shift);
     let button = |vm: &mut Vm, name: &str, value: &str, x: [f32; 2], y: f32| {
         let go = new_node(vm, name, &tr(&panel), x, y, 30.0);
         let graphic = image(vm, &go, frame.as_ref(), true);
@@ -128,11 +144,15 @@ pub(crate) fn prepare(vm: &mut Vm) {
         label(&t, value.into());
         go
     };
-    let on = button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0);
-    let off = button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0);
+    let (on, off) = if always {
+        (Value::Null, Value::Null)
+    } else {
+        (button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0),
+         button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0))
+    };
     let scales = SCALES.iter().enumerate().map(|(i, &p)| {
-        let x0 = 6.0 + i as f32 * 50.0;
-        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 48.0) / 160.0], 132.0), p)
+        let x0 = 5.0 + i as f32 * 38.0;
+        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift), p)
     }).collect();
     vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions });
     refresh(vm);
@@ -236,6 +256,14 @@ pub enum Pad {
     HoldEnd,
     /// right stick, in game pixels for this poll (y > 0 = towards the bottom)
     Scroll(f32, f32),
+    /// triangle: show / hide the information (tooltips) of the selected controls (a toggle)
+    Info,
+    /// start: open Settings; select: open Info 'n Stuff
+    Settings,
+    InfoStuff,
+    /// a face button or direction pressed while R is held (the game's keyboard shortcuts): 'x' cross, 'o' circle,
+    /// 's' square, 't' triangle, 'u' 'd' 'l' 'r' the d-pad
+    Shortcut(char),
 }
 
 /// A click the shell performs over two logic steps (press, release), in engine space (y up).
@@ -251,6 +279,8 @@ pub struct Click {
 #[derive(Default)]
 pub struct Console {
     pub hold: bool,
+    /// triangle toggle: the selected control's information (tooltip) is shown
+    pub info: bool,
     focus_before_hold: Value,
     scrollbar_drag: Option<(usize, f32)>,
     /// the menu column and the player column (root canvases)
@@ -576,6 +606,19 @@ impl Console {
                 None
             }
             Pad::HoldStart | Pad::HoldEnd => None,
+            Pad::Info => {
+                self.info = !self.info;
+                None
+            }
+            Pad::Settings | Pad::InfoStuff if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
+                crate::save_slots::close_for_console_navigation(vm);
+                crate::autoplay::swap_menu(vm, if pad == Pad::Settings { SETTINGS_MENU } else { INFO_MENU });
+                crate::focus::clear(vm);
+                new_page(vm);
+                None
+            }
+            Pad::Settings | Pad::InfoStuff => None,
+            Pad::Shortcut(_) => None,
             Pad::Scroll(dx, dy) => {
                 // the region under the selection, else the one in the middle of the page
                 let r = region_of_focus(vm).or_else(|| {
