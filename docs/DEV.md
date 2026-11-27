@@ -43,6 +43,7 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `wheel,x,y,notches` | mouse wheel at a point (positive = up); in console mode the parts it squeezed scroll first |
 | `consolemode,on\|off`, `consolescale,100\|110\|120` | console mode switch and scale (`docs/CONSOLE-MODE.md`) |
 | `pad,u\|d\|l\|r\|a\|s\|b\|prev\|next\|holdstart\|holdend\|scroll[,rows]` | console controller input (d-pad, cross, square, circle, L / R tap, L held / released, right stick) |
+| `sel,<label>` / `reach` / `inputs` | select the control with that label without clicking / list the controls the d-pad cannot reach in every menu (console mode) / list every text and number field |
 | `consolestate` | console mode: rows shown and the parts that scroll after the last capture (`pngl,...,desktop,w,h` lays the screen out) |
 | `x,y[,wait]`, `w,N`, `h,x,y`, `d,x1,y1,x2,y2`, `f,u/d/l/r/list`, `a`, `m,+-1`, `s,f`, `l,f` | click, wait, hold, drag, focus, activate, next menu, save probe/load |
 

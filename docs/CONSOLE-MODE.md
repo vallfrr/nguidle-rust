@@ -5,7 +5,41 @@ is built and tested on PC first, where it is **off by default**; PC players keep
 and saves are unchanged: the console mode is a presentation and input layer of the engine, and `tools/regress.sh` must stay
 all OK.
 
-## Where it stands (2026-11-23)
+## M5 (2026-11-27 and 28): what the controller does now
+The brief is `docs/M5-SPEC.md`. The Vita host, the PC window and the scripts all go through the same decoder (`clr/src/gamepad.rs`).
+Hosts: Vita and PC window call it with the raw buttons and sticks (`ngu_gamepad`); the browser still sends the older
+move / confirm / back / menu actions (see issue "web gamepad").
+
+| input | action |
+|---|---|
+| d-pad / left stick | move the selection; on an allocation row (+ / - / Cap) left = -, right = + |
+| cross | press the selection (with no selection in a tutorial: go on); on an item, pick it up / put it down |
+| circle | back / clear the selection (in a tutorial: go back); with an item in hand: put it back where it was |
+| square | the game's right click; on an allocation row: Cap |
+| triangle | show / hide the information of the selected controls (a toggle, stays while the selection moves) |
+| L tap / R tap | previous / next menu |
+| L held | the menu list (every menu at once, no scrollbar) |
+| R held, then a button | the game's keyboard shortcuts through the game's own keys (see below); R + another button never changes menu |
+| Start | Settings |
+| Select | Info 'n Stuff |
+| right stick | the free cursor (a small cross): hover like a mouse, cross / square click where it is, any other input hides it |
+
+R layer: Adventure (R + L changes the page: attacks, defence, special): cross, circle, square, triangle, d-pad up and down are the
+six skills of the page, left / right change the zone. Fight Boss: F A R T S of the combination lock. Inventory: left / right turn
+the pages, cross applies all boosts to the item under the selection, triangle merges it with its copies. Cards: left / right turn
+the deck pages. Elsewhere: cross takes the energy back from every feature except training (the game's R), square the magic (T),
+triangle the third resource (F).
+
+Number fields open the in-game pad (`clr/src/numpad.rs`): digits, K / M / B, x2, /2, 00, Clear, backspace; Start is OK, circle
+cancels, square is backspace, triangle clears. Names keep the console's own keyboard. On the console the console mode is always
+on (host tuning bit 16), Settings page 2 only offers the scale (100 to 130 %, 120 % by default) and "Remember Cursor". The 4G's
+Sellout Shop button lives in Info 'n Stuff in console mode. In a tutorial the key prompts are the buttons (`tools/glyphs.py`,
+`assets/ui/glyphs`). Checked by `just full-game` (steps "Start and Select" to "controller reach") and by captures at 960 x 544.
+
+Not done yet: the in-game keyboard (the console's keyboard is used for every text field), inline glyphs in the long texts of
+How to play, the browser's gamepad decoding, per-menu layout by importance beyond the generic fit.
+
+## Where it stood before M5 (2026-11-23)
 
 Implemented on PC (Windows window and the scripted captures), not yet on the Vita:
 - **Settings > Page 2 > Bloopydoops** (the game's empty column): *Console Mode* On / Off and *Console Scale* 100 % / 110 % /
