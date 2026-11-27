@@ -333,6 +333,10 @@ pub struct Console {
     pub hold: bool,
     /// triangle toggle: the selected control's information (tooltip) is shown
     pub info: bool,
+    /// page of the adventure skills the R layer fires (0 attacks, 1 defence, 2 special)
+    skill_page: u8,
+    /// page of the inventory the R layer shows
+    inventory_page: i32,
     focus_before_hold: Value,
     /// the tutorial's key sprites as the game made them, put back when the mode goes off
     tutorial_sprites: Vec<((u32, usize), Value)>,
@@ -631,6 +635,57 @@ impl Console {
         }
     }
 
+    /// The game's own keyboard shortcuts on the R layer: the game reads the key, so the button presses it.
+    fn shortcut(&mut self, vm: &mut Vm, c: char) {
+        const Q: i32 = 113;
+        const LEFT: i32 = 276;
+        const RIGHT: i32 = 275;
+        let key = |ch: char| ch as i32;
+        let menu = current_menu(vm);
+        let code = match menu {
+            // adventure: three pages of skills on the face buttons and up / down; left / right change the zone
+            3 => {
+                if c == 'n' {
+                    self.skill_page = (self.skill_page + 1) % 3;
+                    let name = ["Attack skills", "Defense skills", "Special skills"][self.skill_page as usize];
+                    crate::dev::call(vm, "Character.tooltip.showOverrideTooltip", &[name, "1.2"]);
+                    return;
+                }
+                let skills: [[Option<i32>; 6]; 3] = [
+                    [Some(key('w')), Some(key('e')), Some(key('r')), Some(key('t')), Some(key('y')), Some(Q)],
+                    [Some(key('a')), Some(key('s')), Some(key('d')), Some(key('f')), Some(key('g')), Some(key('h'))],
+                    [Some(key('z')), Some(key('x')), Some(key('c')), Some(key('v')), Some(key('b')), None],
+                ];
+                let slot = match c { 'x' => Some(0), 'o' => Some(1), 's' => Some(2), 't' => Some(3), 'u' => Some(4), 'd' => Some(5), _ => None };
+                match c {
+                    'l' => Some(LEFT),
+                    'r' => Some(RIGHT),
+                    _ => slot.and_then(|i| skills[self.skill_page as usize][i]),
+                }
+            }
+            // the secret combination lock of the Fight Boss menu (F A R T S)
+            15 => match c { 'x' => Some(key('f')), 'o' => Some(key('a')), 's' => Some(key('r')), 't' => Some(key('t')), 'u' => Some(key('s')), _ => None },
+            // inventory: pages with left / right, boosts and merging on the item under the selection
+            4 => match c {
+                'x' => Some(key('a')),
+                't' => Some(key('d')),
+                'l' | 'r' => {
+                    let pages = crate::dev::call(vm, "Character.inventoryController.curPages", &[]).rsplit("-> ").next()
+                        .and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(1).clamp(1, 10);
+                    self.inventory_page = (self.inventory_page + if c == 'l' { -1 } else { 1 }).clamp(0, pages - 1);
+                    Some(if self.inventory_page == 9 { key('0') } else { key('1') + self.inventory_page })
+                }
+                _ => None,
+            },
+            55 => match c { 'l' => Some(LEFT), 'r' => Some(RIGHT), _ => None },
+            // everywhere else: take the energy, the magic or the third resource back from every feature
+            _ => match c { 'x' => Some(key('r')), 's' => Some(key('t')), 't' => Some(key('f')), _ => None },
+        };
+        if let Some(code) = code {
+            vm.eng.keys_edge.insert(code);
+        }
+    }
+
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
         if crate::numpad::is_open(vm) {
@@ -765,7 +820,10 @@ impl Console {
                 None
             }
             Pad::Settings | Pad::InfoStuff => None,
-            Pad::Shortcut(_) => None,
+            Pad::Shortcut(c) => {
+                self.shortcut(vm, c);
+                None
+            }
             Pad::Scroll(dx, dy) => {
                 // the region under the selection, else the one in the middle of the page
                 let r = region_of_focus(vm).or_else(|| {

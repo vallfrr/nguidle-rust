@@ -96,6 +96,10 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 "next" => Pad::Next,
                 "holdstart" => Pad::HoldStart,
                 "holdend" => Pad::HoldEnd,
+                "info" => Pad::Info,
+                "start" => Pad::Settings,
+                "select" => Pad::InfoStuff,
+                "short" => Pad::Shortcut(p.get(2).and_then(|v| v.chars().next()).unwrap_or('x')),
                 _ => Pad::Scroll(0.0, p.get(2).and_then(|v| v.parse().ok()).unwrap_or(100.0)),
             };
             let Some(mut c) = vm.eng.console.take() else { println!("[pad] console mode is off"); continue };

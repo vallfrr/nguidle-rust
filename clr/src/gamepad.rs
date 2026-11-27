@@ -118,8 +118,11 @@ impl Decoder {
                 out.push(Pad::Next);
             }
         } else {
-            // L: tap = previous menu; hold (or a direction while it is down) = the menu list
-            if edge & L != 0 {
+            // R held and L pressed: next page of the shortcuts (the adventure skills)
+            if edge & L != 0 && self.r.down() {
+                self.r.holding = true;
+                out.push(Pad::Shortcut('n'));
+            } else if edge & L != 0 {
                 self.l.since.get_or_insert(now);
             }
             if let Some(since) = self.l.since {
