@@ -281,6 +281,8 @@ fn offline(vm: &mut Vm, r: &mut Report) {
     frames(vm, 1);
     let millis = started.elapsed().as_millis();
     r.check("a year away is applied in under a second", vm.eng.resumed > applied_before && millis < 1000, format!("{millis} ms"));
+    // The game's "You were offline" screen is for opening a save; time away leaves nothing on the screen.
+    r.check("no offline screen after time away", !crate::dev::ui(vm).contains("You were offline"), "screen text checked");
     match previous {
         Some(v) => std::env::set_var("NGU_FIXED_NOW", v),
         None => std::env::remove_var("NGU_FIXED_NOW"),

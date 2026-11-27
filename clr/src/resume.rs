@@ -79,7 +79,7 @@ impl Vm {
     }
 
     /// Applies `seconds` of offline progress to the running game, the way the game does after opening a save:
-    /// the game's own `addOfflineProgress` (which also shows the "You were offline" screen), between the two
+    /// the game's own `addOfflineProgress` (the "You were offline" screen it opens is closed again), between the two
     /// refreshes of the item stats the game does around it. Returns false when the game is not running.
     pub fn apply_away(&mut self, seconds: i64) -> bool {
         use crate::dev::call;
@@ -92,6 +92,9 @@ impl Vm {
             ("Character.inventoryController.updateItemStats", None),
             ("Character.inventoryController.updateBonuses", None),
             ("Character.addOfflineProgress", Some(seconds.as_str())),
+            // The game opens its "You were offline" screen at the end of the calculation. After opening a save it tells the
+            // player what happened; after a sleep or a hidden tab it only gets in the way, so it is closed again.
+            ("Character.splashScreen.closeScreen", None),
             ("Character.inventoryController.updateItemStats", None),
             ("Character.inventoryController.updateBonuses", None),
             ("Character.buttons.updateButtons", None),
