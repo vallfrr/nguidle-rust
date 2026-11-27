@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Time the host was away (a hidden browser tab, a computer that slept, a suspended console) is applied as the game's own offline progress when the game runs again, in a few milliseconds, with the game's "You were offline" screen (ADR 0016). `Vm::host_frame` is called by the hosts; scripts have `skip,<seconds>` and console scenarios `<tick> away <seconds>`. Saves written by the port are now stamped with the current time like the game's own saves (a page reloaded after a session no longer counted that session twice).
+
 - Fix: `GetComponentInChildren` goes on into the children of an inactive object, like the original, so that the energy purchases and beast quest menus open on an early save without an exception (ADR 0015). `OfflineProbe.cs` can open menus (`NGU_OFFLINE_PROBE_MENUS`).
 
 - Remove the import of old internal-format Vita saves (`legacy-save` feature, `clr convert-legacy-save`): nobody used that format. Migration: none.

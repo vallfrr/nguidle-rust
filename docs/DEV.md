@@ -26,6 +26,7 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `call,Type[.field].method[,args]` | calls a game method (e.g. `call,ButtonShower.updateButtons`) |
 | `open,<file>` | opens a save the way the game does (`loadintoGame`: offline progress and version updates apply), unlike `l,<file>` which only loads the data |
 | `clock,<seconds>` | sets the time the game reads (`DateTime.UtcNow`, seconds since 1970) for the rest of the run |
+| `skip,<seconds>` | the host was away for that long (a hidden tab, a sleeping computer, a suspended console): the next step applies the game's offline progress for it (ADR 0016); the scenarios of the console have the same event, `<tick> away <seconds>` |
 | `do,file` | runs a step file (one per line, `#` comment) |
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
 | `autoplay` mode | `clr <dll> autoplay <assets> <scenario> <trace.csv>`: replays a benchmark scenario headless (`docs/VITA-60.md`) |

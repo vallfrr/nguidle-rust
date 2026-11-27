@@ -240,7 +240,18 @@ fn write_current(vm: &mut Vm, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("Could not write the save: {e}"))
 }
 
+/// Every save the game writes itself (`OpenFileDialog.quicklySave*`, the manual save, the backup) first stamps the save with
+/// the current time (`Character.lastTime`), so that opening it later counts the time since that moment as offline.
+fn stamp_save_time(vm: &mut Vm) {
+    let Some(&epoch) = vm.type_ids.get("Epoch") else { return };
+    let Some(current) = vm.find_method(epoch, "Current", 0) else { return };
+    if let Ok(now) = vm.invoke(current, vec![]) {
+        crate::dev::set(vm, "Character.lastTime", &now.as_i64().to_string());
+    }
+}
+
 fn current_snapshot(vm: &mut Vm) -> Result<Rc<str>, String> {
+    stamp_save_time(vm);
     let c = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;
     let Value::Str(data) = game_call(vm, &c, "getBase64Data", vec![])? else {
         return Err("The game produced no save data.".into());

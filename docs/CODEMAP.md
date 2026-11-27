@@ -27,6 +27,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/profile.rs` — Transforms the game layout for different screen profiles.
 - `clr/src/program.rs` — Loading of a .NET assembly (dotnetdll) -> flat tables (types, fields, methods).
 - `clr/src/render.rs` — Unity UI rendering: production of a quad list (backend independent) + software rasterizer (PC tests).
+- `clr/src/resume.rs` — Time the host was away (hidden tab, sleeping computer, suspended console): applied as the game's own offline progress.
 - `clr/src/save_slots.rs` — Local save screens. The game still owns serialization and progression.
 - `clr/src/script.rs` — Scripted input scenarios (clicks, drags, waits) for game verification.
 - `clr/src/serial.rs` — Serializes player and save data using the .NET BinaryFormatter format.

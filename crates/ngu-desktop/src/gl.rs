@@ -437,7 +437,9 @@ impl EventHandler for Stage {
         self.update_hover();
         // fixed logic steps caught up on real time
         let now = Instant::now();
-        let steps = self.clock.advance((now - self.last).as_secs_f32());
+        let gap = (now - self.last).as_secs_f32();
+        self.vm.host_frame(gap.clamp(0.0, clr::platform_api::FixedStep::MAX_GAP));
+        let steps = self.clock.advance(gap);
         self.last = now;
         for _ in 0..steps {
             if let Some(&(x, y, button)) = self.pending.first() {
