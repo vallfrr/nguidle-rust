@@ -61,6 +61,19 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[reach] {lost} of {total} controls not reachable by the d-pad");
             continue;
         }
+        if p[0] == "layouttime" {
+            // layouttime,<iterations>: microseconds of one desktop layout rebuild on the current screen (console mode: 960 x 544)
+            let n: u32 = p.get(1).and_then(|v| v.parse().ok()).unwrap_or(50);
+            if vm.eng.console.is_some() {
+                crate::console_mode::fit_screen(vm, 960.0, 544.0);
+            }
+            let start = std::time::Instant::now();
+            for _ in 0..n {
+                crate::desktop_layout::rebuild(vm);
+            }
+            println!("[layouttime] {:.0} us per rebuild", start.elapsed().as_micros() as f64 / n as f64);
+            continue;
+        }
         if p[0] == "sel" {
             // sel,<label>: puts the controller selection on the control with that label (no click)
             match crate::dev::find_click(vm, &p[1..].join(",")) {

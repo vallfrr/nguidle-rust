@@ -241,6 +241,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     } else if touch || s.touch_down {
         if s.pad_focus { crate::focus::clear(&mut s.vm); }
         s.pad_focus = false;
+        s.vm.eng.console_cursor = None;
         s.vm.eng.mouse = (vx, vy);
         s.vm.eng.mouse_down = touch;
         s.vm.eng.mouse_down_edge = touch && !s.touch_down;
