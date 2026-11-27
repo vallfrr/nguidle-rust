@@ -40,6 +40,17 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[console] scale {}", crate::console_mode::scale(vm));
             continue;
         }
+        if p[0] == "sel" {
+            // sel,<label>: puts the controller selection on the control with that label (no click)
+            match crate::dev::find_click(vm, &p[1..].join(",")) {
+                Some((x, y, label)) => {
+                    let ok = crate::focus::select_at(vm, x, vm.eng.screen.1 as f32 - y);
+                    println!("[sel] {label} {}", if ok { "selected" } else { "not reachable" });
+                }
+                None => println!("[sel] no control '{}'", p[1..].join(",")),
+            }
+            continue;
+        }
         if p[0] == "inputs" {
             // inputs: every text / number field of the scene with its content type (0 standard, 2 integer, 3 decimal ...)
             let gos = vm.eng.gos.clone();

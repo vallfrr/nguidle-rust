@@ -357,6 +357,21 @@ fn menu_buttons(vm: &Vm, column: &Value) -> Vec<(Value, i32)> {
     out.into_iter().map(|(go, id, _)| (go, id)).collect()
 }
 
+use crate::focus::AllocationRole;
+
+/// The click on one button of the allocation row the selection is on (its "+", "-" or "Cap"), if it is on one.
+fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
+    let focus = vm.eng.focus.clone();
+    if focus.is_null() {
+        return None;
+    }
+    let row = crate::focus::allocation_row(&focus)?;
+    crate::focus::allocation_role(&focus).or_else(|| row.iter().find(|(go, _)| same(go, &focus)).map(|(_, r)| *r))?;
+    let (target, _) = row.iter().find(|(_, r)| *r == role)?;
+    let rect = crate::focus::node_rect(vm, target)?;
+    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0 })
+}
+
 /// Top and bottom of the menu buttons of the list (rows from the top of the screen, as the game lays them out, before any
 /// console fit): what the list needs to show every menu at once.
 pub(crate) fn list_extent(vm: &Vm, column: &Value) -> Option<(f32, f32)> {
@@ -620,6 +635,12 @@ impl Console {
         let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button });
         match pad {
             Pad::Dir(d) => {
+                // on an allocation row, left and right take energy away or add it
+                if matches!(d, 'l' | 'r') {
+                    if let Some(click) = allocation_click(vm, if d == 'l' { AllocationRole::Minus } else { AllocationRole::Plus }) {
+                        return Some(click);
+                    }
+                }
                 let before = vm.eng.focus.clone();
                 crate::focus::navigate(vm, d);
                 // at the edge of a region that scrolls: scroll it and look again (the next rows were clipped)
@@ -641,7 +662,7 @@ impl Console {
                 None
             }
             Pad::Activate => click(vm, 0),
-            Pad::Secondary => click(vm, 1),
+            Pad::Secondary => allocation_click(vm, AllocationRole::Cap).or_else(|| click(vm, 1)),
             Pad::Back => {
                 if !vm.back_from_desktop_picker() {
                     crate::focus::clear(vm);
