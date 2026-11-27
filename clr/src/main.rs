@@ -277,6 +277,7 @@ fn play(vm: &mut Vm, a: &[String]) {
         for (id, hits) in clr::vm::GUARD_HITS.iter().enumerate().skip(1) {
             println!("[guard] {id} {}", hits.load(std::sync::atomic::Ordering::Relaxed));
         }
+        println!("[steps] {}", vm.steps);
     }
     let mut r = render::Renderer::new(960, 600);
     r.render(vm, 1.0, 0.0, 0.0);
