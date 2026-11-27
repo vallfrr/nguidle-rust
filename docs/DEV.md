@@ -46,6 +46,9 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 `Type` = game class attached to the scene (first component of that type): `Character`, `ButtonShower`, `HoverTooltip`, `MenuSwapper`...
 To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.cs`, local, not versioned; produced by `tools/decompile.sh`).
 
+## Full-game script
+`just full-game [hours]` (or `bash tools/fullgame.sh [hours]`, or `clr <dll> fullgame <prepared> [report] [hours]`) plays the whole game on the real data and prints one line per step: title screen, new game and 60 s of progress (the original gains 58 energy), every menu with the unlock flags set, a long progression (default 1 h of game time, about 35 s), a save that loads back to the same bytes, offline progress (one hour computed by the game equals one hour played, and a save loaded one hour later or earlier applies it) and every console-mode element of every menu. The exit code is 1 when a step is KO. A step that needs the game's own classes is SKIP on a synthetic assembly. It writes only to a temporary folder. The same run is `NGU_TEST_PREPARED=<prepared> cargo test --release -p clr --test fullgame -- --ignored`.
+
 ## Presets (`dev/`)
 - `dev/ultimate.steps`: the "ultimate" state (everything gated by progression visible; used for `tools/screens.sh ultimate`). **Do not load saves made from it into the original game: huge `bossID` unlocks real Steam achievements.**
 - `dev/unlock.steps`: closes the tutorial, boss 150, all features unlocked (conditions of `ButtonShower.updateButtons`). Still locked: Advanced Training (array `training.attackTraining[4]`, not settable with `set`).

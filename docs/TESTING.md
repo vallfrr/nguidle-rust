@@ -50,6 +50,9 @@ Check it by hand (it needs a display and the prepared data):
 a Windows 11 desktop (GPU window at its 200 img/s pacing): median 200.0 img/s, longest interval 13.5 ms, no frame over 20 ms. A figure
 is valid only with the commit and the machine named. Measurements on the title screen say nothing about dense menus.
 
+## Full-game script
+`just full-game` plays the whole game (menus, a long progression, saves, offline progress, console mode) and reports OK / KO / SKIP per step; see [developer mode](DEV.md). It needs the player's prepared data, so it runs locally, not in `just check`; `just check` tests its report and tolerance logic. It is the engine-level script shared by every platform: the web and Vita hosts run this same engine.
+
 ## Local game verification
 
 Prepare the game using the [contributor guide](../CONTRIBUTING.md). Run the

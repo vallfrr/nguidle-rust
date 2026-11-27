@@ -16,6 +16,7 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/dotnet_random.rs` — Seeded System.Random sequence used by the original Mono runtime.
 - `clr/src/dev.rs` — Script-driven development tools (designed for the assistant: text output, no manual clicks).
 - `clr/src/dropdown.rs` — Dropdown interaction and selection behavior.
+- `clr/src/fullgame.rs` — The full-game script: plays every menu, a long progression, saves, offline progress and the console mode, and reports OK / KO / SKIP per step.
 - `clr/src/focus.rs` — Finds reachable controls and moves controller focus.
 - `clr/src/input.rs` — Pointer input (mouse / touch): UI raycast, hover, press, click, drag and drop, Slider, Toggle.
 - `clr/src/layout.rs` — Unity UI automatic layout: VerticalLayoutGroup, HorizontalLayoutGroup, GridLayoutGroup, ContentSizeFitter.

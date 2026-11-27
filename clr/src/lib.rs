@@ -13,6 +13,7 @@ pub mod desktop_layout;
 mod dropdown;
 mod dotnet_random;
 pub mod focus;
+pub mod fullgame;
 pub mod input;
 pub mod layout;
 #[cfg(feature = "legacy-save")]

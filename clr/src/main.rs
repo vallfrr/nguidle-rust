@@ -33,6 +33,7 @@ fn main() {
         "shot" => shot(&mut vm, &args[3..]),
         "click" => click(&mut vm, &args[3..]),
         "play" => play(&mut vm, &args[3..]),
+        "fullgame" => fullgame(&mut vm, &args[3..]),
         _ => println!("types={} methodes={}", vm.n_user, vm.prog.methods.len()),
     }
 }
@@ -272,6 +273,32 @@ fn play(vm: &mut Vm, a: &[String]) {
     r.render(vm, 1.0, 0.0, 0.0);
     r.save_png(&out);
     println!("written {}", out);
+}
+
+/// clr <dll> fullgame <prepared folder> [report file] [game hours]: plays the whole game and prints OK / KO / SKIP per step.
+fn fullgame(vm: &mut Vm, a: &[String]) {
+    let dir = a.first().cloned().unwrap_or_else(|| {
+        eprintln!("usage: clr <dll> fullgame <prepared folder> [report file] [game hours]");
+        std::process::exit(2)
+    });
+    let hours: f32 = a.get(2).and_then(|h| h.parse().ok()).unwrap_or(1.0);
+    let work = std::env::temp_dir().join(format!("ngu-fullgame-{}", std::process::id()));
+    vm.eng.screen = (960, 600);
+    vm.eng.save_dir = work.join("save").to_string_lossy().into_owned();
+    let _ = std::fs::create_dir_all(&vm.eng.save_dir);
+    unity_api::load_prefs(vm);
+    vm.load_scene(&dir).expect("scene");
+    vm.awake_all();
+    for _ in 0..40 {
+        vm.frame(1.0 / 30.0);
+    }
+    let checks = clr::fullgame::run(vm, &clr::fullgame::Options { hours, workdir: work });
+    let (text, ok) = clr::fullgame::report(&checks);
+    print!("{text}");
+    if let Some(file) = a.get(1) {
+        let _ = std::fs::write(file, &text);
+    }
+    std::process::exit(if ok { 0 } else { 1 });
 }
 
 /// IL feature statistics: sizes the C# -> Rust generator.

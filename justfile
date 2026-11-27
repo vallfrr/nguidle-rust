@@ -31,6 +31,11 @@ new-port name platform="a new platform" engine="":
 cold-trial:
     {{python}} -B tools/cold_trial.py
 
+# The full-game script on the real game (needs the prepared data): every menu, a long progression, saves, offline
+# progress and every console-mode element. Usage: just full-game 1   (game hours)
+full-game hours="1":
+    bash tools/fullgame.sh {{hours}}
+
 verify-game mode="verify":
     bash tools/regress.sh {{mode}}
 
