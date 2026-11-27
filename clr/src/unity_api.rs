@@ -75,10 +75,10 @@ fn collect_comps(vm: &mut Vm, root: &Value, t: &crate::code::TyOp, children: boo
     let go = this_go(root);
     let mut stack = vec![go];
     while let Some(g) = stack.pop() {
-        if !include_inactive && !with_go(&g, |x| x.active).unwrap_or(false) {
-            continue;
-        }
-        let comps = with_go(&g, |x| x.comps.clone()).unwrap_or_default();
+        // Unity (checked against the original) tests each object's own active flag and goes on to the children of an
+        // inactive object: `button.GetComponentInChildren<Text>()` finds the text of a button just deactivated.
+        let skipped = !include_inactive && !with_go(&g, |x| x.active).unwrap_or(false);
+        let comps = if skipped { vec![] } else { with_go(&g, |x| x.comps.clone()).unwrap_or_default() };
         for c in comps {
             if comp_matches(vm, &c, t) {
                 out.push(c);

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fix: `GetComponentInChildren` goes on into the children of an inactive object, like the original, so that the energy purchases and beast quest menus open on an early save without an exception (ADR 0015). `OfflineProbe.cs` can open menus (`NGU_OFFLINE_PROBE_MENUS`).
+
 - An old Vita save (the earliest internal format) put in the `import` folder is converted when it is imported from the save screen (D5); `legacy-save` is now a default feature. `clr convert-legacy-save` still works. Not tried end to end on a real old save (only the converter with a synthetic one).
 
 

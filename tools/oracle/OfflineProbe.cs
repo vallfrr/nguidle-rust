@@ -90,10 +90,8 @@ public class OfflineProbe : BaseUnityPlugin
             var swap = AccessTools.Method(AccessTools.TypeByName("MenuSwapper"), "swapMenu");
             foreach (string item in menus.Split(','))
             {
-                try { swap.Invoke(swapper, new object[] { int.Parse(item, CultureInfo.InvariantCulture) }); File.AppendAllText(info, "menu " + item + ": ok
-"); }
-                catch (Exception e) { File.AppendAllText(info, "menu " + item + ": exception " + (e.InnerException ?? e).GetType().Name + "
-"); }
+                try { swap.Invoke(swapper, new object[] { int.Parse(item, CultureInfo.InvariantCulture) }); File.AppendAllText(info, "menu " + item + ": ok" + Environment.NewLine); }
+                catch (Exception e) { File.AppendAllText(info, "menu " + item + ": exception " + (e.InnerException ?? e).GetType().Name + Environment.NewLine); }
                 yield return new WaitForSecondsRealtime(0.5f);
             }
         }
