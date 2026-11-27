@@ -113,23 +113,16 @@ pub fn run(vm: &mut Vm, opts: &Options) -> Vec<Check> {
     let gain = after.zip(start).map(|(a, s)| a - s);
     r.check("60 s of progress", gain.is_some_and(|g| (50.0..=66.0).contains(&g)), format!("gained {gain:?} (original: 58)"));
 
-    // 3. Unlock every feature, then open every menu.
+    // 3. Open every menu in the new game, as it is (the original raises nothing), then unlock every feature and do it again.
+    let roots = crate::dev::menu_roots(vm);
+    let before = vm.eng.exceptions;
+    let (shown, empty) = open_every_menu(vm);
+    r.check("menus of a new game without exception", roots.len() >= 50 && vm.eng.exceptions == before, format!("{shown} of {} menus opened, {} exceptions", roots.len(), vm.eng.exceptions - before));
     let lines: Vec<&str> = UNLOCK.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
     steps(vm, &lines);
     steps(vm, &["ultimate"]);
-    let roots = crate::dev::menu_roots(vm);
     let before = vm.eng.exceptions;
-    let (mut shown, mut empty) = (0usize, vec![]);
-    for n in 0..roots.len() {
-        if crate::unity::with_go(&roots[n], |g| g.port_hidden).unwrap_or(false) {
-            continue;
-        }
-        steps(vm, &[&format!("menu,{n}")]);
-        shown += 1;
-        if crate::dev::ui(vm).trim().is_empty() {
-            empty.push(n);
-        }
-    }
+    let (shown, empty) = open_every_menu(vm);
     r.check("menus", roots.len() >= 50 && empty.is_empty(), format!("{shown} of {} menus shown, empty: {empty:?}", roots.len()));
     r.check("menus without exception", vm.eng.exceptions == before, format!("{} exceptions", vm.eng.exceptions - before));
 
@@ -192,6 +185,23 @@ pub fn run(vm: &mut Vm, opts: &Options) -> Vec<Check> {
 
     r.check("no exception", vm.eng.exceptions == errors_before, format!("{} reported in the whole run", vm.eng.exceptions - errors_before));
     r.checks
+}
+
+/// Opens every menu that is not hidden; returns how many, and the numbers of those that show nothing.
+fn open_every_menu(vm: &mut Vm) -> (usize, Vec<usize>) {
+    let roots = crate::dev::menu_roots(vm);
+    let (mut shown, mut empty) = (0usize, vec![]);
+    for n in 0..roots.len() {
+        if crate::unity::with_go(&roots[n], |g| g.port_hidden).unwrap_or(false) {
+            continue;
+        }
+        steps(vm, &[&format!("menu,{n}")]);
+        shown += 1;
+        if crate::dev::ui(vm).trim().is_empty() {
+            empty.push(n);
+        }
+    }
+    (shown, empty)
 }
 
 /// Sets the clock the game reads (`DateTime.UtcNow`), in seconds since 1970.

@@ -122,6 +122,11 @@ fn read(vm: &mut Vm, bytes: &[u8], expected: &str) -> LegacyResult<Value> {
     Ok(value)
 }
 
+/// The modern save made from `input` when it is a valid legacy save, `None` for anything else.
+pub fn upgrade(vm: &mut Vm, input: &str) -> Option<String> {
+    convert(vm, input.trim()).ok()
+}
+
 pub fn convert(vm: &mut Vm, input: &str) -> LegacyResult<String> {
     if input.len() > LIMIT {
         return Err("The legacy save is too large.".into());
