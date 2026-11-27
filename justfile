@@ -12,7 +12,7 @@ check:
     cargo test --locked --workspace --features clr/legacy-save
     cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
     {{python}} -B -m ruff check --select E9,F63,F7,F82 .github/repo-check.py tools
-    {{python}} -B -m unittest discover -s tools/oracle -p test_compare_scenario.py
+    {{python}} -B -m unittest discover -s tools/oracle -p 'test_compare_*.py'
     {{python}} -B -m unittest discover -s tools -p test_new_port.py
     {{python}} -B -m unittest discover -s tools -p test_pc_budget.py
     {{python}} -B tools/check_template.py
