@@ -218,7 +218,9 @@ pub fn run(vm: &mut Vm, o: Options) -> Result<(), String> {
         // ---- logic: fixed steps caught up on real time
         let t_logic = Instant::now();
         let now = Instant::now();
-        let steps = clock.advance((now - last).as_secs_f32());
+        let gap = (now - last).as_secs_f32();
+        vm.host_frame(gap.clamp(0.0, clr::platform_api::FixedStep::MAX_GAP));
+        let steps = clock.advance(gap);
         last = now;
         for _ in 0..steps {
             // synthetic click: press then release over two steps
