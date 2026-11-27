@@ -231,6 +231,35 @@ pub(crate) fn allocation_row(go: &Value) -> Option<Vec<(Value, AllocationRole)>>
     (found.len() >= 2).then_some(found)
 }
 
+/// Controller connectivity of the screen: how many controls there are and the labels of those that no sequence of d-pad
+/// moves reaches from the first one (a trap for a player without a touch screen).
+pub fn reachability(vm: &mut Vm) -> (usize, Vec<String>) {
+    let controls = collect(vm);
+    if controls.is_empty() {
+        return (0, vec![]);
+    }
+    let name = |f: &Focusable| format!("{}@{:.0},{:.0}", if f.label.is_empty() { f.kind } else { f.label.as_str() }, f.rect[0], f.rect[1]);
+    let mut seen = vec![false; controls.len()];
+    let mut queue = vec![0usize];
+    seen[0] = true;
+    while let Some(at) = queue.pop() {
+        for dir in ['u', 'd', 'l', 'r'] {
+            set_focus(vm, controls[at].go.clone(), Some(controls[at].rect));
+            if let Some(next) = choose_control(vm, dir) {
+                if let Some(i) = controls.iter().position(|f| same(&f.go, &next.go)) {
+                    if !seen[i] {
+                        seen[i] = true;
+                        queue.push(i);
+                    }
+                }
+            }
+        }
+    }
+    clear(vm);
+    let missing = controls.iter().zip(&seen).filter(|(_, s)| !**s).map(|(f, _)| name(f)).collect();
+    (controls.len(), missing)
+}
+
 /// Whether the control can be picked up and dropped (an item of the inventory, a loadout slot).
 pub(crate) fn draggable(vm: &mut Vm, go: &Value) -> bool {
     !go.is_null() && !vm.find_ev_handler(go, Ev::Drag).is_null()

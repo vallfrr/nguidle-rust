@@ -40,6 +40,27 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[console] scale {}", crate::console_mode::scale(vm));
             continue;
         }
+        if p[0] == "reach" {
+            // reach: for every menu, which controls the d-pad cannot reach from the first control (console mode, 960 x 544)
+            let (mut total, mut lost) = (0, 0);
+            for menu in 0..58 {
+                crate::autoplay::swap_menu(vm, menu);
+                for _ in 0..4 {
+                    crate::console_mode::sync(vm);
+                    vm.frame(1.0 / 30.0);
+                }
+                crate::console_mode::fit_screen(vm, 960.0, 544.0);
+                crate::desktop_layout::rebuild(vm);
+                let (all, missing) = crate::focus::reachability(vm);
+                total += all;
+                lost += missing.len();
+                if !missing.is_empty() {
+                    println!("[reach] menu {menu}: {} of {all} controls not reachable: {}", missing.len(), missing.join(" | "));
+                }
+            }
+            println!("[reach] {lost} of {total} controls not reachable by the d-pad");
+            continue;
+        }
         if p[0] == "sel" {
             // sel,<label>: puts the controller selection on the control with that label (no click)
             match crate::dev::find_click(vm, &p[1..].join(",")) {

@@ -1,11 +1,11 @@
-"""Draws the controller glyphs of the console mode (clr/assets/glyphs/*.png) in the game's crude hand-drawn style:
+"""Draws the controller glyphs of the console mode (assets/ui/glyphs/*.png) in the game's crude hand-drawn style:
 a white body, a thick slightly wobbly black outline, flat colours. Run: python tools/glyphs.py <title font .ttf>.
 The maintainer may redraw any of them; the file names and sizes are the exchange format (docs/CONSOLE-MODE.md)."""
 import math, random, sys
 from PIL import Image, ImageDraw, ImageFont
 
 FONT = sys.argv[1] if len(sys.argv) > 1 else None
-OUT = "clr/assets/glyphs/"
+OUT = "assets/ui/glyphs/"
 S = 4  # supersampling
 INK = (0, 0, 0, 255)
 BODY = (255, 255, 255, 255)

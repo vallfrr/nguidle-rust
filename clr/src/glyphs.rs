@@ -1,31 +1,31 @@
-//! The controller glyphs of the console mode (`clr/assets/glyphs`, drawn by `tools/glyphs.py` in the game's style), served as
+//! The controller glyphs of the console mode (`assets/ui/glyphs`, drawn by `tools/glyphs.py` in the game's style), served as
 //! textures under the key `port-glyphs/<name>` and used as sprites where the game shows a key prompt.
 use crate::unity::*;
 use crate::value::Value;
 use crate::Vm;
 
 const GLYPHS: &[(&str, &[u8])] = &[
-    ("cross", include_bytes!("../assets/glyphs/cross.png")),
-    ("cross-lit", include_bytes!("../assets/glyphs/cross-lit.png")),
-    ("circle", include_bytes!("../assets/glyphs/circle.png")),
-    ("circle-lit", include_bytes!("../assets/glyphs/circle-lit.png")),
-    ("square", include_bytes!("../assets/glyphs/square.png")),
-    ("square-lit", include_bytes!("../assets/glyphs/square-lit.png")),
-    ("triangle", include_bytes!("../assets/glyphs/triangle.png")),
-    ("triangle-lit", include_bytes!("../assets/glyphs/triangle-lit.png")),
-    ("l", include_bytes!("../assets/glyphs/l.png")),
-    ("r", include_bytes!("../assets/glyphs/r.png")),
-    ("start", include_bytes!("../assets/glyphs/start.png")),
-    ("select", include_bytes!("../assets/glyphs/select.png")),
-    ("cursor", include_bytes!("../assets/glyphs/cursor.png")),
-    ("dpad", include_bytes!("../assets/glyphs/dpad.png")),
-    ("stick", include_bytes!("../assets/glyphs/stick.png")),
-    ("prompt-advance", include_bytes!("../assets/glyphs/prompt-advance.png")),
-    ("prompt-advance-lit", include_bytes!("../assets/glyphs/prompt-advance-lit.png")),
-    ("prompt-back", include_bytes!("../assets/glyphs/prompt-back.png")),
-    ("prompt-back-lit", include_bytes!("../assets/glyphs/prompt-back-lit.png")),
-    ("prompt-both", include_bytes!("../assets/glyphs/prompt-both.png")),
-    ("prompt-both-lit", include_bytes!("../assets/glyphs/prompt-both-lit.png")),
+    ("cross", include_bytes!("../../assets/ui/glyphs/cross.png")),
+    ("cross-lit", include_bytes!("../../assets/ui/glyphs/cross-lit.png")),
+    ("circle", include_bytes!("../../assets/ui/glyphs/circle.png")),
+    ("circle-lit", include_bytes!("../../assets/ui/glyphs/circle-lit.png")),
+    ("square", include_bytes!("../../assets/ui/glyphs/square.png")),
+    ("square-lit", include_bytes!("../../assets/ui/glyphs/square-lit.png")),
+    ("triangle", include_bytes!("../../assets/ui/glyphs/triangle.png")),
+    ("triangle-lit", include_bytes!("../../assets/ui/glyphs/triangle-lit.png")),
+    ("l", include_bytes!("../../assets/ui/glyphs/l.png")),
+    ("r", include_bytes!("../../assets/ui/glyphs/r.png")),
+    ("start", include_bytes!("../../assets/ui/glyphs/start.png")),
+    ("select", include_bytes!("../../assets/ui/glyphs/select.png")),
+    ("cursor", include_bytes!("../../assets/ui/glyphs/cursor.png")),
+    ("dpad", include_bytes!("../../assets/ui/glyphs/dpad.png")),
+    ("stick", include_bytes!("../../assets/ui/glyphs/stick.png")),
+    ("prompt-advance", include_bytes!("../../assets/ui/glyphs/prompt-advance.png")),
+    ("prompt-advance-lit", include_bytes!("../../assets/ui/glyphs/prompt-advance-lit.png")),
+    ("prompt-back", include_bytes!("../../assets/ui/glyphs/prompt-back.png")),
+    ("prompt-back-lit", include_bytes!("../../assets/ui/glyphs/prompt-back-lit.png")),
+    ("prompt-both", include_bytes!("../../assets/ui/glyphs/prompt-both.png")),
+    ("prompt-both-lit", include_bytes!("../../assets/ui/glyphs/prompt-both-lit.png")),
 ];
 
 /// The PNG of a glyph, when the path is `tex/port-glyphs/<name>.png`.
