@@ -59,6 +59,9 @@ pub enum Op {
     Ble(bool, usize),
     Blt(bool, usize),
     Switch(Vec<usize>),
+    /// `+ - * /` (0 to 3) whose result is converted to an integer right after: with two floats, computed in double precision
+    /// like the original runtime (Mono keeps floats wide until they are stored), so `(int)(a * 0.9f)` truncates the same.
+    WideArith(u8),
     Conv(Ty),
     ConvOvf(Ty, bool),
     ConvRUn,

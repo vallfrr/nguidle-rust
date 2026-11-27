@@ -178,6 +178,12 @@ pub fn run(vm: &mut Vm, opts: &Options) -> Vec<Check> {
         Err(e) => r.check("save round trip", false, e),
     }
 
+    // The original computes (int)(float * float) in double precision: with both quest speed-ups the quest timer threshold
+    // is 20303 (the original's value, read from its own saves), not 20304.
+    steps(vm, &["set,Character.arbitrary.hasFasterQuests,true", "set,Character.inventory.itemList.fadComplete,true"]);
+    let threshold = crate::dev::call(vm, "BeastQuestController.timerThreshold", &[]);
+    r.check("float arithmetic like the original", threshold.ends_with("-> 20303"), threshold);
+
     // 6. Offline progress: a save loaded after an absence applies the game's own offline calculation.
     offline(vm, &mut r);
 
