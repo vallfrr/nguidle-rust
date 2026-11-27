@@ -273,6 +273,11 @@ fn play(vm: &mut Vm, a: &[String]) {
         vm.frame(1.0 / 30.0);
     }
     clr::script::run_steps(vm, &a[2..]);
+    if std::env::var_os("NGU_GUARD_STATS").is_some() {
+        for (id, hits) in clr::vm::GUARD_HITS.iter().enumerate().skip(1) {
+            println!("[guard] {id} {}", hits.load(std::sync::atomic::Ordering::Relaxed));
+        }
+    }
     let mut r = render::Renderer::new(960, 600);
     r.render(vm, 1.0, 0.0, 0.0);
     r.save_png(&out);

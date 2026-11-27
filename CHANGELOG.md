@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- `NGU_GUARD_STATS=1 clr <dll> play ...` prints how many times each interpreter shortcut answered; `tools/longrun.sh` shows it for its guarded run.
 - Add the offline probe and `compare_saves.py` to compare the original and the port field by field after opening a save (see `tools/oracle/README.md`); the offline progress and the shortcut-free long run match, see `docs/FIDELITY.md`.
 - Add the full-game script: `just full-game [hours]` (`clr <dll> fullgame <prepared> [report] [hours]`) plays every menu, a long progression, saves, offline progress and every console-mode element on the real game and prints OK / KO / SKIP per step. `Engine::exceptions` counts the game exceptions reported. `tools/fullgame-wasm.sh` plays it as WebAssembly (the web build), `tools/longrun.sh` runs the long game with and without the interpreter shortcuts and compares the final saves, and the developer steps `open` and `clock` open a save like the game and set its clock.
 

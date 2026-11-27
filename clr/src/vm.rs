@@ -514,6 +514,7 @@ impl Vm {
                 _ => None,
             };
             if let Some(value) = native {
+                GUARD_HITS[mi.guard as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.slots.truncate(base);
                 return Ok(value);
             }
@@ -581,6 +582,7 @@ impl Vm {
                 _ => None,
             };
             if let Some(value) = result {
+                GUARD_HITS[mi.guard as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.slots.truncate(base);
                 return Ok(value);
             }
@@ -591,6 +593,9 @@ impl Vm {
         }
         // Each successful Titan auto-kill returns immediately. Until then, its
         // eligibility checks read the same attack and defense for this character.
+        if guarded && matches!(mi.guard, 4 | 10) {
+            GUARD_HITS[mi.guard as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let previous_checks = if guarded && mi.guard == 4 {
             let checks = self.begin_titan_checks(mid, base);
             Some(std::mem::replace(&mut self.titan_checks, checks))
@@ -978,6 +983,10 @@ pub fn trace_m() -> bool {
     static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *T.get_or_init(|| std::env::var("NGU_TRACE_M").is_ok())
 }
+
+/// How many times each interpreter shortcut (guard 1..=21) answered instead of the game's own instructions: a native
+/// result, or the start of a scope that caches repeated calculations. `NGU_GUARD_STATS=1` prints it at the end of `clr play`.
+pub static GUARD_HITS: [std::sync::atomic::AtomicU64; 22] = [const { std::sync::atomic::AtomicU64::new(0) }; 22];
 
 /// NGU_NO_GUARD=1: disables the `guard_skip` optimisation (to compare with native execution, which does not do it).
 pub fn no_guard() -> bool {

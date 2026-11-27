@@ -41,9 +41,11 @@ play() { # name, extra environment
         "$clr" "$dll" play "$run/$name/data" "$run/$name/end.png" "${list[@]}" > "$run/$name/log.txt" 2>&1 || true
     echo "$name: $(( $(date +%s) - start )) s, $(grep -c 'exception' "$run/$name/log.txt" || true) exception lines"
 }
-play guarded NGU_GUARDS_UNUSED=1 &
+play guarded NGU_GUARD_STATS=1 &
 play unguarded NGU_NO_GUARD=1 &
 wait
+echo "Shortcut answers in the guarded run (guard id: count, see docs/GUARDS.md):"
+grep -h '^\[guard\]' "$run/guarded/log.txt" | sed 's/^\[guard\] \([0-9]*\) \([0-9]*\)$/  \1: \2/' | paste -sd' ' || true
 if cmp -s "$run/guarded/final.sav" "$run/unguarded/final.sav"; then
     echo "LONG RUN: IDENTICAL ($(wc -c < "$run/guarded/final.sav") bytes, $rounds rounds). Logs: $run"
 else
