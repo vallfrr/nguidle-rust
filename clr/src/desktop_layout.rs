@@ -406,7 +406,7 @@ impl DesktopLayout {
         // (the game shows a menu by moving its panel onto the menu anchor: the canvas itself may stay parked)
         let mut page: Vec<(Value, Xf)> = vec![];
         for (n, r, x) in &roots {
-            if matches!(n.as_str(), "Player Panel Canvas" | "Features Canvas" | "Small Menu Anchor" | "Big Menu Anchor" | "Box Canvas")
+            if matches!(n.as_str(), "Player Panel Canvas" | "Features Canvas" | "Small Menu Anchor" | "Big Menu Anchor" | "Box Canvas" | "Number Pad Canvas")
                 || n.starts_with("Middle Bolt") {
                 continue;
             }

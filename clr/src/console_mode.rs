@@ -411,7 +411,7 @@ fn junction_bolts(vm: &Vm) -> (Vec<Value>, Vec<Value>) {
     (edge, sections)
 }
 
-fn set_hidden(go: &Value, hidden: bool) {
+pub(crate) fn set_hidden(go: &Value, hidden: bool) {
     let changed = with_go(go, |g| std::mem::replace(&mut g.port_hidden, hidden) != hidden).unwrap_or(false);
     if changed {
         mark_dirty(go);
@@ -560,6 +560,9 @@ impl Console {
 
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
+        if crate::numpad::is_open(vm) {
+            return crate::numpad::input(vm, pad);
+        }
         if self.hold {
             match pad {
                 Pad::Dir(d @ ('u' | 'd')) => {

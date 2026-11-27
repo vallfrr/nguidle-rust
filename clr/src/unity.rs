@@ -278,6 +278,7 @@ pub struct Engine {
     pub(crate) console_switch: Option<crate::console_mode::Switch>,
     /// console presentation state (hold, pan), present while the console mode is on
     pub console: Option<Box<crate::console_mode::Console>>,
+    pub(crate) numpad: Option<Box<crate::numpad::NumPad>>,
     pub(crate) cache_focus_controls: bool,
     pub(crate) parked_menu_canvases: crate::vm::FxMap<usize, Value>,
     /// last `Screen.SetResolution(w, h, fullscreen)` request and the frame it was made at

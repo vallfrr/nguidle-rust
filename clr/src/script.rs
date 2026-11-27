@@ -40,6 +40,31 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[console] scale {}", crate::console_mode::scale(vm));
             continue;
         }
+        if p[0] == "inputs" {
+            // inputs: every text / number field of the scene with its content type (0 standard, 2 integer, 3 decimal ...)
+            let gos = vm.eng.gos.clone();
+            for go in gos {
+                let comps = crate::unity::with_go(&go, |g| g.comps.clone()).unwrap_or_default();
+                for c in comps {
+                    let info = crate::unity::with_comp(&c, |k| match &k.k {
+                        crate::unity::CK::Sel(s) if s.kind == crate::unity::SelKind::InputField => Some((s.content_type, s.char_limit, s.text.clone())),
+                        _ => None,
+                    }).flatten();
+                    if let Some((ct, limit, txt)) = info {
+                        let name = crate::unity::with_go(&go, |g| g.name.clone()).unwrap_or_default();
+                        let mut parent = crate::unity::with_go(&go, |g| g.transform.clone()).and_then(|t| crate::unity::with_tr(&t, |x| x.parent.clone())).unwrap_or_default();
+                        let mut path = String::new();
+                        for _ in 0..3 {
+                            if parent.is_null() { break; }
+                            path = format!("{}/{}", crate::unity::with_go(&crate::unity::go_of(&parent), |g| g.name.clone()).unwrap_or_default(), path);
+                            parent = crate::unity::with_tr(&parent, |x| x.parent.clone()).unwrap_or_default();
+                        }
+                        println!("[input] ct={ct} limit={limit} {path}{name} = {txt:?}");
+                    }
+                }
+            }
+            continue;
+        }
         if p[0] == "consolestate" {
             // regions that scroll right now (after a capture or a frame laid the screen out)
             for r in &vm.eng.desktop_layout.regions {

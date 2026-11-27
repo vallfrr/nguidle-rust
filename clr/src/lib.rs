@@ -13,6 +13,7 @@ pub mod desktop_layout;
 mod dropdown;
 mod dotnet_random;
 pub mod focus;
+mod numpad;
 pub mod gamepad;
 pub mod fullgame;
 pub mod input;

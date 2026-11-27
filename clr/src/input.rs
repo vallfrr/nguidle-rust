@@ -360,7 +360,7 @@ impl Vm {
 
     pub fn dispatch(&mut self, go: &Value, e: Ev, ped: &Value) {
         if e == Ev::Click && with_ped(ped, |p| p.button == 0).unwrap_or(true)
-            && (crate::save_slots::click(self, go, self.eng.mouse.0) || crate::console_mode::click(self, go))
+            && (crate::save_slots::click(self, go, self.eng.mouse.0) || crate::console_mode::click(self, go) || crate::numpad::click(self, go))
         {
             return;
         }
@@ -423,7 +423,11 @@ impl Vm {
                                     _ => (String::new(), 0, 0),
                                 })
                                 .unwrap_or_default();
-                                self.eng.text_req = Some(TextReq { comp: c.clone(), text: txt, max, numeric: ct == 2 || ct == 3, pending: true });
+                                if crate::numpad::wants(self, ct, &txt) {
+                                    crate::numpad::open(self, &c, &txt, max);
+                                } else {
+                                    self.eng.text_req = Some(TextReq { comp: c.clone(), text: txt, max, numeric: ct == 2 || ct == 3, pending: true });
+                                }
                             }
                             SelKind::Dropdown => self.open_dropdown(&c),
                             SelKind::Toggle => {
