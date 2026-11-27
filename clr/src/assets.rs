@@ -43,6 +43,9 @@ pub fn init(dir: &str) {
 }
 
 pub fn read(rel: &str) -> Option<Vec<u8>> {
+    if let Some(glyph) = crate::glyphs::embedded(rel) {
+        return Some(glyph);
+    }
     if let Some(p) = PAK.lock().unwrap().as_mut() {
         if let Some(&(off, size)) = p.idx.get(rel) {
             let mut buf = vec![0u8; size as usize];

@@ -17,6 +17,9 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/dev.rs` — Script-driven development tools (designed for the assistant: text output, no manual clicks).
 - `clr/src/dropdown.rs` — Dropdown interaction and selection behavior.
 - `clr/src/fullgame.rs` — The full-game script: plays every menu, a long progression, saves, offline progress and the console mode, and reports OK / KO / SKIP per step.
+- `clr/src/gamepad.rs` — Decodes the gamepad (taps and holds of L and R, repeats, stick dead zones) for every host.
+- `clr/src/glyphs.rs` — The controller glyphs of the console mode, served as textures.
+- `clr/src/numpad.rs` — The console mode's in-game number pad.
 - `clr/src/focus.rs` — Finds reachable controls and moves controller focus.
 - `clr/src/input.rs` — Pointer input (mouse / touch): UI raycast, hover, press, click, drag and drop, Slider, Toggle.
 - `clr/src/layout.rs` — Unity UI automatic layout: VerticalLayoutGroup, HorizontalLayoutGroup, GridLayoutGroup, ContentSizeFitter.

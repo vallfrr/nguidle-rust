@@ -40,6 +40,63 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             println!("[console] scale {}", crate::console_mode::scale(vm));
             continue;
         }
+        if p[0] == "reach" {
+            // reach: for every menu, which controls the d-pad cannot reach from the first control (console mode, 960 x 544)
+            let (mut total, mut lost) = (0, 0);
+            for menu in 0..58 {
+                crate::autoplay::swap_menu(vm, menu);
+                for _ in 0..4 {
+                    crate::console_mode::sync(vm);
+                    vm.frame(1.0 / 30.0);
+                }
+                crate::console_mode::fit_screen(vm, 960.0, 544.0);
+                crate::desktop_layout::rebuild(vm);
+                let (all, missing) = crate::focus::reachability(vm);
+                total += all;
+                lost += missing.len();
+                if !missing.is_empty() {
+                    println!("[reach] menu {menu}: {} of {all} controls not reachable: {}", missing.len(), missing.join(" | "));
+                }
+            }
+            println!("[reach] {lost} of {total} controls not reachable by the d-pad");
+            continue;
+        }
+        if p[0] == "sel" {
+            // sel,<label>: puts the controller selection on the control with that label (no click)
+            match crate::dev::find_click(vm, &p[1..].join(",")) {
+                Some((x, y, label)) => {
+                    let ok = crate::focus::select_at(vm, x, vm.eng.screen.1 as f32 - y);
+                    println!("[sel] {label} {}", if ok { "selected" } else { "not reachable" });
+                }
+                None => println!("[sel] no control '{}'", p[1..].join(",")),
+            }
+            continue;
+        }
+        if p[0] == "inputs" {
+            // inputs: every text / number field of the scene with its content type (0 standard, 2 integer, 3 decimal ...)
+            let gos = vm.eng.gos.clone();
+            for go in gos {
+                let comps = crate::unity::with_go(&go, |g| g.comps.clone()).unwrap_or_default();
+                for c in comps {
+                    let info = crate::unity::with_comp(&c, |k| match &k.k {
+                        crate::unity::CK::Sel(s) if s.kind == crate::unity::SelKind::InputField => Some((s.content_type, s.char_limit, s.text.clone())),
+                        _ => None,
+                    }).flatten();
+                    if let Some((ct, limit, txt)) = info {
+                        let name = crate::unity::with_go(&go, |g| g.name.clone()).unwrap_or_default();
+                        let mut parent = crate::unity::with_go(&go, |g| g.transform.clone()).and_then(|t| crate::unity::with_tr(&t, |x| x.parent.clone())).unwrap_or_default();
+                        let mut path = String::new();
+                        for _ in 0..3 {
+                            if parent.is_null() { break; }
+                            path = format!("{}/{}", crate::unity::with_go(&crate::unity::go_of(&parent), |g| g.name.clone()).unwrap_or_default(), path);
+                            parent = crate::unity::with_tr(&parent, |x| x.parent.clone()).unwrap_or_default();
+                        }
+                        println!("[input] ct={ct} limit={limit} {path}{name} = {txt:?}");
+                    }
+                }
+            }
+            continue;
+        }
         if p[0] == "consolestate" {
             // regions that scroll right now (after a capture or a frame laid the screen out)
             for r in &vm.eng.desktop_layout.regions {
@@ -60,6 +117,10 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 "next" => Pad::Next,
                 "holdstart" => Pad::HoldStart,
                 "holdend" => Pad::HoldEnd,
+                "info" => Pad::Info,
+                "start" => Pad::Settings,
+                "select" => Pad::InfoStuff,
+                "short" => Pad::Shortcut(p.get(2).and_then(|v| v.chars().next()).unwrap_or('x')),
                 _ => Pad::Scroll(0.0, p.get(2).and_then(|v| v.parse().ok()).unwrap_or(100.0)),
             };
             let Some(mut c) = vm.eng.console.take() else { println!("[pad] console mode is off"); continue };
@@ -68,19 +129,26 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             crate::console_mode::sync(vm);
             println!("[pad] {} -> focus {:?} click {:?}", p[1], crate::focus::focused_label(vm), click);
             if let Some(k) = click {
+                use crate::console_mode::Phase;
                 vm.eng.mouse = (k.x, k.y);
                 vm.eng.mouse_button = k.button;
-                vm.eng.mouse_down = true;
-                vm.eng.mouse_down_edge = true;
-                vm.frame(1.0 / 30.0);
-                vm.eng.mouse_down = false;
-                vm.eng.mouse_up_edge = true;
-                vm.frame(1.0 / 30.0);
-                vm.eng.mouse_button = 0;
+                if k.phase != Phase::Release {
+                    vm.eng.mouse_down = true;
+                    vm.eng.mouse_down_edge = true;
+                    vm.frame(1.0 / 30.0);
+                }
+                if k.phase != Phase::Press {
+                    vm.eng.mouse_down = false;
+                    vm.eng.mouse_up_edge = true;
+                    vm.frame(1.0 / 30.0);
+                    vm.eng.mouse_button = 0;
+                }
             }
             for _ in 0..6 {
+                crate::console_mode::sync(vm);
                 vm.frame(1.0 / 30.0);
             }
+            println!("[pad] ... focus {:?}", crate::focus::focused_label(vm));
             continue;
         }
         if p[0] == "focus_at" {

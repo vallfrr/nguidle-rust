@@ -299,7 +299,7 @@ pub(super) fn refresh_theme(ui: &Screen) {
     }
 }
 
-pub(super) fn copy_theme_sprite(target: &Value, source: &Value) {
+pub(crate) fn copy_theme_sprite(target: &Value, source: &Value) {
     let Some(sprite) = style(source, |k| match k {
         CK::Image(image) => Some(image.sprite.clone()),
         _ => None,

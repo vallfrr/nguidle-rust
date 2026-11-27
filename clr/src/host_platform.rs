@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::{fs, path::Path};
 
 /// Behaviors a host with little memory, slow storage and a slow processor can switch on. All are off by
-/// default, and none changes what the player sees or what a save contains.
+/// default; except `console_always`, none changes what the player sees or what a save contains.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HostTuning {
     /// Write autosaves on a worker thread instead of inside the frame.
@@ -17,6 +17,9 @@ pub struct HostTuning {
     pub startup_fonts_worker: bool,
     /// Measure the layout time of each frame, for the host's trace (`ngu_layout_us`).
     pub time_layout: bool,
+    /// The console mode is always on and its on / off setting is not offered (consoles). Unlike the other behaviors
+    /// this one changes what the player sees; the scale choice stays.
+    pub console_always: bool,
 }
 
 impl HostTuning {
@@ -28,6 +31,8 @@ impl HostTuning {
     pub const STARTUP_FONTS_WORKER: u32 = 4;
     /// See [`HostTuning::time_layout`].
     pub const TIME_LAYOUT: u32 = 8;
+    /// See [`HostTuning::console_always`].
+    pub const CONSOLE_ALWAYS: u32 = 16;
 
     /// Build from the C ABI bit set.
     pub fn from_bits(bits: u32) -> Self {
@@ -36,6 +41,7 @@ impl HostTuning {
             single_writer_storage: bits & Self::SINGLE_WRITER_STORAGE != 0,
             startup_fonts_worker: bits & Self::STARTUP_FONTS_WORKER != 0,
             time_layout: bits & Self::TIME_LAYOUT != 0,
+            console_always: bits & Self::CONSOLE_ALWAYS != 0,
         }
     }
 
@@ -45,6 +51,7 @@ impl HostTuning {
             (self.single_writer_storage, Self::SINGLE_WRITER_STORAGE),
             (self.startup_fonts_worker, Self::STARTUP_FONTS_WORKER),
             (self.time_layout, Self::TIME_LAYOUT),
+            (self.console_always, Self::CONSOLE_ALWAYS),
         ]
         .into_iter()
         .filter(|(on, _)| *on)

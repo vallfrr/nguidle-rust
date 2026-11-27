@@ -169,6 +169,14 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
         let x = view_xf(vm, tr);
         collect_node(vm, tr, x, sh, &mut all);
     }
+    // a modal pad (the number pad) hides everything else from the selection
+    if let Some(root) = crate::numpad::modal_root(vm) {
+        all.retain(|f| within(&f.go, &root));
+    }
+    // console mode: an allocation row (+ / - / Cap) is one stop, on its "+" button; left and right act as - and +, square as Cap
+    if vm.eng.console.is_some() {
+        all.retain(|f| !matches!(allocation_role(&f.go), Some(AllocationRole::Minus | AllocationRole::Cap)));
+    }
     let points: Vec<_> = all.iter().map(|f| {
         let (cx, cy) = center(&f.rect);
         [cx, sh - cy]
@@ -177,6 +185,84 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
     all.into_iter().zip(hits).filter_map(|(f, hit)| {
         (!hit.is_null() && (within(&hit, &f.go) || within(&f.go, &hit))).then_some(f)
     }).collect()
+}
+
+/// The three small buttons of an allocation row (energy, magic, resource 3 on a skill, a training, an NGU...).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum AllocationRole {
+    Plus,
+    Minus,
+    Cap,
+}
+
+fn button_caption(go: &Value) -> String {
+    text_under(&transform_of(go), 2).trim().to_string()
+}
+
+/// The role of a button in an allocation row: a "+", "-" or "Cap" button that has the two others as siblings.
+pub(crate) fn allocation_role(go: &Value) -> Option<AllocationRole> {
+    let role = match button_caption(go).as_str() {
+        "+" => AllocationRole::Plus,
+        "-" => AllocationRole::Minus,
+        "Cap" => AllocationRole::Cap,
+        _ => return None,
+    };
+    let siblings = allocation_row(go)?;
+    siblings.iter().any(|(_, r)| *r == AllocationRole::Plus).then_some(role)
+}
+
+/// The "+", "-" and "Cap" buttons next to a button of an allocation row.
+pub(crate) fn allocation_row(go: &Value) -> Option<Vec<(Value, AllocationRole)>> {
+    let parent = with_tr(&transform_of(go), |t| t.parent.clone())?;
+    let mut found = vec![];
+    for child in with_tr(&parent, |t| t.children.clone()).unwrap_or_default() {
+        let sibling = go_of(&child);
+        if !with_go(&sibling, |g| g.active && !g.port_hidden).unwrap_or(false) {
+            continue;
+        }
+        let role = match button_caption(&sibling).as_str() {
+            "+" => AllocationRole::Plus,
+            "-" => AllocationRole::Minus,
+            "Cap" => AllocationRole::Cap,
+            _ => continue,
+        };
+        found.push((sibling, role));
+    }
+    (found.len() >= 2).then_some(found)
+}
+
+/// Controller connectivity of the screen: how many controls there are and the labels of those that no sequence of d-pad
+/// moves reaches from the first one (a trap for a player without a touch screen).
+pub fn reachability(vm: &mut Vm) -> (usize, Vec<String>) {
+    let controls = collect(vm);
+    if controls.is_empty() {
+        return (0, vec![]);
+    }
+    let name = |f: &Focusable| format!("{}@{:.0},{:.0}", if f.label.is_empty() { f.kind } else { f.label.as_str() }, f.rect[0], f.rect[1]);
+    let mut seen = vec![false; controls.len()];
+    let mut queue = vec![0usize];
+    seen[0] = true;
+    while let Some(at) = queue.pop() {
+        for dir in ['u', 'd', 'l', 'r'] {
+            set_focus(vm, controls[at].go.clone(), Some(controls[at].rect));
+            if let Some(next) = choose_control(vm, dir) {
+                if let Some(i) = controls.iter().position(|f| same(&f.go, &next.go)) {
+                    if !seen[i] {
+                        seen[i] = true;
+                        queue.push(i);
+                    }
+                }
+            }
+        }
+    }
+    clear(vm);
+    let missing = controls.iter().zip(&seen).filter(|(_, s)| !**s).map(|(f, _)| name(f)).collect();
+    (controls.len(), missing)
+}
+
+/// Whether the control can be picked up and dropped (an item of the inventory, a loadout slot).
+pub(crate) fn draggable(vm: &mut Vm, go: &Value) -> bool {
+    !go.is_null() && !vm.find_ev_handler(go, Ev::Drag).is_null()
 }
 
 /// Whether the focused control sits inside a scrollable list (the right stick then scrolls that list).

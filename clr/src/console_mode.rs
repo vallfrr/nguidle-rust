@@ -15,9 +15,15 @@ use crate::Vm;
 
 const PREF: &str = "nguConsoleMode";
 const SCALE_PREF: &str = "nguConsoleScale";
+const MEMORY_PREF: &str = "nguRememberCursor";
+/// Scale a console starts with when the player has not chosen one.
+const DEFAULT_CONSOLE_SCALE: i32 = 120;
 /// Scale steps, in percent of the PC size.
-pub const SCALES: [i32; 3] = [100, 110, 120];
+pub const SCALES: [i32; 4] = [100, 110, 120, 130];
 const TAG: &str = "PortConsoleMode";
+/// Menu numbers (`MenuSwapper.swapMenu`) of Settings and of Info 'n Stuff.
+const SETTINGS_MENU: i32 = 11;
+const INFO_MENU: i32 = 26;
 /// Narrowest logical width the PC layout handles without squeezing the page sideways (player column + page).
 const MIN_WIDTH: f32 = 834.0;
 /// Margin kept around the selection when a part scrolls to it, and the step of a d-pad press at a scroll edge.
@@ -28,14 +34,18 @@ pub(crate) struct Switch {
     on: Value,
     off: Value,
     scales: Vec<(Value, i32)>,
+    /// "Remember Cursor" On / Off
+    memory: (Value, Value),
     /// the game's own setting button and caption these copy their look from (themes)
     sample: Value,
     sample_text: Value,
     captions: Vec<Value>,
+    /// the shop button added to Info 'n Stuff, and the game's own one at the bottom of the menu list, hidden in console mode
+    shop: Option<(Value, Value)>,
 }
 
 pub fn enabled(vm: &Vm) -> bool {
-    matches!(vm.eng.prefs.get(PREF), Some(Value::I32(1)))
+    crate::host_platform::host_tuning().console_always || matches!(vm.eng.prefs.get(PREF), Some(Value::I32(1)))
 }
 
 pub fn set_enabled(vm: &mut Vm, on: bool) {
@@ -44,10 +54,28 @@ pub fn set_enabled(vm: &mut Vm, on: bool) {
     refresh(vm);
 }
 
+/// Whether the selected controls show their information (tooltips): always outside the console mode, with the triangle
+/// toggle inside it.
+pub fn tooltips_on(vm: &Vm) -> bool {
+    vm.eng.console.as_ref().map_or(true, |c| c.info)
+}
+
+/// Whether each menu remembers where the selection was (on unless the player switched it off).
+pub fn remember_cursor(vm: &Vm) -> bool {
+    !matches!(vm.eng.prefs.get(MEMORY_PREF), Some(Value::I32(0)))
+}
+
+pub fn set_remember_cursor(vm: &mut Vm, on: bool) {
+    vm.eng.prefs.insert(MEMORY_PREF.into(), Value::I32(on as i32));
+    crate::unity_api::save_prefs(vm);
+    refresh(vm);
+}
+
 /// The chosen scale in percent (100 when unset or not one of `SCALES`).
 pub fn scale(vm: &Vm) -> i32 {
     match vm.eng.prefs.get(SCALE_PREF) {
         Some(Value::I32(s)) if SCALES.contains(s) => *s,
+        _ if crate::host_platform::host_tuning().console_always => DEFAULT_CONSOLE_SCALE,
         _ => 100,
     }
 }
@@ -106,9 +134,13 @@ pub(crate) fn prepare(vm: &mut Vm) {
         with_go(&node, |g| g.tag = TAG.into());
         captions.push(t);
     };
-    // the column is 160 x 480 under its title
-    caption(vm, "Console Mode Text", "Console Mode", 40.0);
-    caption(vm, "Console Scale Text", "Console Scale", 108.0);
+    // the column is 160 x 480 under its title; a console has no on / off choice, only the scale
+    let always = crate::host_platform::host_tuning().console_always;
+    let scale_shift = if always { -68.0 } else { 0.0 };
+    if !always {
+        caption(vm, "Console Mode Text", "Console Mode", 40.0);
+    }
+    caption(vm, "Console Scale Text", "Console Scale", 108.0 + scale_shift);
     let button = |vm: &mut Vm, name: &str, value: &str, x: [f32; 2], y: f32| {
         let go = new_node(vm, name, &tr(&panel), x, y, 30.0);
         let graphic = image(vm, &go, frame.as_ref(), true);
@@ -128,14 +160,56 @@ pub(crate) fn prepare(vm: &mut Vm) {
         label(&t, value.into());
         go
     };
-    let on = button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0);
-    let off = button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0);
+    let (on, off) = if always {
+        (Value::Null, Value::Null)
+    } else {
+        (button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0),
+         button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0))
+    };
     let scales = SCALES.iter().enumerate().map(|(i, &p)| {
-        let x0 = 6.0 + i as f32 * 50.0;
-        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 48.0) / 160.0], 132.0), p)
+        let x0 = 5.0 + i as f32 * 38.0;
+        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift), p)
     }).collect();
-    vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions });
+    caption(vm, "Remember Cursor Text", "Remember Cursor", 176.0 + scale_shift);
+    let memory = (button(vm, "Remember Cursor On", "On", [8.0 / 160.0, 78.0 / 160.0], 200.0 + scale_shift),
+                  button(vm, "Remember Cursor Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 200.0 + scale_shift));
+    let shop = build_shop(vm);
+    vm.eng.console_switch = Some(Switch { on, off, scales, memory, sample, sample_text, captions, shop });
     refresh(vm);
+}
+
+/// The big green "4G's Sellout Shop" button lives at the bottom of the menu list. In console mode the list shows every
+/// menu at once, so the button moves to the middle of Info 'n Stuff: a copy built from the game's own button (same look,
+/// same click), shown only in console mode, while the original is hidden.
+fn build_shop(vm: &mut Vm) -> Option<(Value, Value)> {
+    let original = vm.eng.gos.iter().find(|go| with_go(go, |g| g.name == "Sellout Shop" && g.tag == "Menu Button").unwrap_or(false)).cloned()?;
+    let page = vm.eng.gos.iter().find(|go| with_go(go, |g| g.name == "Info Menu + Controller").unwrap_or(false)).cloned()?;
+    let frame = style(&original, |k| match k { CK::Image(i) => Some(i.as_ref().clone()), _ => None });
+    let (colors, transition, on_click) = style(&original, |k| match k {
+        CK::Sel(s) => Some((s.colors, s.transition, s.on_click.clone())),
+        _ => None,
+    })?;
+    let caption = child(&original, "Text");
+    let caption_style = style(&caption, |k| match k { CK::Text(t) => Some(t.as_ref().clone()), _ => None });
+    let words = caption_style.as_ref().map(|t| t.text.clone()).unwrap_or_else(|| "4G's SELLOUT SHOP".into());
+    // 150 x 60 in the middle of the 668 x 600 page, below the text
+    let go = new_node(vm, "Sellout Shop (console)", &tr(&page), [(334.0 - 75.0) / 668.0, (334.0 + 75.0) / 668.0], 320.0, 60.0);
+    let graphic = image(vm, &go, frame.as_ref(), true);
+    let mut s = default_sel(SelKind::Button);
+    s.colors = colors;
+    s.transition = transition;
+    s.on_click = on_click;
+    s.target_graphic = graphic;
+    let comp = new_comp(vm, "UnityEngine.UI.Button", go.clone(), CK::Sel(Box::new(s)));
+    with_go(&go, |g| {
+        g.comps.push(comp);
+        g.tag = TAG.into();
+    });
+    let t = new_node(vm, "Text", &tr(&go), [0.0, 1.0], 0.0, 60.0);
+    let t = text(vm, &t, caption_style.as_ref(), None, 4);
+    label(&t, words);
+    set_hidden(&go, true);
+    Some((go, original))
 }
 
 /// The game marks the active choice of a setting by making its button non-interactable (darker); same here.
@@ -144,6 +218,9 @@ fn refresh(vm: &mut Vm) {
     let (on, now) = (enabled(vm), scale(vm));
     let mut states: Vec<(Value, bool)> = vec![(s.on.clone(), !on), (s.off.clone(), on)];
     states.extend(s.scales.iter().map(|(go, p)| (go.clone(), *p != now)));
+    let remember = remember_cursor(vm);
+    let Some(s) = &vm.eng.console_switch else { return };
+    states.extend([(s.memory.0.clone(), !remember), (s.memory.1.clone(), remember)]);
     for (go, interactable) in states {
         for comp in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
             with_comp(&comp, |c| {
@@ -170,7 +247,7 @@ fn follow_theme(vm: &Vm) {
     let Some((sprite, colour)) = look(&s.sample) else { return };
     let caption = text_colour(&s.sample_text);
     let label_colour = text_colour(&child(&s.sample, "Text"));
-    let buttons = [s.on.clone(), s.off.clone()].into_iter().chain(s.scales.iter().map(|(g, _)| g.clone()));
+    let buttons = [s.on.clone(), s.off.clone(), s.memory.0.clone(), s.memory.1.clone()].into_iter().chain(s.scales.iter().map(|(g, _)| g.clone()));
     for go in buttons {
         for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
             let changed = with_comp(&c, |k| match &mut k.k {
@@ -194,6 +271,21 @@ fn follow_theme(vm: &Vm) {
             recolour(&go_of_comp(t), col);
         }
     }
+}
+
+/// The text of the game as the console mode says it: the sentences that name the keyboard speak of the buttons.
+fn console_words(text: &str) -> Option<String> {
+    const KEYS: &[(&str, &str)] = &[
+        ("You can use the left and right arrows on your keyboard to navigate/spam through this little tutorial.",
+         "You can use the cross and circle buttons to go on and back through this little tutorial."),
+        ("(Use the arrow keys to navigate through this tutorial!!)", "(Press the cross button to go on, the circle button to go back.)"),
+        ("(Use the arrow keys to navigate through this tutorial!)", "(Press the cross button to go on, the circle button to go back.)"),
+    ];
+    let mut out = text.to_string();
+    for (from, to) in KEYS {
+        out = out.replace(from, to);
+    }
+    (out != text).then_some(out)
 }
 
 fn go_of_comp(comp: &Value) -> Value {
@@ -236,6 +328,14 @@ pub enum Pad {
     HoldEnd,
     /// right stick, in game pixels for this poll (y > 0 = towards the bottom)
     Scroll(f32, f32),
+    /// triangle: show / hide the information (tooltips) of the selected controls (a toggle)
+    Info,
+    /// start: open Settings; select: open Info 'n Stuff
+    Settings,
+    InfoStuff,
+    /// a face button or direction pressed while R is held (the game's keyboard shortcuts): 'x' cross, 'o' circle,
+    /// 's' square, 't' triangle, 'u' 'd' 'l' 'r' the d-pad
+    Shortcut(char),
 }
 
 /// A click the shell performs over two logic steps (press, release), in engine space (y up).
@@ -245,13 +345,37 @@ pub struct Click {
     pub y: f32,
     /// 0 left, 1 right
     pub button: i32,
+    pub phase: Phase,
+}
+
+/// A whole click, or only its press (an item picked up, the button stays down) or only its release (dropped).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Phase {
+    #[default]
+    Full,
+    Press,
+    Release,
 }
 
 /// Console presentation state, kept in `Engine::console` while the mode is on.
 #[derive(Default)]
 pub struct Console {
     pub hold: bool,
+    /// triangle toggle: the selected control's information (tooltip) is shown
+    pub info: bool,
+    /// page of the adventure skills the R layer fires (0 attacks, 1 defence, 2 special)
+    skill_page: u8,
+    /// page of the inventory the R layer shows
+    inventory_page: i32,
+    /// an item is held (picked up with cross): where it was picked up
+    carrying: Option<(f32, f32)>,
+    /// the selection each menu had when it was left (cursor memory)
+    memory: std::collections::HashMap<i32, Value>,
+    /// a menu was just opened: (the menu left, the selection it had, frames to wait for the new page to be laid out)
+    entering: Option<(i32, Value, u8)>,
     focus_before_hold: Value,
+    /// the tutorial's key sprites as the game made them, put back when the mode goes off
+    tutorial_sprites: Vec<((u32, usize), Value)>,
     scrollbar_drag: Option<(usize, f32)>,
     /// the menu column and the player column (root canvases)
     columns: Option<(Value, Value)>,
@@ -266,7 +390,9 @@ fn menu_buttons(vm: &Vm, column: &Value) -> Vec<(Value, i32)> {
         if !with_go(&go, |g| g.active).unwrap_or(false) {
             return;
         }
-        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
+        // a button hidden by the console mode itself (the shop button moved to Info 'n Stuff) is not a menu of the list
+        let hidden_button = vm.eng.console_switch.as_ref().and_then(|s| s.shop.as_ref()).map_or(false, |(_, original)| same(original, &go));
+        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default().into_iter().filter(|_| !hidden_button) {
             let id = with_comp(&c, |k| match &k.k {
                 CK::Sel(s) if k.enabled && s.interactable && s.kind == SelKind::Button => with_comp(&s.on_click, |e| match &e.k {
                     CK::Event(ev) => ev.persistent.iter().find(|p| p.method == "swapMenu").map(|p| p.arg_i),
@@ -286,6 +412,40 @@ fn menu_buttons(vm: &Vm, column: &Value) -> Vec<(Value, i32)> {
     walk(vm, &tr(column), &mut out);
     out.sort_by(|a, b| b.2.total_cmp(&a.2));
     out.into_iter().map(|(go, id, _)| (go, id)).collect()
+}
+
+use crate::focus::AllocationRole;
+
+/// The click on one button of the allocation row the selection is on (its "+", "-" or "Cap"), if it is on one.
+fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
+    let focus = vm.eng.focus.clone();
+    if focus.is_null() {
+        return None;
+    }
+    let row = crate::focus::allocation_row(&focus)?;
+    crate::focus::allocation_role(&focus).or_else(|| row.iter().find(|(go, _)| same(go, &focus)).map(|(_, r)| *r))?;
+    let (target, _) = row.iter().find(|(_, r)| *r == role)?;
+    let rect = crate::focus::node_rect(vm, target)?;
+    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0, phase: Phase::Full })
+}
+
+/// Whether the game's tutorial is running (its window is on screen).
+fn tutorial_active(vm: &mut Vm) -> bool {
+    let state = crate::dev::get(vm, "Character.settings.tutorialState");
+    state.rsplit('=').next().and_then(|v| v.trim().parse::<i32>().ok()).is_some_and(|n| n >= 0)
+}
+
+/// Top and bottom of the menu buttons of the list (rows from the top of the screen, as the game lays them out, before any
+/// console fit): what the list needs to show every menu at once.
+pub(crate) fn list_extent(vm: &Vm, column: &Value) -> Option<(f32, f32)> {
+    let mut extent: Option<(f32, f32)> = None;
+    for (go, _) in menu_buttons(vm, column) {
+        let x = crate::ui::xf(vm, &with_go(&go, |g| g.transform.clone())?);
+        let top = 600.0 - (x.origin[1] + (1.0 - x.pivot[1]) * x.h * x.scale[1].abs());
+        let bottom = top + x.h * x.scale[1].abs();
+        extent = Some(extent.map_or((top, bottom), |(a, b)| (a.min(top), b.max(bottom))));
+    }
+    extent
 }
 
 fn current_menu(vm: &Vm) -> i32 {
@@ -329,7 +489,7 @@ fn junction_bolts(vm: &Vm) -> (Vec<Value>, Vec<Value>) {
     (edge, sections)
 }
 
-fn set_hidden(go: &Value, hidden: bool) {
+pub(crate) fn set_hidden(go: &Value, hidden: bool) {
     let changed = with_go(go, |g| std::mem::replace(&mut g.port_hidden, hidden) != hidden).unwrap_or(false);
     if changed {
         mark_dirty(go);
@@ -401,8 +561,68 @@ fn region_of_focus(vm: &Vm) -> Option<ScrollRegion> {
 }
 
 impl Console {
+    /// The tutorial window shows a blinking key prompt (the arrows of the keyboard): in console mode it shows the controller's
+    /// buttons instead, and the sentences that name the arrow keys speak of the buttons.
+    fn tutorial_prompts(&mut self, vm: &mut Vm) {
+        let Some(tooltip) = vm.eng.user_comps.iter().find(|v| matches!(v, Value::Obj(o) if vm.types[o.ty as usize].name == "HoverTooltip")).cloned() else { return };
+        if self.tutorial_sprites.is_empty() {
+            for (field, glyph) in [("advanceOnly", "prompt-advance"), ("advanceOnly2", "prompt-advance-lit"), ("backOnly", "prompt-back"),
+                ("backOnly2", "prompt-back-lit"), ("both", "prompt-both"), ("both2", "prompt-both-lit")] {
+                let Some(at) = crate::vm::field_ref(vm, "HoverTooltip", field) else { continue };
+                let Some(old) = crate::vm::read_field(&tooltip, at) else { continue };
+                if std::env::var_os("NGU_CONSOLE_DEBUG").is_some() {
+                    eprintln!("[tutorial] {field}: {:?}", with_comp(&old, |c| match &c.k { CK::Sprite(s) => Some((s.rect, s.ppu, s.pivot)), _ => None }));
+                }
+                let new = crate::glyphs::sprite(vm, glyph);
+                if let Value::Obj(o) = &tooltip {
+                    o.f.borrow_mut()[at.1] = new;
+                }
+                self.tutorial_sprites.push((at, old));
+            }
+        }
+        let Some(text) = crate::vm::field_ref(vm, "HoverTooltip", "tooltipText").and_then(|at| crate::vm::read_field(&tooltip, at)) else { return };
+        let now = with_comp(&text, |c| match &c.k { CK::Text(t) => Some(t.text.clone()), _ => None }).flatten().unwrap_or_default();
+        if let Some(better) = console_words(&now) {
+            label(&text, better);
+            mark_dirty(&go_of_comp(&text));
+        }
+    }
+
     /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
+    /// Draws the free cursor where it is, or puts it away.
+    fn cursor_drawing(&mut self, vm: &mut Vm) {
+        let at = vm.eng.console_cursor;
+        if vm.eng.cursor_node.is_none() {
+            if at.is_none() {
+                return;
+            }
+            let root = new_node(vm, "Console Cursor Canvas", &Value::Null, [0.0, 1.0], 0.0, 600.0);
+            crate::save_slots::attach(vm, &root, "UnityEngine.Canvas", CK::Canvas(Box::new(CanvasD { mode: 0, sorting: 20000, override_sorting: true, scale_factor: 1.0 })));
+            vm.eng.canvases.push((20000, tr(&root)));
+            vm.eng.canvases.sort_by_key(|(sorting, _)| *sorting);
+            let node = new_node(vm, "Console Cursor", &tr(&root), [0.0, 0.0], 0.0, 28.0);
+            with_tr(&tr(&node), |t| t.size[0] = 28.0);
+            let art = image(vm, &node, None, false);
+            let sprite = crate::glyphs::sprite(vm, "cursor");
+            with_comp(&art, |c| {
+                if let CK::Image(i) = &mut c.k {
+                    i.sprite = sprite;
+                }
+            });
+            vm.eng.cursor_node = Some(node);
+        }
+        let Some(node) = vm.eng.cursor_node.clone() else { return };
+        set_hidden(&node, at.is_none());
+        if let Some((x, y)) = at {
+            with_tr(&tr(&node), |t| t.apos = [x - 14.0, -(y - 14.0)]);
+            mark_dirty(&node);
+        }
+    }
+
     pub fn apply(&mut self, vm: &mut Vm) {
+        self.tutorial_prompts(vm);
+        self.cursor_drawing(vm);
+        self.enter_menu(vm);
         if self.columns.is_none() {
             self.columns = named_go(vm, "Features Canvas").zip(named_go(vm, "Player Panel Canvas"));
         }
@@ -412,6 +632,10 @@ impl Console {
         let zoomed = vm.eng.desktop_layout.console_view_h < 599.5;
         if let Some(build) = named_go(vm, "Build #") {
             set_hidden(&build, zoomed);
+        }
+        if let Some((copy, original)) = vm.eng.console_switch.as_ref().and_then(|s| s.shop.clone()) {
+            set_hidden(&original, true);
+            set_hidden(&copy, false);
         }
         let (menu_edge, sections) = self.bolts.get_or_insert_with(|| junction_bolts(vm)).clone();
         for b in &menu_edge {
@@ -426,12 +650,23 @@ impl Console {
 
     /// Restores the PC presentation.
     fn release(&mut self, vm: &mut Vm) {
+        if let Some(tooltip) = vm.eng.user_comps.iter().find(|v| matches!(v, Value::Obj(o) if vm.types[o.ty as usize].name == "HoverTooltip")).cloned() {
+            for (at, old) in std::mem::take(&mut self.tutorial_sprites) {
+                if let Value::Obj(o) = &tooltip {
+                    o.f.borrow_mut()[at.1] = old;
+                }
+            }
+        }
         if let Some((menus, player)) = self.columns.take() {
             set_hidden(&menus, false);
             set_hidden(&player, false);
         }
         if let Some(build) = named_go(vm, "Build #") {
             set_hidden(&build, false);
+        }
+        if let Some((copy, original)) = vm.eng.console_switch.as_ref().and_then(|s| s.shop.clone()) {
+            set_hidden(&original, false);
+            set_hidden(&copy, true);
         }
         for b in self.bolts.take().map(|(a, b)| [a, b].concat()).unwrap_or_default() {
             set_hidden(&b, false);
@@ -440,7 +675,43 @@ impl Console {
         relayout(vm);
     }
 
+    /// Notes that another menu is being opened: the selection of the one left is remembered, and the new one is given its
+    /// own once its page has been laid out (the one it had, or the main control of the page the first time).
+    fn leaving_menu(&mut self, vm: &Vm) {
+        self.entering = Some((current_menu(vm), vm.eng.focus.clone(), 2));
+    }
+
+    fn enter_menu(&mut self, vm: &mut Vm) {
+        let Some((from, was, wait)) = self.entering.take() else { return };
+        if wait > 0 {
+            self.entering = Some((from, was, wait - 1));
+            return;
+        }
+        let remember = remember_cursor(vm);
+        if remember && !was.is_null() && from != current_menu(vm) {
+            self.memory.insert(from, was);
+        }
+        let now = current_menu(vm);
+        if self.hold || !vm.eng.focus.is_null() {
+            return;
+        }
+        if remember {
+            if let Some(go) = self.memory.get(&now).cloned().filter(|go| active_in_hierarchy(go)) {
+                crate::focus::select_control(vm, &go);
+                self.follow(vm);
+                return;
+            }
+        }
+        let left = vm.eng.desktop_layout.content_left();
+        let main = crate::focus::collect(vm).into_iter().filter(|f| f.rect[0] >= left)
+            .min_by(|a, b| (a.rect[1], a.rect[0]).partial_cmp(&(b.rect[1], b.rect[0])).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some(f) = main {
+            crate::focus::select_control(vm, &f.go);
+        }
+    }
+
     fn step_menu(&mut self, vm: &mut Vm, delta: i32) {
+        self.leaving_menu(vm);
         let Some((menus, _)) = self.columns.clone() else { return };
         let list = menu_buttons(vm, &menus);
         if list.is_empty() {
@@ -468,8 +739,72 @@ impl Console {
         }
     }
 
+    /// The game's own keyboard shortcuts on the R layer: the game reads the key, so the button presses it.
+    fn shortcut(&mut self, vm: &mut Vm, c: char) {
+        const Q: i32 = 113;
+        const LEFT: i32 = 276;
+        const RIGHT: i32 = 275;
+        let key = |ch: char| ch as i32;
+        let menu = current_menu(vm);
+        let code = match menu {
+            // adventure: three pages of skills on the face buttons and up / down; left / right change the zone
+            3 => {
+                if c == 'n' {
+                    self.skill_page = (self.skill_page + 1) % 3;
+                    let name = ["Attack skills", "Defense skills", "Special skills"][self.skill_page as usize];
+                    crate::dev::call(vm, "Character.tooltip.showOverrideTooltip", &[name, "1.2"]);
+                    return;
+                }
+                let skills: [[Option<i32>; 6]; 3] = [
+                    [Some(key('w')), Some(key('e')), Some(key('r')), Some(key('t')), Some(key('y')), Some(Q)],
+                    [Some(key('a')), Some(key('s')), Some(key('d')), Some(key('f')), Some(key('g')), Some(key('h'))],
+                    [Some(key('z')), Some(key('x')), Some(key('c')), Some(key('v')), Some(key('b')), None],
+                ];
+                let slot = match c { 'x' => Some(0), 'o' => Some(1), 's' => Some(2), 't' => Some(3), 'u' => Some(4), 'd' => Some(5), _ => None };
+                match c {
+                    'l' => Some(LEFT),
+                    'r' => Some(RIGHT),
+                    _ => slot.and_then(|i| skills[self.skill_page as usize][i]),
+                }
+            }
+            // the secret combination lock of the Fight Boss menu (F A R T S)
+            15 => match c { 'x' => Some(key('f')), 'o' => Some(key('a')), 's' => Some(key('r')), 't' => Some(key('t')), 'u' => Some(key('s')), _ => None },
+            // inventory: pages with left / right, boosts and merging on the item under the selection
+            4 => match c {
+                'x' => Some(key('a')),
+                't' => Some(key('d')),
+                'l' | 'r' => {
+                    let pages = crate::dev::call(vm, "Character.inventoryController.curPages", &[]).rsplit("-> ").next()
+                        .and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(1).clamp(1, 10);
+                    self.inventory_page = (self.inventory_page + if c == 'l' { -1 } else { 1 }).clamp(0, pages - 1);
+                    Some(if self.inventory_page == 9 { key('0') } else { key('1') + self.inventory_page })
+                }
+                _ => None,
+            },
+            55 => match c { 'l' => Some(LEFT), 'r' => Some(RIGHT), _ => None },
+            // everywhere else: take the energy, the magic or the third resource back from every feature
+            _ => match c { 'x' => Some(key('r')), 's' => Some(key('t')), 't' => Some(key('f')), _ => None },
+        };
+        if let Some(code) = code {
+            vm.eng.keys_edge.insert(code);
+        }
+    }
+
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
+        // any other input puts the free cursor away; cross and square first click where it is
+        if let Some((cx, cy)) = vm.eng.console_cursor {
+            if !matches!(pad, Pad::Scroll(..)) {
+                vm.eng.console_cursor = None;
+                if matches!(pad, Pad::Activate | Pad::Secondary) {
+                    let h = vm.eng.screen.1 as f32;
+                    return Some(Click { x: cx, y: h - cy, button: i32::from(pad == Pad::Secondary), phase: Phase::Full });
+                }
+            }
+        }
+        if crate::numpad::is_open(vm) {
+            return crate::numpad::input(vm, pad);
+        }
         if self.hold {
             match pad {
                 Pad::Dir(d @ ('u' | 'd')) => {
@@ -500,6 +835,9 @@ impl Console {
                     crate::focus::clear(vm);
                     let previous = std::mem::take(&mut self.focus_before_hold);
                     let next = chosen.filter(|(_, id)| *id != current_menu(vm));
+                    if next.is_some() {
+                        self.entering = Some((current_menu(vm), std::mem::take(&mut self.focus_before_hold), 2));
+                    }
                     if let Some((go, _)) = &next {
                         crate::save_slots::close_for_console_navigation(vm);
                         open(vm, go);
@@ -514,6 +852,11 @@ impl Console {
             }
             return None;
         }
+        // a tutorial window is up and nothing is selected: cross goes on, circle goes back (the keyboard's arrows)
+        if matches!(pad, Pad::Activate | Pad::Back) && vm.eng.focus.is_null() && tutorial_active(vm) {
+            crate::dev::call(vm, if pad == Pad::Activate { "HoverTooltip.advance" } else { "HoverTooltip.back" }, &[]);
+            return None;
+        }
         let modal = match pad {
             Pad::Dir('u') => 'u',
             Pad::Dir('d') => 'd',
@@ -524,9 +867,15 @@ impl Console {
         if !vm.eng.desktop_layout.console_modal && vm.dropdown_navigate(modal) {
             return None;
         }
-        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button });
+        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button, phase: Phase::Full });
         match pad {
             Pad::Dir(d) => {
+                // on an allocation row, left and right take energy away or add it
+                if matches!(d, 'l' | 'r') {
+                    if let Some(click) = allocation_click(vm, if d == 'l' { AllocationRole::Minus } else { AllocationRole::Plus }) {
+                        return Some(click);
+                    }
+                }
                 let before = vm.eng.focus.clone();
                 crate::focus::navigate(vm, d);
                 // at the edge of a region that scrolls: scroll it and look again (the next rows were clipped)
@@ -547,8 +896,23 @@ impl Console {
                 self.follow(vm);
                 None
             }
-            Pad::Activate => click(vm, 0),
-            Pad::Secondary => click(vm, 1),
+            Pad::Activate => {
+                // cross picks up what can be dragged (an item) and puts it down on the selection: merges and swaps are the game's
+                if self.carrying.take().is_some() {
+                    return crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button: 0, phase: Phase::Release });
+                }
+                if let Some((x, y)) = crate::focus::activation_point(vm).filter(|_| crate::focus::draggable(vm, &vm.eng.focus.clone())) {
+                    self.carrying = Some((x, y));
+                    return Some(Click { x, y, button: 0, phase: Phase::Press });
+                }
+                click(vm, 0)
+            }
+            Pad::Secondary => allocation_click(vm, AllocationRole::Cap).or_else(|| click(vm, 1)),
+            Pad::Back if self.carrying.is_some() => {
+                // circle puts the item back where it was
+                let (x, y) = self.carrying.take()?;
+                Some(Click { x, y, button: 0, phase: Phase::Release })
+            }
             Pad::Back => {
                 if !vm.back_from_desktop_picker() {
                     crate::focus::clear(vm);
@@ -576,17 +940,37 @@ impl Console {
                 None
             }
             Pad::HoldStart | Pad::HoldEnd => None,
+            Pad::Info => {
+                self.info = !self.info;
+                None
+            }
+            Pad::Settings | Pad::InfoStuff if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
+                self.leaving_menu(vm);
+                crate::save_slots::close_for_console_navigation(vm);
+                crate::autoplay::swap_menu(vm, if pad == Pad::Settings { SETTINGS_MENU } else { INFO_MENU });
+                crate::focus::clear(vm);
+                new_page(vm);
+                None
+            }
+            Pad::Settings | Pad::InfoStuff => None,
+            Pad::Shortcut(c) => {
+                self.shortcut(vm, c);
+                None
+            }
             Pad::Scroll(dx, dy) => {
-                // the region under the selection, else the one in the middle of the page
-                let r = region_of_focus(vm).or_else(|| {
-                    let d = &vm.eng.desktop_layout;
-                    d.regions.iter().filter(|r| r.key != COLUMN && r.key != LIST).min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
-                });
-                match r {
-                    Some(r) => {
+                // the right stick is the free cursor: it appears where the selection is and moves like a mouse; at the edge of
+                // a list under it, it scrolls the list
+                let (w, h) = (vm.eng.desktop_layout.width(), vm.eng.screen.1 as f32);
+                let at = vm.eng.console_cursor.or_else(|| crate::focus::pointer(vm).map(|(x, y)| (x, h - y))).unwrap_or((w / 2.0, h / 2.0));
+                let next = ((at.0 - dx).clamp(0.0, w - 1.0), (at.1 + dy).clamp(0.0, h - 1.0));
+                vm.eng.console_cursor = Some(next);
+                crate::focus::clear(vm);
+                if let Some(r) = region_at(vm, next.0, next.1) {
+                    let near_top = next.1 < r.view[1] + 24.0 && dy < 0.0;
+                    let near_bottom = next.1 > r.view[3] - 24.0 && dy > 0.0;
+                    if near_top || near_bottom {
                         scroll_region(vm, &r, dy);
                     }
-                    None => crate::focus::scroll(vm, dx, dy),
                 }
                 None
             }
@@ -679,6 +1063,11 @@ pub(crate) fn click(vm: &mut Vm, go: &Value) -> bool {
     }
     if let Some(p) = s.scales.iter().find(|(g, _)| same(g, go)).map(|(_, p)| *p) {
         set_scale(vm, p);
+        return true;
+    }
+    if same(go, &s.memory.0) || same(go, &s.memory.1) {
+        let on = same(go, &s.memory.0);
+        set_remember_cursor(vm, on);
         return true;
     }
     false

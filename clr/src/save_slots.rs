@@ -3,7 +3,7 @@ mod hosted;
 mod storage;
 mod view;
 
-pub(crate) use view::{label, prepare_title, refresh_achievements};
+pub(crate) use view::{copy_theme_sprite, label, prepare_title, refresh_achievements};
 use view::*;
 
 pub(crate) use crate::host_platform::before_managed_read;
@@ -449,7 +449,7 @@ pub(crate) fn new_node(vm: &mut Vm, name: &str, parent: &Value, x: [f32; 2], y: 
     go
 }
 
-fn attach(vm: &mut Vm, go: &Value, name: &str, kind: CK) -> Value {
+pub(crate) fn attach(vm: &mut Vm, go: &Value, name: &str, kind: CK) -> Value {
     let comp = new_comp(vm, name, go.clone(), kind);
     with_go(go, |g| g.comps.push(comp.clone()));
     comp
