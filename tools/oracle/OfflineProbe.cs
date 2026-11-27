@@ -13,6 +13,7 @@ using UnityEngine;
 //   NGU_OFFLINE_PROBE_SAVE    the save to open
 //   NGU_OFFLINE_PROBE_OUTPUT  output prefix: <prefix>.info.txt and <prefix>.<seconds>.sav
 //   NGU_OFFLINE_PROBE_WAITS   comma-separated seconds after the load, default "0"
+//   NGU_OFFLINE_PROBE_MENUS   comma-separated menu numbers to open after the load; the result of each goes to the info file
 [BepInPlugin("org.nguidle.reference.offline", "NGU offline probe", "1.0.0")]
 public class OfflineProbe : BaseUnityPlugin
 {
@@ -81,6 +82,21 @@ public class OfflineProbe : BaseUnityPlugin
         }
         catch (Exception e) { error = e.ToString(); }
         if (error != null) { File.WriteAllText(info, "load_error=" + error); Application.Quit(); yield break; }
+        string menus = Environment.GetEnvironmentVariable("NGU_OFFLINE_PROBE_MENUS");
+        if (!String.IsNullOrEmpty(menus))
+        {
+            // Opens the listed menus (MenuSwapper.swapMenu) and records whether the game raised an exception.
+            var swapper = Only("MenuSwapper");
+            var swap = AccessTools.Method(AccessTools.TypeByName("MenuSwapper"), "swapMenu");
+            foreach (string item in menus.Split(','))
+            {
+                try { swap.Invoke(swapper, new object[] { int.Parse(item, CultureInfo.InvariantCulture) }); File.AppendAllText(info, "menu " + item + ": ok
+"); }
+                catch (Exception e) { File.AppendAllText(info, "menu " + item + ": exception " + (e.InnerException ?? e).GetType().Name + "
+"); }
+                yield return new WaitForSecondsRealtime(0.5f);
+            }
+        }
         string waits = Environment.GetEnvironmentVariable("NGU_OFFLINE_PROBE_WAITS");
         if (String.IsNullOrEmpty(waits)) waits = "0";
         foreach (string item in waits.Split(','))

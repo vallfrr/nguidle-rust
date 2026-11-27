@@ -13,6 +13,8 @@ name = "clr"
 path = "src/main.rs"
 
 [features]
+# Opening an old Vita save (the earliest internal format) by importing it: on by default (D5).
+default = ["legacy-save"]
 legacy-save = []
 
 [dependencies]

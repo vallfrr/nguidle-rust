@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- An old Vita save (the earliest internal format) put in the `import` folder is converted when it is imported from the save screen (D5); `legacy-save` is now a default feature. `clr convert-legacy-save` still works. Not tried end to end on a real old save (only the converter with a synthetic one).
+
+
 - Fix: a float `+ - * /` directly followed by an integer conversion is computed in double precision, like the original runtime. `(int)((float)22560 * 0.9f)` is 20,303 in the original and was 20,304 here, which shifted the beast-quest timer by one second per threshold passed (ADR 0014). Found by comparing offline progress with the original.
 
 - Add `tools/guard-frames.sh` (what each interpreter shortcut is worth per frame on the console scenarios) and the evidence table of `docs/GUARDS.md`.

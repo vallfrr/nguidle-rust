@@ -111,4 +111,10 @@ fn legacy_conversion_checks_the_digest_and_preserves_the_payload() {
     let restored = serial::deserialize(&mut vm, &inner)
         .unwrap_or_else(|error| panic!("converted player: {}", vm.describe(&error)));
     assert!(matches!(first_field(&restored), Value::I32(78)));
+
+    // Importing offers the same conversion, and refuses anything that is not a legacy save.
+    assert!(clr::legacy_save::upgrade(&mut vm, &format!("{}
+", b64_enc(&valid))).is_some());
+    assert!(clr::legacy_save::upgrade(&mut vm, &b64_enc(&invalid)).is_none());
+    assert!(clr::legacy_save::upgrade(&mut vm, "not a save").is_none());
 }

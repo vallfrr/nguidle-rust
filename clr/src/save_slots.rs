@@ -292,6 +292,26 @@ fn initial_snapshot(vm: &mut Vm, template: &str, name: &str) -> Result<String, S
     result.map_err(String::from)
 }
 
+/// The modern save made from an old Vita save file, when `file` is one and the result is a valid save.
+fn upgraded_legacy_save(vm: &mut Vm, file: &Path) -> Option<String> {
+    #[cfg(feature = "legacy-save")]
+    {
+        let mut text = String::new();
+        File::open(file).ok()?.take(MAX_SAVE_BYTES + 1).read_to_string(&mut text).ok()?;
+        if text.len() as u64 > MAX_SAVE_BYTES {
+            return None;
+        }
+        let converted = crate::legacy_save::upgrade(vm, &text)?;
+        meta(&converted).ok()?;
+        Some(converted)
+    }
+    #[cfg(not(feature = "legacy-save"))]
+    {
+        let _ = (vm, file);
+        None
+    }
+}
+
 /// Loads a save text the way the game does when the player opens a save (`loadintoGame`, so offline progress applies).
 /// Used by the full-game script; the save screens go through `apply_save`, which also backs up the current game.
 pub(crate) fn load_into_game(vm: &mut Vm, data: &str) -> Result<(), String> {
@@ -1058,7 +1078,11 @@ fn perform(
             }
         }
         Pending::Import(file, index) => {
-            let (data, _) = read_save(&file)?;
+            let data = match read_save(&file) {
+                Ok((data, _)) => data,
+                // An old Vita save (the earliest internal format) is converted when imported (D5).
+                Err(error) => upgraded_legacy_save(vm, &file).ok_or(error)?,
+            };
             atomic_write(&slot_path(dir, index), data.as_bytes())
                 .map_err(|e| format!("Could not import the save: {e}"))?;
             state.import_files = None;
