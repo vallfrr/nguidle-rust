@@ -2,9 +2,21 @@
 
 Local replays cover selected input sequences, saves and game state. See [comparison notes](COMPARISON.md) for evidence against the original game.
 
-Open work includes broader measurements of progression against the original, additional random-number cases, and comparison of reproducible original-game traces to the port. The interpreter's game-specific shortcuts also require individual evidence.
+## Differences waiting for the maintainer's validation (D3)
 
-The first original-game scenario recorder supports menu changes and state snapshots, but not pointer/controller inputs, fixed clock, or automatic cross-runtime trace comparison. See its [scope and instructions](../tools/oracle/README.md).
+Nothing here is changed in the port yet. Items 1, 3 and 4 change nothing the player can see; item 2 changes the speed of one timer by about 5 %.
+
+1. **Internal list capacities and version counters.** A save the port writes after a load is not byte for byte the save the original would write: some lists have less spare room (`Loadout.accessories` 10 slots against 16, `Card.manaCosts` 6 against 8) and different version counters. The game reads neither.
+2. **Cooking banked time.** The timer is a float that grows by the frame time; at 40,000 s and more its step is 0.004 to 0.016 s, so its speed depends on the frame rate. The original runs about 6 % slow at 60 frames per second (and almost stands still in batch mode); the port, at 30 steps per second, runs about 5.5 % fast. See the recorded comparison below.
+3. **Energy bar phase (ADR 0007).** The bar is up to a few hundredths of a bar apart at start-up; the counters stay equal after ten minutes.
+4. **Interpreter shortcuts (D4).** Shortcuts 2, 5, 6, 7 and 20 answered nothing in any scenario; 3 and 21 are worth under 0.2 %. Removing them needs a late-game save on the console or your decision ([GUARDS.md](GUARDS.md)).
+
+## Open work
+
+- Late-game states (wishes, Titans, equipment) in the comparisons with the original, and clicks in the original (the probes open saves and menus, they do not click).
+- Random numbers in real use: the generator matches the recorded vectors, and the random-driven counters of the played states match, but the original seeds the generator from the clock at every load, so exact sequences cannot be compared.
+- Float intermediates that are not converted to an integer right away (ADR 0014), found only by more comparisons.
+- What the web game does while its tab is hidden: a proposal waits for the maintainer ([nguidle-web#16](https://github.com/vallfrr/nguidle-web/issues/16)).
 
 ## Recorded comparisons
 
