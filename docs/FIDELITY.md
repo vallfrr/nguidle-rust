@@ -2,16 +2,16 @@
 
 Local replays cover selected input sequences, saves and game state. See [comparison notes](COMPARISON.md) for evidence against the original game.
 
-## Differences waiting for the maintainer's validation (D3)
+## Accepted differences (D3, decided 27 November 2026)
 
-Nothing here is changed in the port yet. Items 1, 3 and 4 change nothing the player can see; item 2 changes the speed of one timer by about 5 %.
+The maintainer left these four to the engineer; each is accepted as is. Items 1, 3 and 4 change nothing the player can see; item 2 changes the speed of one timer by about 5 %.
 
-1. **Internal list capacities and version counters.** A save the port writes after a load is not byte for byte the save the original would write: some lists have less spare room (`Loadout.accessories` 10 slots against 16, `Card.manaCosts` 6 against 8) and different version counters. The game reads neither.
-2. **Cooking banked time.** The timer is a float that grows by the frame time; at 40,000 s and more its step is 0.004 to 0.016 s, so its speed depends on the frame rate. The original runs about 6 % slow at 60 frames per second (and almost stands still in batch mode); the port, at 30 steps per second, runs about 5.5 % fast. See the recorded comparison below.
-3. **Energy bar phase (ADR 0007).** The bar is up to a few hundredths of a bar apart at start-up; the counters stay equal after ten minutes.
-4. **Interpreter shortcuts (D4).** Shortcuts 2, 5, 6, 7 and 20 answered nothing in any scenario; 3 and 21 are worth under 0.2 %. Removing them needs a late-game save on the console or your decision ([GUARDS.md](GUARDS.md)).
+1. **Internal list capacities and version counters.** A save the port writes after a load is not byte for byte the save the original would write: some lists have less spare room (`Loadout.accessories` 10 slots against 16, `Card.manaCosts` 6 against 8) and different version counters. The game reads neither. Accepted: matching them would mean copying the original's allocation history for no visible effect.
+2. **Cooking banked time.** The timer is a float that grows by the frame time; at 40,000 s and more its step is 0.004 to 0.016 s, so its speed depends on the frame rate. The original runs about 6 % slow at 60 frames per second (and almost stands still in batch mode); the port, at 30 steps per second, runs about 5.5 % fast. See the recorded comparison below. Accepted: the original itself differs by frame rate (0 % to -6 %), so no value is "the" original; the fixed 30 steps per second keeps every platform identical.
+3. **Energy bar phase (ADR 0007).** The bar is up to a few hundredths of a bar apart at start-up; the counters stay equal after ten minutes. Accepted.
+4. **Interpreter shortcuts (D4).** Shortcuts 2, 5, 6, 7 and 20 answered nothing in any scenario; 3 and 21 are worth under 0.2 %. Kept: the long run is byte-identical with and without them and each is covered by a named test, so they cost nothing in fidelity and may help the console ([GUARDS.md](GUARDS.md)). Remove one only if a console measurement ever shows a problem.
 
-## Open work
+## Open work (after v1.0.0 unless a bug shows it earlier)
 
 - Late-game states (wishes, Titans, equipment) in the comparisons with the original, and clicks in the original (the probes open saves and menus, they do not click).
 - Random numbers in real use: the generator matches the recorded vectors, and the random-driven counters of the played states match, but the original seeds the generator from the clock at every load, so exact sequences cannot be compared.
