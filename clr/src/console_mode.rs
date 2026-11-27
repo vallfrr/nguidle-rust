@@ -15,6 +15,7 @@ use crate::Vm;
 
 const PREF: &str = "nguConsoleMode";
 const SCALE_PREF: &str = "nguConsoleScale";
+const MEMORY_PREF: &str = "nguRememberCursor";
 /// Scale a console starts with when the player has not chosen one.
 const DEFAULT_CONSOLE_SCALE: i32 = 120;
 /// Scale steps, in percent of the PC size.
@@ -33,6 +34,8 @@ pub(crate) struct Switch {
     on: Value,
     off: Value,
     scales: Vec<(Value, i32)>,
+    /// "Remember Cursor" On / Off
+    memory: (Value, Value),
     /// the game's own setting button and caption these copy their look from (themes)
     sample: Value,
     sample_text: Value,
@@ -55,6 +58,17 @@ pub fn set_enabled(vm: &mut Vm, on: bool) {
 /// toggle inside it.
 pub fn tooltips_on(vm: &Vm) -> bool {
     vm.eng.console.as_ref().map_or(true, |c| c.info)
+}
+
+/// Whether each menu remembers where the selection was (on unless the player switched it off).
+pub fn remember_cursor(vm: &Vm) -> bool {
+    !matches!(vm.eng.prefs.get(MEMORY_PREF), Some(Value::I32(0)))
+}
+
+pub fn set_remember_cursor(vm: &mut Vm, on: bool) {
+    vm.eng.prefs.insert(MEMORY_PREF.into(), Value::I32(on as i32));
+    crate::unity_api::save_prefs(vm);
+    refresh(vm);
 }
 
 /// The chosen scale in percent (100 when unset or not one of `SCALES`).
@@ -156,8 +170,11 @@ pub(crate) fn prepare(vm: &mut Vm) {
         let x0 = 5.0 + i as f32 * 38.0;
         (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift), p)
     }).collect();
+    caption(vm, "Remember Cursor Text", "Remember Cursor", 176.0 + scale_shift);
+    let memory = (button(vm, "Remember Cursor On", "On", [8.0 / 160.0, 78.0 / 160.0], 200.0 + scale_shift),
+                  button(vm, "Remember Cursor Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 200.0 + scale_shift));
     let shop = build_shop(vm);
-    vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions, shop });
+    vm.eng.console_switch = Some(Switch { on, off, scales, memory, sample, sample_text, captions, shop });
     refresh(vm);
 }
 
@@ -201,6 +218,9 @@ fn refresh(vm: &mut Vm) {
     let (on, now) = (enabled(vm), scale(vm));
     let mut states: Vec<(Value, bool)> = vec![(s.on.clone(), !on), (s.off.clone(), on)];
     states.extend(s.scales.iter().map(|(go, p)| (go.clone(), *p != now)));
+    let remember = remember_cursor(vm);
+    let Some(s) = &vm.eng.console_switch else { return };
+    states.extend([(s.memory.0.clone(), !remember), (s.memory.1.clone(), remember)]);
     for (go, interactable) in states {
         for comp in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
             with_comp(&comp, |c| {
@@ -227,7 +247,7 @@ fn follow_theme(vm: &Vm) {
     let Some((sprite, colour)) = look(&s.sample) else { return };
     let caption = text_colour(&s.sample_text);
     let label_colour = text_colour(&child(&s.sample, "Text"));
-    let buttons = [s.on.clone(), s.off.clone()].into_iter().chain(s.scales.iter().map(|(g, _)| g.clone()));
+    let buttons = [s.on.clone(), s.off.clone(), s.memory.0.clone(), s.memory.1.clone()].into_iter().chain(s.scales.iter().map(|(g, _)| g.clone()));
     for go in buttons {
         for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
             let changed = with_comp(&c, |k| match &mut k.k {
@@ -349,6 +369,10 @@ pub struct Console {
     inventory_page: i32,
     /// an item is held (picked up with cross): where it was picked up
     carrying: Option<(f32, f32)>,
+    /// the selection each menu had when it was left (cursor memory)
+    memory: std::collections::HashMap<i32, Value>,
+    /// a menu was just opened: (the menu left, the selection it had, frames to wait for the new page to be laid out)
+    entering: Option<(i32, Value, u8)>,
     focus_before_hold: Value,
     /// the tutorial's key sprites as the game made them, put back when the mode goes off
     tutorial_sprites: Vec<((u32, usize), Value)>,
@@ -567,6 +591,7 @@ impl Console {
     /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
     pub fn apply(&mut self, vm: &mut Vm) {
         self.tutorial_prompts(vm);
+        self.enter_menu(vm);
         if self.columns.is_none() {
             self.columns = named_go(vm, "Features Canvas").zip(named_go(vm, "Player Panel Canvas"));
         }
@@ -619,7 +644,43 @@ impl Console {
         relayout(vm);
     }
 
+    /// Notes that another menu is being opened: the selection of the one left is remembered, and the new one is given its
+    /// own once its page has been laid out (the one it had, or the main control of the page the first time).
+    fn leaving_menu(&mut self, vm: &Vm) {
+        self.entering = Some((current_menu(vm), vm.eng.focus.clone(), 2));
+    }
+
+    fn enter_menu(&mut self, vm: &mut Vm) {
+        let Some((from, was, wait)) = self.entering.take() else { return };
+        if wait > 0 {
+            self.entering = Some((from, was, wait - 1));
+            return;
+        }
+        let remember = remember_cursor(vm);
+        if remember && !was.is_null() && from != current_menu(vm) {
+            self.memory.insert(from, was);
+        }
+        let now = current_menu(vm);
+        if self.hold || !vm.eng.focus.is_null() {
+            return;
+        }
+        if remember {
+            if let Some(go) = self.memory.get(&now).cloned().filter(|go| active_in_hierarchy(go)) {
+                crate::focus::select_control(vm, &go);
+                self.follow(vm);
+                return;
+            }
+        }
+        let left = vm.eng.desktop_layout.content_left();
+        let main = crate::focus::collect(vm).into_iter().filter(|f| f.rect[0] >= left)
+            .min_by(|a, b| (a.rect[1], a.rect[0]).partial_cmp(&(b.rect[1], b.rect[0])).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some(f) = main {
+            crate::focus::select_control(vm, &f.go);
+        }
+    }
+
     fn step_menu(&mut self, vm: &mut Vm, delta: i32) {
+        self.leaving_menu(vm);
         let Some((menus, _)) = self.columns.clone() else { return };
         let list = menu_buttons(vm, &menus);
         if list.is_empty() {
@@ -733,6 +794,9 @@ impl Console {
                     crate::focus::clear(vm);
                     let previous = std::mem::take(&mut self.focus_before_hold);
                     let next = chosen.filter(|(_, id)| *id != current_menu(vm));
+                    if next.is_some() {
+                        self.entering = Some((current_menu(vm), std::mem::take(&mut self.focus_before_hold), 2));
+                    }
                     if let Some((go, _)) = &next {
                         crate::save_slots::close_for_console_navigation(vm);
                         open(vm, go);
@@ -840,6 +904,7 @@ impl Console {
                 None
             }
             Pad::Settings | Pad::InfoStuff if !vm.at_desktop_start() && !vm.eng.desktop_layout.console_modal => {
+                self.leaving_menu(vm);
                 crate::save_slots::close_for_console_navigation(vm);
                 crate::autoplay::swap_menu(vm, if pad == Pad::Settings { SETTINGS_MENU } else { INFO_MENU });
                 crate::focus::clear(vm);
@@ -954,6 +1019,11 @@ pub(crate) fn click(vm: &mut Vm, go: &Value) -> bool {
     }
     if let Some(p) = s.scales.iter().find(|(g, _)| same(g, go)).map(|(_, p)| *p) {
         set_scale(vm, p);
+        return true;
+    }
+    if same(go, &s.memory.0) || same(go, &s.memory.1) {
+        let on = same(go, &s.memory.0);
+        set_remember_cursor(vm, on);
         return true;
     }
     false

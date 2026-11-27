@@ -124,8 +124,10 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 }
             }
             for _ in 0..6 {
+                crate::console_mode::sync(vm);
                 vm.frame(1.0 / 30.0);
             }
+            println!("[pad] ... focus {:?}", crate::focus::focused_label(vm));
             continue;
         }
         if p[0] == "focus_at" {
