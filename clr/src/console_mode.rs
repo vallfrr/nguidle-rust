@@ -37,6 +37,8 @@ pub(crate) struct Switch {
     sample: Value,
     sample_text: Value,
     captions: Vec<Value>,
+    /// the shop button added to Info 'n Stuff, and the game's own one at the bottom of the menu list, hidden in console mode
+    shop: Option<(Value, Value)>,
 }
 
 pub fn enabled(vm: &Vm) -> bool {
@@ -154,8 +156,43 @@ pub(crate) fn prepare(vm: &mut Vm) {
         let x0 = 5.0 + i as f32 * 38.0;
         (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift), p)
     }).collect();
-    vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions });
+    let shop = build_shop(vm);
+    vm.eng.console_switch = Some(Switch { on, off, scales, sample, sample_text, captions, shop });
     refresh(vm);
+}
+
+/// The big green "4G's Sellout Shop" button lives at the bottom of the menu list. In console mode the list shows every
+/// menu at once, so the button moves to the middle of Info 'n Stuff: a copy built from the game's own button (same look,
+/// same click), shown only in console mode, while the original is hidden.
+fn build_shop(vm: &mut Vm) -> Option<(Value, Value)> {
+    let original = vm.eng.gos.iter().find(|go| with_go(go, |g| g.name == "Sellout Shop" && g.tag == "Menu Button").unwrap_or(false)).cloned()?;
+    let page = vm.eng.gos.iter().find(|go| with_go(go, |g| g.name == "Info Menu + Controller").unwrap_or(false)).cloned()?;
+    let frame = style(&original, |k| match k { CK::Image(i) => Some(i.as_ref().clone()), _ => None });
+    let (colors, transition, on_click) = style(&original, |k| match k {
+        CK::Sel(s) => Some((s.colors, s.transition, s.on_click.clone())),
+        _ => None,
+    })?;
+    let caption = child(&original, "Text");
+    let caption_style = style(&caption, |k| match k { CK::Text(t) => Some(t.as_ref().clone()), _ => None });
+    let words = caption_style.as_ref().map(|t| t.text.clone()).unwrap_or_else(|| "4G's SELLOUT SHOP".into());
+    // 150 x 60 in the middle of the 668 x 600 page, below the text
+    let go = new_node(vm, "Sellout Shop (console)", &tr(&page), [(334.0 - 75.0) / 668.0, (334.0 + 75.0) / 668.0], 320.0, 60.0);
+    let graphic = image(vm, &go, frame.as_ref(), true);
+    let mut s = default_sel(SelKind::Button);
+    s.colors = colors;
+    s.transition = transition;
+    s.on_click = on_click;
+    s.target_graphic = graphic;
+    let comp = new_comp(vm, "UnityEngine.UI.Button", go.clone(), CK::Sel(Box::new(s)));
+    with_go(&go, |g| {
+        g.comps.push(comp);
+        g.tag = TAG.into();
+    });
+    let t = new_node(vm, "Text", &tr(&go), [0.0, 1.0], 0.0, 60.0);
+    let t = text(vm, &t, caption_style.as_ref(), None, 4);
+    label(&t, words);
+    set_hidden(&go, true);
+    Some((go, original))
 }
 
 /// The game marks the active choice of a setting by making its button non-interactable (darker); same here.
@@ -296,7 +333,9 @@ fn menu_buttons(vm: &Vm, column: &Value) -> Vec<(Value, i32)> {
         if !with_go(&go, |g| g.active).unwrap_or(false) {
             return;
         }
-        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default() {
+        // a button hidden by the console mode itself (the shop button moved to Info 'n Stuff) is not a menu of the list
+        let hidden_button = vm.eng.console_switch.as_ref().and_then(|s| s.shop.as_ref()).map_or(false, |(_, original)| same(original, &go));
+        for c in with_go(&go, |g| g.comps.clone()).unwrap_or_default().into_iter().filter(|_| !hidden_button) {
             let id = with_comp(&c, |k| match &k.k {
                 CK::Sel(s) if k.enabled && s.interactable && s.kind == SelKind::Button => with_comp(&s.on_click, |e| match &e.k {
                     CK::Event(ev) => ev.persistent.iter().find(|p| p.method == "swapMenu").map(|p| p.arg_i),
@@ -316,6 +355,19 @@ fn menu_buttons(vm: &Vm, column: &Value) -> Vec<(Value, i32)> {
     walk(vm, &tr(column), &mut out);
     out.sort_by(|a, b| b.2.total_cmp(&a.2));
     out.into_iter().map(|(go, id, _)| (go, id)).collect()
+}
+
+/// Top and bottom of the menu buttons of the list (rows from the top of the screen, as the game lays them out, before any
+/// console fit): what the list needs to show every menu at once.
+pub(crate) fn list_extent(vm: &Vm, column: &Value) -> Option<(f32, f32)> {
+    let mut extent: Option<(f32, f32)> = None;
+    for (go, _) in menu_buttons(vm, column) {
+        let x = crate::ui::xf(vm, &with_go(&go, |g| g.transform.clone())?);
+        let top = 600.0 - (x.origin[1] + (1.0 - x.pivot[1]) * x.h * x.scale[1].abs());
+        let bottom = top + x.h * x.scale[1].abs();
+        extent = Some(extent.map_or((top, bottom), |(a, b)| (a.min(top), b.max(bottom))));
+    }
+    extent
 }
 
 fn current_menu(vm: &Vm) -> i32 {
@@ -443,6 +495,10 @@ impl Console {
         if let Some(build) = named_go(vm, "Build #") {
             set_hidden(&build, zoomed);
         }
+        if let Some((copy, original)) = vm.eng.console_switch.as_ref().and_then(|s| s.shop.clone()) {
+            set_hidden(&original, true);
+            set_hidden(&copy, false);
+        }
         let (menu_edge, sections) = self.bolts.get_or_insert_with(|| junction_bolts(vm)).clone();
         for b in &menu_edge {
             set_hidden(b, true);
@@ -462,6 +518,10 @@ impl Console {
         }
         if let Some(build) = named_go(vm, "Build #") {
             set_hidden(&build, false);
+        }
+        if let Some((copy, original)) = vm.eng.console_switch.as_ref().and_then(|s| s.shop.clone()) {
+            set_hidden(&original, false);
+            set_hidden(&copy, true);
         }
         for b in self.bolts.take().map(|(a, b)| [a, b].concat()).unwrap_or_default() {
             set_hidden(&b, false);

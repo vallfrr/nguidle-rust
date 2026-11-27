@@ -89,6 +89,8 @@ const TIGHT_GAP: f32 = 2.0;
 const EDGE_GAP: f32 = 14.0;
 const SETTINGS_EDGE_GAP: f32 = 6.0;
 const LIST_MIN: f32 = 110.0;
+/// Margin above and below the menu list shown by holding L.
+const LIST_EDGE: f32 = 6.0;
 /// share of a page's rows that may be pressed together rather than scrolled
 const SQUEEZE: f32 = 0.12;
 
@@ -372,12 +374,25 @@ impl DesktopLayout {
             let r = width(at) / width(f).max(1.0);
             let top = 600.0 - (f.origin[1] + (1.0 - f.pivot[1]) * f.h * f.scale[1].abs());
             let total = f.h * f.scale[1].abs() * r;
-            let extra = (total - v).max(0.0);
-            let pan = self.pan(LIST, extra);
-            self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
-            let x1 = left(at) + width(at);
-            self.region(LIST, id(&node).unwrap(), [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0,
-                [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
+            // every menu fits on the screen at once: when the buttons are too tall for the rows shown, their height
+            // shrinks instead of the list scrolling (no scrollbar)
+            if let Some((first, last)) = crate::console_mode::list_extent(vm, &go_of(&node)) {
+                let avail = v - 2.0 * LIST_EDGE;
+                let natural = (last - first) * r;
+                if natural > avail {
+                    let k = avail / (last - first);
+                    self.remap(&node, at, &move |y| LIST_EDGE + (y - first) * k, 0.0);
+                } else {
+                    self.remap(&node, at, &move |y| top + (y - top) * r, 0.0);
+                }
+            } else {
+                let extra = (total - v).max(0.0);
+                let pan = self.pan(LIST, extra);
+                self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
+                let x1 = left(at) + width(at);
+                self.region(LIST, id(&node).unwrap(), [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0,
+                    [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
+            }
         }
         if let Some((panel, shade)) = crate::save_slots::content_panels(vm) {
             let left = self.content_left();
