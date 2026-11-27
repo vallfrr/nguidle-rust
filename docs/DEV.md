@@ -54,6 +54,8 @@ To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.c
 ## Long-run test (interpreter shortcuts)
 `bash tools/longrun.sh [rounds] [seed]` plays the same long game twice, with and without the interpreter shortcuts (`NGU_NO_GUARD=1`), from the imported PC save or from an unlocked new game: rounds of 150 pseudo-random clicks and 20 minutes of game time, with two hours of offline progress in the middle, on a fixed clock. The final saves must be byte-identical; otherwise it prints the differing fields and exits with 1. The run without shortcuts is slower (13 minutes per game hour on a late-game save). `play` accepts `NGU_DESKTOP=1` to use the desktop screens and save picker of the applications.
 
+`bash tools/guard-frames.sh [scenario...]` replays the console scenarios (nguidle-vita `session` and `monkey` by default) through the C interface once with every interpreter shortcut, once with none and once per shortcut disabled (`NGU_GUARD_OFF=<id>`), and prints the change in total instructions, in the 99th percentile frame and in the worst frame (see [GUARDS.md](GUARDS.md)).
+
 ## Presets (`dev/`)
 - `dev/ultimate.steps`: the "ultimate" state (everything gated by progression visible; used for `tools/screens.sh ultimate`). **Do not load saves made from it into the original game: huge `bossID` unlocks real Steam achievements.**
 - `dev/unlock.steps`: closes the tutorial, boss 150, all features unlocked (conditions of `ButtonShower.updateButtons`). Still locked: Advanced Training (array `training.attackTraining[4]`, not settable with `set`).

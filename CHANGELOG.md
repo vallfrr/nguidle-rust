@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add `tools/guard-frames.sh` (what each interpreter shortcut is worth per frame on the console scenarios) and the evidence table of `docs/GUARDS.md`.
+
 - `NGU_GUARD_OFF=3,12` disables only those interpreter shortcuts; `NGU_GUARD_TABLE=1 tools/longrun.sh` plays once per shortcut with only it disabled and prints what each is worth (extra interpreted instructions, time) and whether the final save changes.
 - `NGU_GUARD_STATS=1 clr <dll> play ...` prints how many times each interpreter shortcut answered; `tools/longrun.sh` shows it for its guarded run.
 - Add the offline probe and `compare_saves.py` to compare the original and the port field by field after opening a save (see `tools/oracle/README.md`); the offline progress and the shortcut-free long run match, see `docs/FIDELITY.md`.
