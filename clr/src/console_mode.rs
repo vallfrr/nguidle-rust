@@ -253,6 +253,21 @@ fn follow_theme(vm: &Vm) {
     }
 }
 
+/// The text of the game as the console mode says it: the sentences that name the keyboard speak of the buttons.
+fn console_words(text: &str) -> Option<String> {
+    const KEYS: &[(&str, &str)] = &[
+        ("You can use the left and right arrows on your keyboard to navigate/spam through this little tutorial.",
+         "You can use the cross and circle buttons to go on and back through this little tutorial."),
+        ("(Use the arrow keys to navigate through this tutorial!!)", "(Press the cross button to go on, the circle button to go back.)"),
+        ("(Use the arrow keys to navigate through this tutorial!)", "(Press the cross button to go on, the circle button to go back.)"),
+    ];
+    let mut out = text.to_string();
+    for (from, to) in KEYS {
+        out = out.replace(from, to);
+    }
+    (out != text).then_some(out)
+}
+
 fn go_of_comp(comp: &Value) -> Value {
     with_comp(comp, |c| c.go.clone()).unwrap_or_default()
 }
@@ -319,6 +334,8 @@ pub struct Console {
     /// triangle toggle: the selected control's information (tooltip) is shown
     pub info: bool,
     focus_before_hold: Value,
+    /// the tutorial's key sprites as the game made them, put back when the mode goes off
+    tutorial_sprites: Vec<((u32, usize), Value)>,
     scrollbar_drag: Option<(usize, f32)>,
     /// the menu column and the player column (root canvases)
     columns: Option<(Value, Value)>,
@@ -370,6 +387,12 @@ fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
     let (target, _) = row.iter().find(|(_, r)| *r == role)?;
     let rect = crate::focus::node_rect(vm, target)?;
     Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0 })
+}
+
+/// Whether the game's tutorial is running (its window is on screen).
+fn tutorial_active(vm: &mut Vm) -> bool {
+    let state = crate::dev::get(vm, "Character.settings.tutorialState");
+    state.rsplit('=').next().and_then(|v| v.trim().parse::<i32>().ok()).is_some_and(|n| n >= 0)
 }
 
 /// Top and bottom of the menu buttons of the list (rows from the top of the screen, as the game lays them out, before any
@@ -498,8 +521,36 @@ fn region_of_focus(vm: &Vm) -> Option<ScrollRegion> {
 }
 
 impl Console {
+    /// The tutorial window shows a blinking key prompt (the arrows of the keyboard): in console mode it shows the controller's
+    /// buttons instead, and the sentences that name the arrow keys speak of the buttons.
+    fn tutorial_prompts(&mut self, vm: &mut Vm) {
+        let Some(tooltip) = vm.eng.user_comps.iter().find(|v| matches!(v, Value::Obj(o) if vm.types[o.ty as usize].name == "HoverTooltip")).cloned() else { return };
+        if self.tutorial_sprites.is_empty() {
+            for (field, glyph) in [("advanceOnly", "prompt-advance"), ("advanceOnly2", "prompt-advance-lit"), ("backOnly", "prompt-back"),
+                ("backOnly2", "prompt-back-lit"), ("both", "prompt-both"), ("both2", "prompt-both-lit")] {
+                let Some(at) = crate::vm::field_ref(vm, "HoverTooltip", field) else { continue };
+                let Some(old) = crate::vm::read_field(&tooltip, at) else { continue };
+                if std::env::var_os("NGU_CONSOLE_DEBUG").is_some() {
+                    eprintln!("[tutorial] {field}: {:?}", with_comp(&old, |c| match &c.k { CK::Sprite(s) => Some((s.rect, s.ppu, s.pivot)), _ => None }));
+                }
+                let new = crate::glyphs::sprite(vm, glyph);
+                if let Value::Obj(o) = &tooltip {
+                    o.f.borrow_mut()[at.1] = new;
+                }
+                self.tutorial_sprites.push((at, old));
+            }
+        }
+        let Some(text) = crate::vm::field_ref(vm, "HoverTooltip", "tooltipText").and_then(|at| crate::vm::read_field(&tooltip, at)) else { return };
+        let now = with_comp(&text, |c| match &c.k { CK::Text(t) => Some(t.text.clone()), _ => None }).flatten().unwrap_or_default();
+        if let Some(better) = console_words(&now) {
+            label(&text, better);
+            mark_dirty(&go_of_comp(&text));
+        }
+    }
+
     /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
     pub fn apply(&mut self, vm: &mut Vm) {
+        self.tutorial_prompts(vm);
         if self.columns.is_none() {
             self.columns = named_go(vm, "Features Canvas").zip(named_go(vm, "Player Panel Canvas"));
         }
@@ -527,6 +578,13 @@ impl Console {
 
     /// Restores the PC presentation.
     fn release(&mut self, vm: &mut Vm) {
+        if let Some(tooltip) = vm.eng.user_comps.iter().find(|v| matches!(v, Value::Obj(o) if vm.types[o.ty as usize].name == "HoverTooltip")).cloned() {
+            for (at, old) in std::mem::take(&mut self.tutorial_sprites) {
+                if let Value::Obj(o) = &tooltip {
+                    o.f.borrow_mut()[at.1] = old;
+                }
+            }
+        }
         if let Some((menus, player)) = self.columns.take() {
             set_hidden(&menus, false);
             set_hidden(&player, false);
@@ -620,6 +678,11 @@ impl Console {
                 }
                 _ => {}
             }
+            return None;
+        }
+        // a tutorial window is up and nothing is selected: cross goes on, circle goes back (the keyboard's arrows)
+        if matches!(pad, Pad::Activate | Pad::Back) && vm.eng.focus.is_null() && tutorial_active(vm) {
+            crate::dev::call(vm, if pad == Pad::Activate { "HoverTooltip.advance" } else { "HoverTooltip.back" }, &[]);
             return None;
         }
         let modal = match pad {
