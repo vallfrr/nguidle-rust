@@ -346,6 +346,8 @@ pub struct Click {
     /// 0 left, 1 right
     pub button: i32,
     pub phase: Phase,
+    /// a key the game reads as held during the click (shift 304, ctrl 306): the modifiers of the original's clicks
+    pub key: i32,
 }
 
 /// A whole click, or only its press (an item picked up, the button stays down) or only its release (dropped).
@@ -426,7 +428,7 @@ fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
     crate::focus::allocation_role(&focus).or_else(|| row.iter().find(|(go, _)| same(go, &focus)).map(|(_, r)| *r))?;
     let (target, _) = row.iter().find(|(_, r)| *r == role)?;
     let rect = crate::focus::node_rect(vm, target)?;
-    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0, phase: Phase::Full })
+    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0, phase: Phase::Full, key: 0 })
 }
 
 /// Whether the game's tutorial is running (its window is on screen).
@@ -740,7 +742,13 @@ impl Console {
     }
 
     /// The game's own keyboard shortcuts on the R layer: the game reads the key, so the button presses it.
-    fn shortcut(&mut self, vm: &mut Vm, c: char) {
+    fn shortcut(&mut self, vm: &mut Vm, c: char) -> Option<Click> {
+        const SHIFT: i32 = 304;
+        const CTRL: i32 = 306;
+        // a click with a modifier key (the original's shift + click and ctrl + click) on the selection
+        let modified = |vm: &mut Vm, key: i32| {
+            crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button: 0, phase: Phase::Full, key })
+        };
         const Q: i32 = 113;
         const LEFT: i32 = 276;
         const RIGHT: i32 = 275;
@@ -753,7 +761,7 @@ impl Console {
                     self.skill_page = (self.skill_page + 1) % 3;
                     let name = ["Attack skills", "Defense skills", "Special skills"][self.skill_page as usize];
                     crate::dev::call(vm, "Character.tooltip.showOverrideTooltip", &[name, "1.2"]);
-                    return;
+                    return None;
                 }
                 let skills: [[Option<i32>; 6]; 3] = [
                     [Some(key('w')), Some(key('e')), Some(key('r')), Some(key('t')), Some(key('y')), Some(Q)],
@@ -769,9 +777,10 @@ impl Console {
             }
             // the secret combination lock of the Fight Boss menu (F A R T S)
             15 => match c { 'x' => Some(key('f')), 'o' => Some(key('a')), 's' => Some(key('r')), 't' => Some(key('t')), 'u' => Some(key('s')), _ => None },
-            // inventory: pages with left / right, boosts and merging on the item under the selection
+            // inventory: pages with left / right, boosts and merging on the item under the selection, ctrl + click on it
             4 => match c {
-                'x' => Some(key('a')),
+                'x' => return modified(vm, CTRL),
+                'o' => Some(key('a')),
                 't' => Some(key('d')),
                 'l' | 'r' => {
                     let pages = crate::dev::call(vm, "Character.inventoryController.curPages", &[]).rsplit("-> ").next()
@@ -782,12 +791,20 @@ impl Console {
                 _ => None,
             },
             55 => match c { 'l' => Some(LEFT), 'r' => Some(RIGHT), _ => None },
-            // everywhere else: take the energy, the magic or the third resource back from every feature
-            _ => match c { 'x' => Some(key('r')), 's' => Some(key('t')), 't' => Some(key('f')), _ => None },
+            // everywhere else: shift + click on the selection (custom buttons); take the energy, the magic or the third
+            // resource back from every feature
+            _ => match c {
+                'x' => return modified(vm, SHIFT),
+                't' => Some(key('r')),
+                's' => Some(key('t')),
+                'o' => Some(key('f')),
+                _ => None,
+            },
         };
         if let Some(code) = code {
             vm.eng.keys_edge.insert(code);
         }
+        None
     }
 
     /// Applies a controller input; returns the click to perform, if any.
@@ -798,7 +815,7 @@ impl Console {
                 vm.eng.console_cursor = None;
                 if matches!(pad, Pad::Activate | Pad::Secondary) {
                     let h = vm.eng.screen.1 as f32;
-                    return Some(Click { x: cx, y: h - cy, button: i32::from(pad == Pad::Secondary), phase: Phase::Full });
+                    return Some(Click { x: cx, y: h - cy, button: i32::from(pad == Pad::Secondary), phase: Phase::Full, key: 0 });
                 }
             }
         }
@@ -867,7 +884,7 @@ impl Console {
         if !vm.eng.desktop_layout.console_modal && vm.dropdown_navigate(modal) {
             return None;
         }
-        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button, phase: Phase::Full });
+        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button, phase: Phase::Full, key: 0 });
         match pad {
             Pad::Dir(d) => {
                 // on an allocation row, left and right take energy away or add it
@@ -899,11 +916,11 @@ impl Console {
             Pad::Activate => {
                 // cross picks up what can be dragged (an item) and puts it down on the selection: merges and swaps are the game's
                 if self.carrying.take().is_some() {
-                    return crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button: 0, phase: Phase::Release });
+                    return crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button: 0, phase: Phase::Release, key: 0 });
                 }
                 if let Some((x, y)) = crate::focus::activation_point(vm).filter(|_| crate::focus::draggable(vm, &vm.eng.focus.clone())) {
                     self.carrying = Some((x, y));
-                    return Some(Click { x, y, button: 0, phase: Phase::Press });
+                    return Some(Click { x, y, button: 0, phase: Phase::Press, key: 0 });
                 }
                 click(vm, 0)
             }
@@ -911,7 +928,7 @@ impl Console {
             Pad::Back if self.carrying.is_some() => {
                 // circle puts the item back where it was
                 let (x, y) = self.carrying.take()?;
-                Some(Click { x, y, button: 0, phase: Phase::Release })
+                Some(Click { x, y, button: 0, phase: Phase::Release, key: 0 })
             }
             Pad::Back => {
                 if !vm.back_from_desktop_picker() {
@@ -953,10 +970,7 @@ impl Console {
                 None
             }
             Pad::Settings | Pad::InfoStuff => None,
-            Pad::Shortcut(c) => {
-                self.shortcut(vm, c);
-                None
-            }
+            Pad::Shortcut(c) => self.shortcut(vm, c),
             Pad::Scroll(dx, dy) => {
                 // the right stick is the free cursor: it appears where the selection is and moves like a mouse; at the edge of
                 // a list under it, it scrolls the list

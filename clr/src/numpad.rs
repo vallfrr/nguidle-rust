@@ -313,7 +313,7 @@ pub(crate) fn input(vm: &mut Vm, pad: Pad) -> Option<crate::console_mode::Click>
             crate::focus::navigate(vm, d);
         }
         Pad::Activate => {
-            return crate::focus::activation_point(vm).map(|(x, y)| crate::console_mode::Click { x, y, button: 0, phase: crate::console_mode::Phase::Full });
+            return crate::focus::activation_point(vm).map(|(x, y)| crate::console_mode::Click { x, y, button: 0, phase: crate::console_mode::Phase::Full, key: 0 });
         }
         _ => {}
     }

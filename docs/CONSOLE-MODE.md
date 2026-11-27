@@ -26,9 +26,10 @@ move / confirm / back / menu actions (see issue "web gamepad").
 
 R layer: Adventure (R + L changes the page: attacks, defence, special): cross, circle, square, triangle, d-pad up and down are the
 six skills of the page, left / right change the zone. Fight Boss: F A R T S of the combination lock. Inventory: left / right turn
-the pages, cross applies all boosts to the item under the selection, triangle merges it with its copies. Cards: left / right turn
-the deck pages. Elsewhere: cross takes the energy back from every feature except training (the game's R), square the magic (T),
-triangle the third resource (F).
+the pages, cross is ctrl + click on the item under the selection (trash, consume, transform), circle applies all boosts to it (A),
+triangle merges it with its copies (D). Cards: left / right turn the deck pages. Elsewhere: cross is shift + click on the
+selection (the custom buttons), triangle takes the energy back from every feature except training (the game's R), square the
+magic (T), circle the third resource (F).
 
 Number fields open the in-game pad (`clr/src/numpad.rs`): digits, K / M / B, x2, /2, 00, Clear, backspace; Start is OK, circle
 cancels, square is backspace, triangle clears. Names keep the console's own keyboard. On the console the console mode is always

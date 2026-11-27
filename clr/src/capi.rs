@@ -37,6 +37,8 @@ struct State {
     pad_button: i32,
     /// the pad holds the button down (an item is carried): the pointer follows the selection until it is released
     pad_hold: bool,
+    /// a key held during the pad click (shift, ctrl), released one frame after the click
+    pad_key: i32,
     /// device size in pixels and what the layout was last fitted to
     dev_w: f32,
     dev_h: f32,
@@ -188,7 +190,7 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
     unsafe {
         STATE = Some(State {
             vm, rend, draw: TriangleList { vertices: Vec::with_capacity(1 << 16), batches: vec![] }, scale, ox, oy,
-            touch_down: false, pad_focus: false, pad_click: None, pad_button: 0, pad_hold: false, dev_w: dev_w as f32, dev_h: dev_h as f32,
+            touch_down: false, pad_focus: false, pad_click: None, pad_button: 0, pad_hold: false, pad_key: 0, dev_w: dev_w as f32, dev_h: dev_h as f32,
             console_on: false, gamepad: Default::default(), accumulator: 0.0, was_at_title: true,
             benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
             slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
@@ -222,6 +224,10 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     let touch = down != 0;
     // Discrete input (a press, a release, a pad click) is applied between steps only, so the game state never depends on
     // where a time-sliced step was cut: an unfinished step is completed first.
+    if s.pad_key != 0 && s.pad_click.is_none() && !s.pad_hold {
+        s.vm.eng.keys_down.remove(&s.pad_key);
+        s.pad_key = 0;
+    }
     if s.pad_click.is_some() || touch != s.touch_down {
         finish_tick(s);
     }
@@ -423,6 +429,10 @@ fn apply_console_pad(s: &mut State, pad: crate::console_mode::Pad) {
     if let Some(c) = click {
         use crate::console_mode::Phase;
         s.pad_button = c.button;
+        if c.key != 0 {
+            s.vm.eng.keys_down.insert(c.key);
+            s.pad_key = c.key;
+        }
         match c.phase {
             Phase::Full => s.pad_click = Some(((c.x, c.y), true)),
             Phase::Press => {
