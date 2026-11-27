@@ -108,15 +108,20 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             crate::console_mode::sync(vm);
             println!("[pad] {} -> focus {:?} click {:?}", p[1], crate::focus::focused_label(vm), click);
             if let Some(k) = click {
+                use crate::console_mode::Phase;
                 vm.eng.mouse = (k.x, k.y);
                 vm.eng.mouse_button = k.button;
-                vm.eng.mouse_down = true;
-                vm.eng.mouse_down_edge = true;
-                vm.frame(1.0 / 30.0);
-                vm.eng.mouse_down = false;
-                vm.eng.mouse_up_edge = true;
-                vm.frame(1.0 / 30.0);
-                vm.eng.mouse_button = 0;
+                if k.phase != Phase::Release {
+                    vm.eng.mouse_down = true;
+                    vm.eng.mouse_down_edge = true;
+                    vm.frame(1.0 / 30.0);
+                }
+                if k.phase != Phase::Press {
+                    vm.eng.mouse_down = false;
+                    vm.eng.mouse_up_edge = true;
+                    vm.frame(1.0 / 30.0);
+                    vm.eng.mouse_button = 0;
+                }
             }
             for _ in 0..6 {
                 vm.frame(1.0 / 30.0);

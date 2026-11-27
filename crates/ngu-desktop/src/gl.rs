@@ -225,7 +225,8 @@ impl Stage {
         if let Some(mut console) = self.vm.eng.console.take() {
             let click = console.input(self.vm, console_pad(action));
             self.vm.eng.console = Some(console);
-            if let Some(c) = click {
+            // the window clicks whole: picking up and putting down (Phase) are for the consoles
+            if let Some(c) = click.filter(|c| c.phase != clr::console_mode::Phase::Release) {
                 self.pending.push((c.x, c.y, c.button));
             }
             return;

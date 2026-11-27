@@ -35,6 +35,8 @@ struct State {
     pad_click: Option<((f32, f32), bool)>,
     /// mouse button of the pad click in progress (0 left, 1 right)
     pad_button: i32,
+    /// the pad holds the button down (an item is carried): the pointer follows the selection until it is released
+    pad_hold: bool,
     /// device size in pixels and what the layout was last fitted to
     dev_w: f32,
     dev_h: f32,
@@ -186,7 +188,7 @@ pub extern "C" fn ngu_init(data_dir: *const c_char, dev_w: i32, dev_h: i32) -> i
     unsafe {
         STATE = Some(State {
             vm, rend, draw: TriangleList { vertices: Vec::with_capacity(1 << 16), batches: vec![] }, scale, ox, oy,
-            touch_down: false, pad_focus: false, pad_click: None, pad_button: 0, dev_w: dev_w as f32, dev_h: dev_h as f32,
+            touch_down: false, pad_focus: false, pad_click: None, pad_button: 0, pad_hold: false, dev_w: dev_w as f32, dev_h: dev_h as f32,
             console_on: false, gamepad: Default::default(), accumulator: 0.0, was_at_title: true,
             benchmark, frames: 0, autoplay: None, ticks: 0, last_steps: 0, last_instr: 0,
             slice_ms: timing_ms("NGU_SLICE_MS", 0.0),
@@ -229,7 +231,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         s.vm.eng.mouse_down_edge = press;
         s.vm.eng.mouse_up_edge = !press;
         s.vm.eng.mouse_button = s.pad_button;
-        if press { s.pad_click = Some((at, false)); }
+        if press && !s.pad_hold { s.pad_click = Some((at, false)); }
     } else if touch || s.touch_down {
         if s.pad_focus { crate::focus::clear(&mut s.vm); }
         s.pad_focus = false;
@@ -245,6 +247,12 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         } else {
             (-1.0, -1.0)
         };
+        if s.pad_hold {
+            // an item is carried: the button stays down while the selection moves
+            s.vm.eng.mouse_down = true;
+            s.vm.eng.mouse_down_edge = false;
+            s.vm.eng.mouse_up_edge = false;
+        }
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
     s.vm.eng.pad_hover = s.pad_focus && !touch && crate::console_mode::tooltips_on(&s.vm);
@@ -407,8 +415,19 @@ fn apply_console_pad(s: &mut State, pad: crate::console_mode::Pad) {
     let click = console.input(&mut s.vm, pad);
     s.vm.eng.console = Some(console);
     if let Some(c) = click {
+        use crate::console_mode::Phase;
         s.pad_button = c.button;
-        s.pad_click = Some(((c.x, c.y), true));
+        match c.phase {
+            Phase::Full => s.pad_click = Some(((c.x, c.y), true)),
+            Phase::Press => {
+                s.pad_hold = true;
+                s.pad_click = Some(((c.x, c.y), true));
+            }
+            Phase::Release => {
+                s.pad_hold = false;
+                s.pad_click = Some(((c.x, c.y), false));
+            }
+        }
     }
 }
 

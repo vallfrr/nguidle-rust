@@ -325,6 +325,16 @@ pub struct Click {
     pub y: f32,
     /// 0 left, 1 right
     pub button: i32,
+    pub phase: Phase,
+}
+
+/// A whole click, or only its press (an item picked up, the button stays down) or only its release (dropped).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Phase {
+    #[default]
+    Full,
+    Press,
+    Release,
 }
 
 /// Console presentation state, kept in `Engine::console` while the mode is on.
@@ -337,6 +347,8 @@ pub struct Console {
     skill_page: u8,
     /// page of the inventory the R layer shows
     inventory_page: i32,
+    /// an item is held (picked up with cross): where it was picked up
+    carrying: Option<(f32, f32)>,
     focus_before_hold: Value,
     /// the tutorial's key sprites as the game made them, put back when the mode goes off
     tutorial_sprites: Vec<((u32, usize), Value)>,
@@ -390,7 +402,7 @@ fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
     crate::focus::allocation_role(&focus).or_else(|| row.iter().find(|(go, _)| same(go, &focus)).map(|(_, r)| *r))?;
     let (target, _) = row.iter().find(|(_, r)| *r == role)?;
     let rect = crate::focus::node_rect(vm, target)?;
-    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0 })
+    Some(Click { x: (rect[0] + rect[2]) / 2.0, y: vm.eng.screen.1 as f32 - (rect[1] + rect[3]) / 2.0, button: 0, phase: Phase::Full })
 }
 
 /// Whether the game's tutorial is running (its window is on screen).
@@ -750,7 +762,7 @@ impl Console {
         if !vm.eng.desktop_layout.console_modal && vm.dropdown_navigate(modal) {
             return None;
         }
-        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button });
+        let click = |vm: &mut Vm, button| crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button, phase: Phase::Full });
         match pad {
             Pad::Dir(d) => {
                 // on an allocation row, left and right take energy away or add it
@@ -779,8 +791,23 @@ impl Console {
                 self.follow(vm);
                 None
             }
-            Pad::Activate => click(vm, 0),
+            Pad::Activate => {
+                // cross picks up what can be dragged (an item) and puts it down on the selection: merges and swaps are the game's
+                if self.carrying.take().is_some() {
+                    return crate::focus::activation_point(vm).map(|(x, y)| Click { x, y, button: 0, phase: Phase::Release });
+                }
+                if let Some((x, y)) = crate::focus::activation_point(vm).filter(|_| crate::focus::draggable(vm, &vm.eng.focus.clone())) {
+                    self.carrying = Some((x, y));
+                    return Some(Click { x, y, button: 0, phase: Phase::Press });
+                }
+                click(vm, 0)
+            }
             Pad::Secondary => allocation_click(vm, AllocationRole::Cap).or_else(|| click(vm, 1)),
+            Pad::Back if self.carrying.is_some() => {
+                // circle puts the item back where it was
+                let (x, y) = self.carrying.take()?;
+                Some(Click { x, y, button: 0, phase: Phase::Release })
+            }
             Pad::Back => {
                 if !vm.back_from_desktop_picker() {
                     crate::focus::clear(vm);

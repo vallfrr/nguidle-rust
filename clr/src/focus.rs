@@ -231,6 +231,11 @@ pub(crate) fn allocation_row(go: &Value) -> Option<Vec<(Value, AllocationRole)>>
     (found.len() >= 2).then_some(found)
 }
 
+/// Whether the control can be picked up and dropped (an item of the inventory, a loadout slot).
+pub(crate) fn draggable(vm: &mut Vm, go: &Value) -> bool {
+    !go.is_null() && !vm.find_ev_handler(go, Ev::Drag).is_null()
+}
+
 /// Whether the focused control sits inside a scrollable list (the right stick then scrolls that list).
 pub fn in_scroll_view(vm: &Vm) -> bool {
     !vm.eng.focus.is_null() && vm.eng.scrollrects.iter().any(|comp| {
