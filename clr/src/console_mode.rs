@@ -589,8 +589,39 @@ impl Console {
     }
 
     /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
+    /// Draws the free cursor where it is, or puts it away.
+    fn cursor_drawing(&mut self, vm: &mut Vm) {
+        let at = vm.eng.console_cursor;
+        if vm.eng.cursor_node.is_none() {
+            if at.is_none() {
+                return;
+            }
+            let root = new_node(vm, "Console Cursor Canvas", &Value::Null, [0.0, 1.0], 0.0, 600.0);
+            crate::save_slots::attach(vm, &root, "UnityEngine.Canvas", CK::Canvas(Box::new(CanvasD { mode: 0, sorting: 20000, override_sorting: true, scale_factor: 1.0 })));
+            vm.eng.canvases.push((20000, tr(&root)));
+            vm.eng.canvases.sort_by_key(|(sorting, _)| *sorting);
+            let node = new_node(vm, "Console Cursor", &tr(&root), [0.0, 0.0], 0.0, 28.0);
+            with_tr(&tr(&node), |t| t.size[0] = 28.0);
+            let art = image(vm, &node, None, false);
+            let sprite = crate::glyphs::sprite(vm, "cursor");
+            with_comp(&art, |c| {
+                if let CK::Image(i) = &mut c.k {
+                    i.sprite = sprite;
+                }
+            });
+            vm.eng.cursor_node = Some(node);
+        }
+        let Some(node) = vm.eng.cursor_node.clone() else { return };
+        set_hidden(&node, at.is_none());
+        if let Some((x, y)) = at {
+            with_tr(&tr(&node), |t| t.apos = [x - 14.0, -(y - 14.0)]);
+            mark_dirty(&node);
+        }
+    }
+
     pub fn apply(&mut self, vm: &mut Vm) {
         self.tutorial_prompts(vm);
+        self.cursor_drawing(vm);
         self.enter_menu(vm);
         if self.columns.is_none() {
             self.columns = named_go(vm, "Features Canvas").zip(named_go(vm, "Player Panel Canvas"));
@@ -761,6 +792,16 @@ impl Console {
 
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
+        // any other input puts the free cursor away; cross and square first click where it is
+        if let Some((cx, cy)) = vm.eng.console_cursor {
+            if !matches!(pad, Pad::Scroll(..)) {
+                vm.eng.console_cursor = None;
+                if matches!(pad, Pad::Activate | Pad::Secondary) {
+                    let h = vm.eng.screen.1 as f32;
+                    return Some(Click { x: cx, y: h - cy, button: i32::from(pad == Pad::Secondary), phase: Phase::Full });
+                }
+            }
+        }
         if crate::numpad::is_open(vm) {
             return crate::numpad::input(vm, pad);
         }
@@ -917,16 +958,19 @@ impl Console {
                 None
             }
             Pad::Scroll(dx, dy) => {
-                // the region under the selection, else the one in the middle of the page
-                let r = region_of_focus(vm).or_else(|| {
-                    let d = &vm.eng.desktop_layout;
-                    d.regions.iter().filter(|r| r.key != COLUMN && r.key != LIST).min_by(|a, b| area(a).total_cmp(&area(b))).cloned()
-                });
-                match r {
-                    Some(r) => {
+                // the right stick is the free cursor: it appears where the selection is and moves like a mouse; at the edge of
+                // a list under it, it scrolls the list
+                let (w, h) = (vm.eng.desktop_layout.width(), vm.eng.screen.1 as f32);
+                let at = vm.eng.console_cursor.or_else(|| crate::focus::pointer(vm).map(|(x, y)| (x, h - y))).unwrap_or((w / 2.0, h / 2.0));
+                let next = ((at.0 - dx).clamp(0.0, w - 1.0), (at.1 + dy).clamp(0.0, h - 1.0));
+                vm.eng.console_cursor = Some(next);
+                crate::focus::clear(vm);
+                if let Some(r) = region_at(vm, next.0, next.1) {
+                    let near_top = next.1 < r.view[1] + 24.0 && dy < 0.0;
+                    let near_bottom = next.1 > r.view[3] - 24.0 && dy > 0.0;
+                    if near_top || near_bottom {
                         scroll_region(vm, &r, dy);
                     }
-                    None => crate::focus::scroll(vm, dx, dy),
                 }
                 None
             }

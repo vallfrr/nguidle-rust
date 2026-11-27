@@ -108,6 +108,18 @@ def stick(name, seed, side):
     save(im, name, w, h)
 
 
+def cursor(name):
+    """The free cursor: a small black cross with a white edge."""
+    w = h = 28
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    c, r = w * S / 2, 10 * S
+    for color, width in (((255, 255, 255, 255), 7 * S), (INK, 3 * S)):
+        d.line([(c - r, c), (c + r, c)], fill=color, width=int(width))
+        d.line([(c, c - r), (c, c + r)], fill=color, width=int(width))
+    save(im, name, w, h)
+
+
 def pair(name, left, right, seed):
     """Two glyphs side by side (the tutorial prompt: go back and go on)."""
     a = Image.open(OUT + left + ".png")
@@ -160,6 +172,7 @@ if __name__ == "__main__":
     label("select", "SELECT", 192, 64, 24)
     dpad("dpad", 31)
     stick("stick", 32, "left")
+    cursor("cursor")
     for lit in (False, True):
         suffix = "-lit" if lit else ""
         prompt("prompt-advance" + suffix, "cross", "ADVANCE", lit)
