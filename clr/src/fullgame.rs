@@ -220,6 +220,8 @@ fn near(a: f64, b: f64) -> bool {
 fn offline(vm: &mut Vm, r: &mut Report) {
     let t0 = 1_700_000_000u64;
     let previous = std::env::var("NGU_FIXED_NOW").ok();
+    // The clock is moved by hand below: the host-away catch-up is checked at the end, not on every jump.
+    vm.eng.resume_off = true;
     clock(t0);
     steps(vm, &["set,Character.idleEnergy,100000", "set,Character.curEnergy,100000", "click,Basic Training", "w,5", "913,141", "w,5", "913,385", "w,60", &format!("set,Character.lastTime,{t0}")]);
     let Ok(start) = base64_save(vm) else {
@@ -255,10 +257,36 @@ fn offline(vm: &mut Vm, r: &mut Report) {
     let both = loaded.iter().all(|(_, ok, a)| *ok && *a > attack0);
     let same = near(loaded[0].2, loaded[1].2) && near(loaded[0].2, computed);
     r.check("offline on load", both && same, loaded.iter().map(|(l, _, a)| format!("{l}: {a}")).collect::<Vec<_>>().join(", "));
+    // Time the host was away (a hidden tab, a sleeping computer): the host reports an hour it could not play, and the next
+    // step applies the game's own offline progress, so the result is that of the same hour computed above.
+    vm.eng.resume_off = false;
+    clock(t0);
+    let _ = load_base64(vm, &start);
+    vm.forget_wall_clock();
+    frames(vm, 1);
+    let applied_before = vm.eng.resumed;
+    vm.lose_time(3600.0);
+    frames(vm, 90);
+    let away = number(vm, "Character.attack").unwrap_or(f64::NAN);
+    let applied = vm.eng.resumed - applied_before;
+    r.check("away time = offline progress", applied == 1 && near(away, computed), format!("applied {applied} time(s), attack {away} against {computed}"));
+    // Ten seconds or less is not away time (the game ignores that much after opening a save too).
+    let applied_before = vm.eng.resumed;
+    vm.lose_time(10.0);
+    frames(vm, 2);
+    r.check("ten seconds are not away time", vm.eng.resumed == applied_before, format!("{} applied", vm.eng.resumed - applied_before));
+    // The longest absence the game accepts (a year) must be quick: this is what a player waits for when the host wakes up.
+    vm.lose_time(63_072_000.0);
+    let started = std::time::Instant::now();
+    frames(vm, 1);
+    let millis = started.elapsed().as_millis();
+    r.check("a year away is applied in under a second", vm.eng.resumed > applied_before && millis < 1000, format!("{millis} ms"));
     match previous {
         Some(v) => std::env::set_var("NGU_FIXED_NOW", v),
         None => std::env::remove_var("NGU_FIXED_NOW"),
     }
+    vm.forget_wall_clock();
+    vm.eng.resume_off = false;
 }
 
 /// Visits every element the controller can focus on every menu: activates it, goes back, and checks nothing raises.

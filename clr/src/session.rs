@@ -375,6 +375,7 @@ impl Engine for Session {
     }
 
     fn advance(&mut self, seconds: f32) {
+        self.vm.host_frame(seconds.clamp(0.0, FixedStep::MAX_GAP));
         for _ in 0..self.clock.advance(seconds) {
             self.tick();
         }

@@ -235,6 +235,14 @@ pub struct Engine {
     pub open_folder: Option<fn(&str)>,
     /// Game exceptions reported since the start (the full-game script checks that it stays at zero).
     pub exceptions: u32,
+    /// Wall clock at the previous step (seconds since 1970), see `resume`.
+    pub wall_seen: Option<f64>,
+    /// Real time the host could not play and that is waiting to be applied as offline progress, see `resume`.
+    pub away_pending: f64,
+    /// Do not measure the time the host was away (tools that move the clock by hand).
+    pub resume_off: bool,
+    /// How many times time the host was away has been applied.
+    pub resumed: u32,
     pub(crate) achievements: crate::achievements::Book,
     pub(crate) motion: crate::motion::Motion,
     pub keys: HashMap<String, Value>,
@@ -847,10 +855,14 @@ impl Vm {
     /// Starts a simulation step: time, Start, pointer events and the list of Update components. Returns false when nothing
     /// follows (the title pause handled the frame). `frame_run` then executes the step, possibly over several calls.
     pub fn frame_start(&mut self, dt: f32) -> bool {
+        let away = self.away_seconds();
         if crate::save_slots::pause_on_title(self) {
             self.pointer_update();
             self.mouse_input_finished();
             return false;
+        }
+        if let Some(seconds) = away {
+            self.apply_away(seconds);
         }
         self.eng.dt = dt;
         self.eng.time += dt as f64;

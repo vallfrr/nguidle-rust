@@ -10,6 +10,7 @@
 //! <tick> scroll <dx> <dy>   right stick
 //! <tick> menu <n>           MenuSwapper.swapMenu(n)
 //! <tick> click <text>       virtual click on the visible control whose label contains <text>
+//! <tick> away <seconds>     the host was away that long (a suspended console): the game applies its offline progress
 //! <tick> mark <name>        names the phase that follows (shows in the trace and the analysis)
 //! <tick> check <name>       digest of the serialized save (determinism check, see docs)
 //! <tick> ui                screen as text in the log (to write scenarios)
@@ -26,6 +27,8 @@ pub enum Act {
     Menu(i32),
     Click(String),
     Mark(String),
+    /// the host was away for this many seconds, see `resume`
+    Away(f64),
     Check(String),
     /// the host saves a screenshot (Vita benchmark build: bench/shotN.tga)
     Shot,
@@ -73,6 +76,7 @@ pub fn parse(text: &str) -> Result<Vec<(u64, Vec<Act>)>, String> {
             "menu" => vec![Act::Menu(rest.parse().map_err(|_| err("bad menu"))?)],
             "click" => vec![Act::Click(rest.to_string())],
             "mark" => vec![Act::Mark(rest.to_string())],
+            "away" => vec![Act::Away(rest.parse().map_err(|_| err("bad number of seconds"))?)],
             "check" => vec![Act::Check(rest.to_string())],
             "shot" => vec![Act::Shot],
             "ui" => vec![Act::Ui],

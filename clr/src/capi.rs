@@ -17,6 +17,8 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 
 const GAME_STEP: f64 = 1.0 / 30.0;
+/// A frame longer than this many seconds is a suspension, not a slow frame (the slowest start-up frames last about three).
+const SUSPENDED_AFTER: f32 = 5.0;
 
 use platform_api::{DrawTarget, TriangleList};
 pub use platform_api::{Batch as NguBatch, Vertex as NguVertex};
@@ -235,6 +237,12 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
     s.vm.eng.pad_hover = s.pad_focus && !touch;
+    // A frame this long is a suspended console (the timer of the host may or may not have stopped meanwhile): the game
+    // counts a quarter of a second of it and the rest, measured on the wall clock, is applied as offline progress.
+    let dt = if dt > SUSPENDED_AFTER { 0.25 } else { dt };
+    if dt.is_finite() {
+        s.vm.host_frame(dt.max(0.0));
+    }
     let profile = s.benchmark.then(|| (std::time::Instant::now(), s.vm.steps));
     let at_title = s.vm.at_desktop_start();
     s.last_steps = 0;
@@ -548,6 +556,7 @@ fn autoplay_input(s: &mut State, x: f32, y: f32, down: i32) -> (f32, f32, i32) {
                     crate::elog!("[autoplay] click: no control '{text}' at tick {}", s.ticks);
                 }
             }
+            Some(Act::Away(seconds)) => s.vm.lose_time(seconds),
             Some(Act::Mark(name)) => {
                 crate::elog!("[autoplay] mark {} {name} tick={}", ap.marks.len(), s.ticks);
                 ap.marks.push(name);

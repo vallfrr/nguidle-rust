@@ -160,6 +160,13 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             } else {
                 std::env::set_var("NGU_FIXED_NOW", p[1]);
             }
+            vm.forget_wall_clock();
+            continue;
+        }
+        if p[0] == "skip" {
+            // skip,<seconds>: the host was away for that long (a hidden tab, a sleeping computer): the next step applies
+            // the game's offline progress for it
+            vm.lose_time(p[1].parse().unwrap_or(0.0));
             continue;
         }
         if p[0] == "s" {

@@ -24,6 +24,7 @@ pub use save_format as nrbf;
 pub mod serial;
 pub mod program;
 pub mod render;
+pub mod resume;
 mod save_slots;
 pub mod script;
 pub mod session;
