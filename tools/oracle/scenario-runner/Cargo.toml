@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-clr = { path = "../../../clr", features = ["legacy-save"] }
+clr = { path = "../../../clr" }

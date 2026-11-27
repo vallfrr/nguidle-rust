@@ -23,36 +23,12 @@ fn main() {
         "run" => run(&mut vm, &args[3..]),
         "load" => load(&mut vm, &args[3..]),
         "nrbf" => nrbf_dump(&args[3..]),
-        #[cfg(feature = "legacy-save")]
-        "convert-legacy-save" => {
-            if let Err(error) = convert_legacy_save(&mut vm, &args[3..]) {
-                eprintln!("{error}");
-                std::process::exit(1);
-            }
-        }
         "shot" => shot(&mut vm, &args[3..]),
         "click" => click(&mut vm, &args[3..]),
         "play" => play(&mut vm, &args[3..]),
         "fullgame" => fullgame(&mut vm, &args[3..]),
         _ => println!("types={} methodes={}", vm.n_user, vm.prog.methods.len()),
     }
-}
-
-#[cfg(feature = "legacy-save")]
-fn convert_legacy_save(vm: &mut Vm, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::{Read, Write};
-    let [source, destination] = args else {
-        return Err("usage: clr <dll> convert-legacy-save <legacy.txt> <new.txt>".into());
-    };
-    let mut input = String::new();
-    std::fs::File::open(source)?.take(16 * 1024 * 1024 + 1).read_to_string(&mut input)?;
-    let converted = legacy_save::convert(vm, &input)?;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)?
-        .write_all(converted.as_bytes())?;
-    Ok(())
 }
 
 /// Lowers all methods and counts missing intrinsics / unhandled operations.

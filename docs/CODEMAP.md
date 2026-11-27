@@ -20,7 +20,6 @@ This index covers first-party tracked Rust source files. The source file names i
 - `clr/src/focus.rs` — Finds reachable controls and moves controller focus.
 - `clr/src/input.rs` — Pointer input (mouse / touch): UI raycast, hover, press, click, drag and drop, Slider, Toggle.
 - `clr/src/layout.rs` — Unity UI automatic layout: VerticalLayoutGroup, HorizontalLayoutGroup, GridLayoutGroup, ContentSizeFitter.
-- `clr/src/legacy_save.rs` — Reads and writes legacy game save structures.
 - `clr/src/lib.rs` — Declares the interpreter library modules and public API.
 - `clr/src/lower.rs` — Lowering: dotnetdll::Instruction -> Op (token resolution, 1 instruction = 1 op).
 - `clr/src/main.rs` — Command-line entry point for interpreter and debugging scenarios.
