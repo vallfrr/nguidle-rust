@@ -17,6 +17,7 @@ const GAP: f32 = 6.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Key {
     Digit(u8),
+    DoubleZero,
     Thousand,
     Million,
     Billion,
@@ -58,6 +59,11 @@ pub(crate) fn wants(vm: &Vm, content_type: i32, text: &str) -> bool {
     content_type == 2 || content_type == 3 || (!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
 }
 
+/// The pad's root object while it is open: nothing outside it can be selected.
+pub(crate) fn modal_root(vm: &Vm) -> Option<Value> {
+    vm.eng.numpad.as_ref().filter(|p| p.open.is_some()).map(|p| p.root.clone())
+}
+
 pub(crate) fn is_open(vm: &Vm) -> bool {
     vm.eng.numpad.as_ref().is_some_and(|p| p.open.is_some())
 }
@@ -84,7 +90,7 @@ fn build(vm: &mut Vm) -> Option<NumPad> {
     let shade = image(vm, &block, None, true);
     with_comp(&shade, |c| {
         if let CK::Image(i) = &mut c.k {
-            i.color = [0.0, 0.0, 0.0, 0.0];
+            i.color = [0.0, 0.0, 0.0, 0.004];
         }
     });
     let panel = new_node(vm, "Number Pad", &tr(&root), [0.0, 0.0], 0.0, HEIGHT);
@@ -137,7 +143,8 @@ fn build(vm: &mut Vm) -> Option<NumPad> {
         }
     }
     key(vm, "0", Key::Digit(0), 0.0, 3.0, 1.0, 22);
-    key(vm, "Clear", Key::Clear, 1.0, 3.0, 2.0, 18);
+    key(vm, "00", Key::DoubleZero, 1.0, 3.0, 1.0, 22);
+    key(vm, "Clear", Key::Clear, 2.0, 3.0, 1.0, 14);
     key(vm, "Cancel", Key::Cancel, 3.0, 3.0, 1.0, 13);
     key(vm, "OK", Key::Ok, 4.0, 3.0, 1.0, 20);
     let pad = NumPad { root: root.clone(), panel, display, keys, themed, open: None };
@@ -231,7 +238,7 @@ pub(crate) fn close(vm: &mut Vm, commit: bool) {
 }
 
 fn press(entry: &mut Entry, key: Key) -> Option<bool> {
-    if entry.fresh && matches!(key, Key::Digit(_) | Key::Thousand | Key::Million | Key::Billion) {
+    if entry.fresh && matches!(key, Key::Digit(_) | Key::DoubleZero | Key::Thousand | Key::Million | Key::Billion) {
         entry.text.clear();
     }
     entry.fresh = false;
@@ -248,6 +255,11 @@ fn press(entry: &mut Entry, key: Key) -> Option<bool> {
                 if entry.text == "0" {
                     entry.text.clear();
                 }
+            }
+        }
+        Key::DoubleZero => {
+            if !entry.text.is_empty() && entry.text.len() + 2 <= entry.max {
+                entry.text.push_str("00");
             }
         }
         Key::Thousand => zeros(entry, 3),

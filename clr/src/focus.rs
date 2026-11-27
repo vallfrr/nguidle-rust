@@ -169,6 +169,10 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
         let x = view_xf(vm, tr);
         collect_node(vm, tr, x, sh, &mut all);
     }
+    // a modal pad (the number pad) hides everything else from the selection
+    if let Some(root) = crate::numpad::modal_root(vm) {
+        all.retain(|f| within(&f.go, &root));
+    }
     let points: Vec<_> = all.iter().map(|f| {
         let (cx, cy) = center(&f.rect);
         [cx, sh - cy]
