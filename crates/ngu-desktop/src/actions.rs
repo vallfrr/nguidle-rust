@@ -22,6 +22,11 @@ pub enum Action {
     /// console mode: L held / released (menu list)
     HoldStart,
     HoldEnd,
+    /// console mode: triangle (information), Start (Settings), Select (Info 'n Stuff), a button pressed with R (shortcuts)
+    Info,
+    Settings,
+    InfoStuff,
+    Shortcut(char),
 }
 
 /// The shared tap/hold gesture for the keyboard and controller menu shortcuts.
@@ -97,6 +102,10 @@ pub fn console_pad(a: Action) -> clr::console_mode::Pad {
         Action::Secondary => Pad::Secondary,
         Action::HoldStart => Pad::HoldStart,
         Action::HoldEnd => Pad::HoldEnd,
+        Action::Info => Pad::Info,
+        Action::Settings => Pad::Settings,
+        Action::InfoStuff => Pad::InfoStuff,
+        Action::Shortcut(c) => Pad::Shortcut(c),
     }
 }
 
@@ -117,7 +126,9 @@ pub fn apply(vm: &mut Vm, a: Action) -> Option<(f32, f32)> {
             }
             return None;
         }
-        Action::Secondary | Action::HoldStart | Action::HoldEnd => return None,
+        Action::Secondary | Action::HoldStart | Action::HoldEnd | Action::Info | Action::Settings | Action::InfoStuff | Action::Shortcut(_) => {
+            return None
+        }
     };
     clr::focus::pad_action(vm, action, false).0
 }

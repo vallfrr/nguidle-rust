@@ -87,3 +87,30 @@ may dip, they must stay above 40 FPS, and nobody investigates a single 40 ms men
 (R10). 4. Special screens: number pad (R11), allocation (R12), Adventure (R13), inventory (R14), tutorials (R17, R18), cursor
 memory (R15). 5. Layout by importance (R19), free cursor (R16). 6. Measure and fix performance on the console (R20). 7. Full
 test run, captures, maintainer playtest and adjustments.
+
+## Decisions taken while building (28 November 2026)
+The maintainer was away; each of these is open to correction after his playtest.
+- **R05 / R06** triangle is a toggle kept in the console state (`Console::info`); when it is off the selection does not raise the
+  game's hover tooltips (`tooltips_on`).
+- **R07** the R layer is decoded by `clr/src/gamepad.rs` (hold of 250 ms, or any other button pressed with R); it presses the
+  game's own keys (the key edge of the engine), so every original shortcut works the way the game wrote it. Adventure: three pages
+  of six skills (attacks W E R T Y Q, defence A S D F G H, special Z X C V B), page changed with R + L, zone with left / right.
+  Fight Boss: the combination lock keys. Inventory: pages, ctrl + click, A, D. Elsewhere: shift + click, and the game's R, T, F.
+  The original's other held-key clicks (Q / W / E + click to transform a boost) are not mapped.
+- **R10** the shop button is a copy built from the game's own button (same look and click) placed in Info 'n Stuff; the original is
+  hidden in console mode. The menu list squeezes the heights of its buttons so that every menu fits, down to the scale 130 %.
+- **R11** a field takes the pad when its content type is a number, or when it holds only digits (the Input box of Basic Training
+  is typed as text in the game, "100 %" in the cap modifier too). The pad is modal: nothing behind it can be selected.
+  Other text fields still use the host's keyboard (not yet an in-game one).
+- **R12** an allocation row is one selection stop (its "+" button); the "-" and "Cap" buttons are not stops. Left / right and
+  square act on them. Hold repeats at the decoder's rate (no acceleration yet).
+- **R14** an item is picked up when the control has a drag handler: cross presses and holds, cross again releases on the
+  selection (merges and swaps are the game's), circle releases where it was picked up. The PC window clicks whole.
+- **R15** the memory is applied two frames after a menu opens, when its page has been laid out; the first time the selection
+  goes to the first control of the page content (reading order). Setting "Remember Cursor" in Settings, page 2.
+- **R16** the free cursor starts from the selection, moves 390 game pixels per second at full stick, and scrolls the list under
+  it near its top or bottom edge.
+- **R17 / R18** only the tutorial prompts and the sentences naming the arrow keys are replaced; the glyphs are drawn by
+  `tools/glyphs.py` in the game's style. In a tutorial with no selection, cross goes on and circle goes back.
+- **R19** only the generic fit and the squeezed menu list so far; per-menu work waits for the playtest.
+- **Not started:** the in-game keyboard, glyphs inside long texts, the browser's gamepad (issue 82), the performance pass.
