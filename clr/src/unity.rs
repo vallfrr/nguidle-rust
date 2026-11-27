@@ -231,6 +231,8 @@ pub struct Engine {
     pub(crate) dropdown: crate::dropdown::Dropdown,
     pub(crate) save_slots: crate::save_slots::SaveSlots,
     pub desktop_panels: bool,
+    /// Lets the save screens show an "Open saves folder" button. Set by hosts that have a file manager.
+    pub open_folder: Option<fn(&str)>,
     pub(crate) achievements: crate::achievements::Book,
     pub(crate) motion: crate::motion::Motion,
     pub keys: HashMap<String, Value>,

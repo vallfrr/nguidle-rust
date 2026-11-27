@@ -213,6 +213,7 @@ pub(super) fn build(vm: &mut Vm) -> Screen {
     let primary = button(vm, &right, Action::Primary, [0.08, 0.92], 213.0, 41.0, 16);
     let secondary = button(vm, &right, Action::Secondary, [0.08, 0.92], 266.0, 41.0, 16);
     let hosted_import = button(vm, &right, Action::HostImport, [0.08, 0.92], 319.0, 41.0, 16);
+    let folder = button(vm, &parent, Action::OpenFolder, [0.745, 0.965], 18.0, 37.0, 16);
     let main_menu = button(vm, &parent, Action::MainMenu, [0.035, 0.168], 18.0, 37.0, 16);
     let back = button(vm, &parent, Action::Back, [0.035, 0.168], 18.0, 37.0, 16);
     let previous = button(vm, &left, Action::Previous, [0.066, 0.35], 366.0, 34.0, 15);
@@ -277,6 +278,7 @@ pub(super) fn build(vm: &mut Vm) -> Screen {
         primary,
         secondary,
         hosted_import,
+        folder,
         back,
         previous,
         next,
@@ -478,7 +480,7 @@ fn draw_achievements(vm: &mut Vm, state: &SaveSlots, ui: &Screen) {
         label(&grid.description, String::new());
         label(&grid.state, String::new());
     }
-    for button in [&ui.primary, &ui.secondary, &ui.hosted_import, &ui.main_menu] {
+    for button in [&ui.primary, &ui.secondary, &ui.hosted_import, &ui.main_menu, &ui.folder] {
         vm.set_active(&button.0, false);
     }
     vm.set_active(&ui.previous.0, state.page > 0);
@@ -681,6 +683,8 @@ pub(super) fn draw_state(vm: &mut Vm, state: &SaveSlots) {
     caption(&ui.hosted_import, "Import Save File", false);
     vm.set_active(&ui.main_menu.0, !state.from_title && !cancelling);
     caption(&ui.main_menu, "Main Menu", false);
+    vm.set_active(&ui.folder.0, vm.eng.open_folder.is_some() && !web);
+    caption(&ui.folder, "Open saves folder", false);
     let pages = state
         .import_files
         .as_ref()

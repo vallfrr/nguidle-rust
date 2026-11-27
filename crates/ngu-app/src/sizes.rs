@@ -79,7 +79,7 @@ mod win {
             if window.is_null() {
                 return;
             }
-            let previous = SetWindowLongPtrW(window, GWLP_WNDPROC, procedure as usize as isize);
+            let previous = SetWindowLongPtrW(window, GWLP_WNDPROC, procedure as *const () as usize as isize);
             PREVIOUS.store(previous, Ordering::SeqCst);
         }
     }
