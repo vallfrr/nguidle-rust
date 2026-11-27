@@ -144,6 +144,24 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             }
             continue;
         }
+        if p[0] == "open" {
+            // open,<file>: opens a save the way the game does (loadintoGame: offline progress, version updates)
+            let txt = std::fs::read_to_string(p[1]).unwrap_or_default();
+            match crate::save_slots::load_into_game(vm, &txt) {
+                Ok(()) => println!("[open] {} opened", p[1]),
+                Err(e) => println!("[open] {} failed: {e}", p[1]),
+            }
+            continue;
+        }
+        if p[0] == "clock" {
+            // clock,<seconds since 1970>: the time the game reads (DateTime.UtcNow); clock,real: the system clock again
+            if p[1] == "real" {
+                std::env::remove_var("NGU_FIXED_NOW");
+            } else {
+                std::env::set_var("NGU_FIXED_NOW", p[1]);
+            }
+            continue;
+        }
         if p[0] == "s" {
             // save probe: ImportExport.getBase64Data() written to file p[1]
             let comps = vm.eng.user_comps.clone();

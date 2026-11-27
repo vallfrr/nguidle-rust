@@ -29,3 +29,17 @@ python tools/oracle/compare-scenario.py "$ORIGINAL_TRACE" "$PORT_TRACE"
 Use an isolated prepared-assets view, because the runner writes a profile below it. The comparator reports differing fields and returns a nonzero status if any differ; it does not normalize timing or compare the generated saves. In the first four-event run, menus and resource fields matched, while the energy-bar phase differed at three events. Original events were wall-clock scheduled and port events were simulation-tick scheduled, so this is not a tick-synchronized equivalence test. With `CLR_PROF=1`, the runner additionally logs the number of energy updates since startup.
 
 Run `just verify-fixtures` with the .NET 8 SDK and Cargo installed to compare small independently written C# programs with the interpreter. Set `NGU_DOTNET` to the SDK executable when it is not on PATH. The fixture assembly is built in a temporary directory. See [Fidelity](../../docs/FIDELITY.md) for the current coverage.
+
+## Offline progress and saves, original against the port
+
+`OfflineProbe.cs` opens a save the way the game does when the player opens it (`getSaveDataFromString`, then `OpenFileDialog.loadintoGame`, so offline progress and version updates apply), then writes the whole game state as a save (`getBase64Data`) at the requested times. Environment: `NGU_OFFLINE_PROBE_SAVE` (the save to open), `NGU_OFFLINE_PROBE_OUTPUT` (output prefix: `<prefix>.info.txt`, which also records the clock the game read, and `<prefix>.<seconds>.sav`), `NGU_OFFLINE_PROBE_WAITS` (comma-separated seconds after the load, default `0`). Build it with `build-probes.ps1` and run the isolated executable with `-batchmode -nographics`, as above.
+
+To compare, open the same save in the port with the clock the original read, then flatten both results and compare them field by field:
+
+```sh
+clr <dll> play <prepared copy> out.png "click,Create New Game" "click,Slot 1" "click,Create New Game" "w,30" "click,PLAY" "w,10"     "clock,<clock_before>" "open,<save>" "s,port.0.sav" "clock,real" "w,1800" "s,port.60.sav"   # with NGU_DESKTOP=1
+NRBF_FLAT=1 clr <dll> nrbf original.0.sav > original.0.flat       # and the same for the port's file
+python tools/oracle/compare_saves.py original.0.flat port.0.flat --tolerance 1e-6 --ignore _version --ignore 'manaCosts._items'
+```
+
+Ignore the list version counters and list capacities (`_version`, spare `_items` slots): they are internals of `List<T>` that no rule of the game reads. Make the test saves with the port (`s,<file>` after `set,Character.lastTime,<seconds>`): the original opens saves the port wrote, which also checks the save format in that direction. `play` runs with `NGU_DESKTOP=1` for the desktop screens of the applications. A fixed clock (`NGU_FIXED_NOW`) must not be left on while time passes: the game's energy does not grow with it.

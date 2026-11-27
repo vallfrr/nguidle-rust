@@ -28,6 +28,7 @@ $unity = $system + @(
 )
 Build-Probe 'UnityRngProbe.cs' (Join-Path $plugins 'UnityRngProbe.dll') $unity
 Build-Probe 'ProgressProbe.cs' (Join-Path $plugins 'ProgressProbe.dll') ($unity + (Join-Path $core '0Harmony.dll'))
+Build-Probe 'OfflineProbe.cs' (Join-Path $plugins 'OfflineProbe.dll') ($unity + (Join-Path $core '0Harmony.dll'))
 Build-Probe 'ScenarioProbe.cs' (Join-Path $plugins 'ScenarioProbe.dll') ($unity + (Join-Path $core '0Harmony.dll'))
 Build-Probe 'IsolatedProbePatcher.cs' (Join-Path $patchers 'IsolatedProbePatcher.dll') ($system + (Join-Path $core 'Mono.Cecil.dll'))
 Write-Output 'Probes built in the supplied isolated game copy.'

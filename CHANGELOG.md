@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- `NGU_GUARD_OFF=3,12` disables only those interpreter shortcuts; `NGU_GUARD_TABLE=1 tools/longrun.sh` plays once per shortcut with only it disabled and prints what each is worth (extra interpreted instructions, time) and whether the final save changes.
+- `NGU_GUARD_STATS=1 clr <dll> play ...` prints how many times each interpreter shortcut answered; `tools/longrun.sh` shows it for its guarded run.
+- Add the offline probe and `compare_saves.py` to compare the original and the port field by field after opening a save (see `tools/oracle/README.md`); the offline progress and the shortcut-free long run match, see `docs/FIDELITY.md`.
+- Add the full-game script: `just full-game [hours]` (`clr <dll> fullgame <prepared> [report] [hours]`) plays every menu, a long progression, saves, offline progress and every console-mode element on the real game and prints OK / KO / SKIP per step. `Engine::exceptions` counts the game exceptions reported. `tools/fullgame-wasm.sh` plays it as WebAssembly (the web build), `tools/longrun.sh` runs the long game with and without the interpreter shortcuts and compares the final saves, and the developer steps `open` and `clock` open a save like the game and set its clock.
+
 - Add an "Open saves folder" button, top right of the save and load screens of the PC app. It shows the saves folder in the system file manager. A host opts in with `vm.eng.open_folder` (the web and Vita hosts do not, so they do not show it).
 
 - Remove the Python preparation tools (`tools/nguprep.py`, `tools/pack.py`, `tools/verify_game_data.py`, their tests and `tools/requirements-prep.txt`). `ngu-prepare` (crate `ngu-prep`) does their jobs: `verify GAME_FOLDER`, `export GAME_FOLDER OUTPUT` (prepared folder), `vita` and `web`, next to `pc`. `just prepare-data` and `just verify-data` call it; `just pack-data` becomes `just vita-data`. Migration: pass the NGU IDLE folder (with `UnityPlayer.dll`, needed to decode the sounds), not only `NGUIdle_Data`; the optional icon script now needs only `tools/requirements-icons.txt` (Pillow).

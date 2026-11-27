@@ -292,6 +292,18 @@ fn initial_snapshot(vm: &mut Vm, template: &str, name: &str) -> Result<String, S
     result.map_err(String::from)
 }
 
+/// Loads a save text the way the game does when the player opens a save (`loadintoGame`, so offline progress applies).
+/// Used by the full-game script; the save screens go through `apply_save`, which also backs up the current game.
+pub(crate) fn load_into_game(vm: &mut Vm, data: &str) -> Result<(), String> {
+    let c = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;
+    let decoded = game_call(vm, &c, "getSaveDataFromString", vec![Value::str(data.trim())])?;
+    if decoded.is_null() {
+        return Err("The game rejected the save.".into());
+    }
+    let loader = game_component(vm, "OpenFileDialog").ok_or("The save loader is unavailable.")?;
+    game_call(vm, &loader, "loadintoGame", vec![decoded]).map(|_| ())
+}
+
 fn apply_save(vm: &mut Vm, dir: &Path, path: &Path, from_title: bool) -> Result<(), String> {
     let (data, _) = read_save(path)?;
     let c = game_component(vm, "ImportExport").ok_or("The save controller is unavailable.")?;

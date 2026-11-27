@@ -12,7 +12,7 @@ check:
     cargo test --locked --workspace --features clr/legacy-save
     cargo check --locked --manifest-path tools/oracle/scenario-runner/Cargo.toml
     {{python}} -B -m ruff check --select E9,F63,F7,F82 .github/repo-check.py tools
-    {{python}} -B -m unittest discover -s tools/oracle -p test_compare_scenario.py
+    {{python}} -B -m unittest discover -s tools/oracle -p 'test_compare_*.py'
     {{python}} -B -m unittest discover -s tools -p test_new_port.py
     {{python}} -B -m unittest discover -s tools -p test_pc_budget.py
     {{python}} -B tools/check_template.py
@@ -30,6 +30,11 @@ new-port name platform="a new platform" engine="":
 # The mechanical half of the porting-guide cold trial (clones this repository, follows the guide, runs the new port's checks).
 cold-trial:
     {{python}} -B tools/cold_trial.py
+
+# The full-game script on the real game (needs the prepared data): every menu, a long progression, saves, offline
+# progress and every console-mode element. Usage: just full-game 1   (game hours)
+full-game hours="1":
+    bash tools/fullgame.sh {{hours}}
 
 verify-game mode="verify":
     bash tools/regress.sh {{mode}}

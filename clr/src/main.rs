@@ -33,6 +33,7 @@ fn main() {
         "shot" => shot(&mut vm, &args[3..]),
         "click" => click(&mut vm, &args[3..]),
         "play" => play(&mut vm, &args[3..]),
+        "fullgame" => fullgame(&mut vm, &args[3..]),
         _ => println!("types={} methodes={}", vm.n_user, vm.prog.methods.len()),
     }
 }
@@ -253,6 +254,10 @@ fn play(vm: &mut Vm, a: &[String]) {
     vm.eng.screen = (960, 600);
     vm.eng.save_dir = format!("{}/save", dir);
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
+    // NGU_DESKTOP=1: the desktop screens and save picker of the applications (the default is the bare game screens).
+    if std::env::var_os("NGU_DESKTOP").is_some() {
+        vm.eng.desktop_panels = true;
+    }
     if std::env::var_os("NGU_OPEN_FOLDER_LOG").is_some() {
         // Developer check of the "Open saves folder" button: desktop screens, and the click is written to this file.
         vm.eng.desktop_panels = true;
@@ -268,10 +273,48 @@ fn play(vm: &mut Vm, a: &[String]) {
         vm.frame(1.0 / 30.0);
     }
     clr::script::run_steps(vm, &a[2..]);
+    if std::env::var_os("NGU_GUARD_STATS").is_some() {
+        for (id, hits) in clr::vm::GUARD_HITS.iter().enumerate().skip(1) {
+            println!("[guard] {id} {}", hits.load(std::sync::atomic::Ordering::Relaxed));
+        }
+        println!("[steps] {}", vm.steps);
+    }
     let mut r = render::Renderer::new(960, 600);
     r.render(vm, 1.0, 0.0, 0.0);
     r.save_png(&out);
     println!("written {}", out);
+}
+
+/// clr <dll> fullgame <prepared folder> [report file] [game hours]: plays the whole game and prints OK / KO / SKIP per step.
+fn fullgame(vm: &mut Vm, a: &[String]) {
+    let dir = a.first().cloned().unwrap_or_else(|| {
+        eprintln!("usage: clr <dll> fullgame <prepared folder> [report file] [game hours]");
+        std::process::exit(2)
+    });
+    let hours: f32 = a.get(2).and_then(|h| h.parse().ok()).unwrap_or(1.0);
+    // NGU_FULLGAME_WORK: the folder for the temporary saves (WebAssembly has no temporary folder of its own).
+    let work = std::env::var_os("NGU_FULLGAME_WORK").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("ngu-fullgame-{}", std::process::id()))
+    });
+    vm.eng.screen = (960, 600);
+    vm.eng.save_dir = work.join("save").to_string_lossy().into_owned();
+    let _ = std::fs::create_dir_all(&vm.eng.save_dir);
+    // Like the real applications: desktop panels, and the save screens in place of the original file dialogs.
+    vm.eng.desktop_panels = true;
+    unity_api::load_prefs(vm);
+    vm.load_scene(&dir).expect("scene");
+    vm.awake_all();
+    vm.start_desktop_save_picker().expect("save picker");
+    for _ in 0..40 {
+        vm.frame(1.0 / 30.0);
+    }
+    let checks = clr::fullgame::run(vm, &clr::fullgame::Options { hours, workdir: work });
+    let (text, ok) = clr::fullgame::report(&checks);
+    print!("{text}");
+    if let Some(file) = a.get(1) {
+        let _ = std::fs::write(file, &text);
+    }
+    std::process::exit(if ok { 0 } else { 1 });
 }
 
 /// IL feature statistics: sizes the C# -> Rust generator.

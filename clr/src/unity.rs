@@ -233,6 +233,8 @@ pub struct Engine {
     pub desktop_panels: bool,
     /// Lets the save screens show an "Open saves folder" button. Set by hosts that have a file manager.
     pub open_folder: Option<fn(&str)>,
+    /// Game exceptions reported since the start (the full-game script checks that it stays at zero).
+    pub exceptions: u32,
     pub(crate) achievements: crate::achievements::Book,
     pub(crate) motion: crate::motion::Motion,
     pub keys: HashMap<String, Value>,
@@ -724,6 +726,7 @@ impl Vm {
     }
 
     pub fn report_exc(&mut self, ctx: &str, comp: &Value, e: &Value) {
+        self.eng.exceptions += 1;
         let n = self.type_name_of(comp);
         let t = self.type_name_of(e);
         let msg = if let Value::Obj(o) = e { o.f.borrow().first().cloned() } else { None };
