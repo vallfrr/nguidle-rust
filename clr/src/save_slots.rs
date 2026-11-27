@@ -64,6 +64,7 @@ enum Action {
     Primary,
     Secondary,
     HostImport,
+    OpenFolder,
     Back,
     Previous,
     Next,
@@ -182,6 +183,7 @@ struct Screen {
     primary: (Value, Value),
     secondary: (Value, Value),
     hosted_import: (Value, Value),
+    folder: (Value, Value),
     back: (Value, Value),
     previous: (Value, Value),
     next: (Value, Value),
@@ -1209,6 +1211,11 @@ fn handle(vm: &mut Vm, state: &mut SaveSlots, dir: &Path, action: Action) {
         Action::HostImport => {
             if let Some(index) = state.hosted_import_target() {
                 state.hosted.as_mut().unwrap().file_request = Some(("import", Some(index)));
+            }
+        }
+        Action::OpenFolder => {
+            if let Some(open) = vm.eng.open_folder {
+                open(&dir.to_string_lossy());
             }
         }
         Action::MainMenu => {

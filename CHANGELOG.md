@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add an "Open saves folder" button, top right of the save and load screens of the PC app. It shows the saves folder in the system file manager. A host opts in with `vm.eng.open_folder` (the web and Vita hosts do not, so they do not show it).
+
 - Remove the Python preparation tools (`tools/nguprep.py`, `tools/pack.py`, `tools/verify_game_data.py`, their tests and `tools/requirements-prep.txt`). `ngu-prepare` (crate `ngu-prep`) does their jobs: `verify GAME_FOLDER`, `export GAME_FOLDER OUTPUT` (prepared folder), `vita` and `web`, next to `pc`. `just prepare-data` and `just verify-data` call it; `just pack-data` becomes `just vita-data`. Migration: pass the NGU IDLE folder (with `UnityPlayer.dll`, needed to decode the sounds), not only `NGUIdle_Data`; the optional icon script now needs only `tools/requirements-icons.txt` (Pillow).
 
 - Run the original assembly through the interpreter on all builds. Remove the translator and use local replay references to check saves, game state and number formatting.

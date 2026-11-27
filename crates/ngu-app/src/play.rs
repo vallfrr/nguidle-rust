@@ -3,6 +3,12 @@
 use ngu_prep::dirs;
 use std::path::Path;
 
+/// Shows `dir` in the system file manager.
+fn open_folder(dir: &str) {
+    let program = if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = std::process::Command::new(program).arg(dir).spawn();
+}
+
 /// Opens the game window on the prepared data in `root`. Saves go to `root/saves`.
 pub fn run(root: &Path) {
     let data = dirs::prepared_dir(root);
@@ -14,6 +20,7 @@ pub fn run(root: &Path) {
     vm.eng.save_dir = saves;
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
     vm.eng.desktop_panels = true;
+    vm.eng.open_folder = Some(open_folder);
     clr::unity_api::load_prefs(&mut vm);
     vm.load_scene(&data.to_string_lossy()).expect("scene");
     vm.awake_all();

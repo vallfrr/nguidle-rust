@@ -134,7 +134,7 @@ fn load(vm: &mut Vm, a: &[String]) {
     vm.eng.save_dir = format!("{}/save", dir);
     vm.eng.desktop_panels = true;
     unity_api::load_prefs(vm);
-    let t = std::time::Instant::now();
+    let t =std::time::Instant::now();
     if let Err(e) = vm.load_scene(&dir) {
         println!("ERREUR load_scene: {e}");
         return;
@@ -253,9 +253,17 @@ fn play(vm: &mut Vm, a: &[String]) {
     vm.eng.screen = (960, 600);
     vm.eng.save_dir = format!("{}/save", dir);
     let _ = std::fs::create_dir_all(&vm.eng.save_dir);
+    if std::env::var_os("NGU_OPEN_FOLDER_LOG").is_some() {
+        // Developer check of the "Open saves folder" button: desktop screens, and the click is written to this file.
+        vm.eng.desktop_panels = true;
+        vm.eng.open_folder = Some(|dir| {
+            if let Some(log) = std::env::var_os("NGU_OPEN_FOLDER_LOG") { let _ = std::fs::write(log, dir); }
+        });
+    }
     unity_api::load_prefs(vm);
     vm.load_scene(&dir).expect("scene");
     vm.awake_all();
+    if vm.eng.desktop_panels { vm.start_desktop_save_picker().expect("save picker"); }
     for _ in 0..40 {
         vm.frame(1.0 / 30.0);
     }
