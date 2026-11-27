@@ -104,7 +104,8 @@ pub fn run(vm: &mut Vm, opts: &Options) -> Vec<Check> {
     }
 
     // 2. A new game starts and energy grows like the original (recorded: +58 in 60 s from 250).
-    steps(vm, &["click,Start New Game", "click,PLAY", "w,10"]);
+    // The save picker's title screen (as in the applications): create a game in slot 1, then play.
+    steps(vm, &["click,Create New Game", "click,Slot 1", "click,Create New Game", "w,30", "click,PLAY", "w,10"]);
     let start = number(vm, "Character.curEnergy");
     r.check("new game", start.is_some_and(|e| e >= 250.0), format!("energy {start:?}"));
     frames(vm, 1800);

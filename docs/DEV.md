@@ -24,6 +24,8 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 | `get,Type.field.field` | reads a game value (e.g. `get,Character.bossID`) |
 | `set,Type.field...,value` | writes (same type as the old value; `true/false` for booleans) |
 | `call,Type[.field].method[,args]` | calls a game method (e.g. `call,ButtonShower.updateButtons`) |
+| `open,<file>` | opens a save the way the game does (`loadintoGame`: offline progress and version updates apply), unlike `l,<file>` which only loads the data |
+| `clock,<seconds>` | sets the time the game reads (`DateTime.UtcNow`, seconds since 1970) for the rest of the run |
 | `do,file` | runs a step file (one per line, `#` comment) |
 | `menus` / `menu,N` | lists the 58 menus / shows menu N (`MenuSwapper.swapMenu`) |
 | `autoplay` mode | `clr <dll> autoplay <assets> <scenario> <trace.csv>`: replays a benchmark scenario headless (`docs/VITA-60.md`) |
@@ -47,7 +49,10 @@ File paths are absolute (`clr.sh` changes into `clr/`).
 To find a field, read the decompiled class (`re/decomp/Assembly-CSharp/<Class>.cs`, local, not versioned; produced by `tools/decompile.sh`).
 
 ## Full-game script
-`just full-game [hours]` (or `bash tools/fullgame.sh [hours]`, or `clr <dll> fullgame <prepared> [report] [hours]`) plays the whole game on the real data and prints one line per step: title screen, new game and 60 s of progress (the original gains 58 energy), every menu with the unlock flags set, a long progression (default 1 h of game time, about 35 s), a save that loads back to the same bytes, offline progress (one hour computed by the game equals one hour played, and a save loaded one hour later or earlier applies it) and every console-mode element of every menu. The exit code is 1 when a step is KO. A step that needs the game's own classes is SKIP on a synthetic assembly. It writes only to a temporary folder. The same run is `NGU_TEST_PREPARED=<prepared> cargo test --release -p clr --test fullgame -- --ignored`.
+`just full-game [hours]` (or `bash tools/fullgame.sh [hours]`, or `clr <dll> fullgame <prepared> [report] [hours]`) plays the whole game on the real data and prints one line per step: title screen, new game and 60 s of progress (the original gains 58 energy), every menu with the unlock flags set, a long progression (default 1 h of game time, about 35 s), a save that loads back to the same bytes, offline progress (one hour computed by the game equals one hour played, and a save loaded one hour later or earlier applies it) and every console-mode element of every menu. The exit code is 1 when a step is KO. A step that needs the game's own classes is SKIP on a synthetic assembly. It writes only to a temporary folder. `tools/fullgame-wasm.sh` runs the same script as WebAssembly (what the web port runs) under Node 18 or later: the numbers are identical to the native run, about 1.6 times slower. The same run is `NGU_TEST_PREPARED=<prepared> cargo test --release -p clr --test fullgame -- --ignored`.
+
+## Long-run test (interpreter shortcuts)
+`bash tools/longrun.sh [rounds] [seed]` plays the same long game twice, with and without the interpreter shortcuts (`NGU_NO_GUARD=1`), from the imported PC save or from an unlocked new game: rounds of 150 pseudo-random clicks and 20 minutes of game time, with two hours of offline progress in the middle, on a fixed clock. The final saves must be byte-identical; otherwise it prints the differing fields and exits with 1. The run without shortcuts is slower (13 minutes per game hour on a late-game save). `play` accepts `NGU_DESKTOP=1` to use the desktop screens and save picker of the applications.
 
 ## Presets (`dev/`)
 - `dev/ultimate.steps`: the "ultimate" state (everything gated by progression visible; used for `tools/screens.sh ultimate`). **Do not load saves made from it into the original game: huge `bossID` unlocks real Steam achievements.**
