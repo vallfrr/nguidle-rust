@@ -185,7 +185,7 @@ impl Stage {
             // console mode: its scale setting (100 % = the PC fit); zoomed views show the top rows, the rest scrolls
             let (k, rows, width) = clr::console_mode::view(self.vm, w.max(1.0), h.max(1.0));
             let oy = ((h - rows * k) / 2.0).max(0.0);
-            return (k, 0.0, oy, width);
+            return (k, clr::console_mode::left_margin(w, k, width), oy, width);
         }
         if self.profile.is_none() {
             (scale, 0.0, oy, w / scale)
@@ -262,7 +262,7 @@ impl Stage {
             return;
         }
         if self.focus_input {
-            self.vm.eng.mouse = clr::focus::pointer(self.vm).unwrap_or((-1.0, -1.0));
+            self.vm.eng.mouse = clr::console_mode::hover_point(self.vm).unwrap_or((-1.0, -1.0));
         }
         if self.vm.eng.mouse != self.hover_at {
             self.hover_at = self.vm.eng.mouse;

@@ -250,7 +250,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         s.touch_down = touch;
     } else {
         s.vm.eng.mouse = if s.pad_focus {
-            crate::focus::pointer(&s.vm).unwrap_or((-1.0, -1.0))
+            crate::console_mode::hover_point(&s.vm).unwrap_or((-1.0, -1.0))
         } else {
             (-1.0, -1.0)
         };
@@ -422,7 +422,7 @@ fn fit_console(s: &mut State) {
     if on {
         let (k, rows, width) = crate::console_mode::fit_screen(&mut s.vm, s.dev_w, s.dev_h);
         s.scale = k;
-        s.ox = 0.0;
+        s.ox = crate::console_mode::left_margin(s.dev_w, k, width);
         s.oy = ((s.dev_h - rows * k) / 2.0).max(0.0);
         s.vm.eng.desktop_layout.set_width(width);
     } else if s.console_on {

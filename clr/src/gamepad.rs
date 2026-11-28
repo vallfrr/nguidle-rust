@@ -37,6 +37,9 @@ pub struct State {
 const HOLD_SECONDS: f64 = 0.25;
 const REPEAT_FIRST: f64 = 0.4;
 const REPEAT: f64 = 0.12;
+/// After this long held, the repeat goes this fast (long allocations, long lists).
+const FAST_AFTER: f64 = 1.5;
+const REPEAT_FAST: f64 = 0.05;
 const DROPDOWN_REPEAT: f64 = 0.082;
 /// Right stick: dead zone and speed (game pixels per second at full deflection).
 const DEAD_ZONE: f32 = 0.22;
@@ -61,6 +64,7 @@ pub struct Decoder {
     now: f64,
     previous: u32,
     direction: Option<char>,
+    direction_since: f64,
     next_repeat: f64,
     l: Shoulder,
     r: Shoulder,
@@ -184,11 +188,12 @@ impl Decoder {
         match moving {
             Some(d) if self.direction != Some(d) => {
                 self.direction = Some(d);
+                self.direction_since = now;
                 self.next_repeat = now + REPEAT_FIRST;
                 out.push(Pad::Dir(d));
             }
             Some(d) if now >= self.next_repeat => {
-                self.next_repeat = now + REPEAT;
+                self.next_repeat = now + if now - self.direction_since >= FAST_AFTER { REPEAT_FAST } else { REPEAT };
                 out.push(Pad::Dir(d));
             }
             None => self.direction = None,
@@ -281,6 +286,12 @@ mod tests {
             repeats += press(&mut d, DOWN, 0.016).len();
         }
         assert!(repeats >= 2 && repeats <= 4, "{repeats}");
+        // held longer, it speeds up
+        let mut fast = 0;
+        for _ in 0..120 {
+            fast += press(&mut d, DOWN, 0.016).len();
+        }
+        assert!(fast >= 20, "{fast}");
     }
 
     #[test]

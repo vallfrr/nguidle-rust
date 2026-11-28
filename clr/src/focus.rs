@@ -173,9 +173,10 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
     if let Some(root) = crate::numpad::modal_root(vm) {
         all.retain(|f| within(&f.go, &root));
     }
-    // console mode: an allocation row (+ / - / Cap) is one stop, on its "+" button; left and right act as - and +, square as Cap
+    // console mode: an allocation row (+ / - / Cap) is one stop, on its "+" button; left and right act as - and +, square as Cap.
+    // A control that draws nothing (a locked accessory slot, a hidden click zone) is not a stop: the free cursor still reaches it.
     if vm.eng.console.is_some() {
-        all.retain(|f| !matches!(allocation_role(&f.go), Some(AllocationRole::Minus | AllocationRole::Cap)));
+        all.retain(|f| !matches!(allocation_role(&f.go), Some(AllocationRole::Minus | AllocationRole::Cap)) && shows_something(&f.go, 3));
     }
     let points: Vec<_> = all.iter().map(|f| {
         let (cx, cy) = center(&f.rect);
@@ -185,6 +186,20 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
     all.into_iter().zip(hits).filter_map(|(f, hit)| {
         (!hit.is_null() && (within(&hit, &f.go) || within(&f.go, &hit))).then_some(f)
     }).collect()
+}
+
+/// Whether a control or its children (down to `depth` levels) draw anything: an image with a sprite and some opacity, or a text.
+fn shows_something(go: &Value, depth: u8) -> bool {
+    let Some((active, comps, tr)) = with_go(go, |g| (g.active && !g.port_hidden, g.comps.clone(), g.transform.clone())) else { return false };
+    if !active {
+        return false;
+    }
+    let drawn = comps.iter().any(|c| with_comp(c, |k| k.enabled && match &k.k {
+        CK::Image(i) | CK::RawImage(i) => i.color[3] > 0.05 && !i.sprite.is_null(),
+        CK::Text(t) => t.color[3] > 0.05 && !t.text.trim().is_empty(),
+        _ => false,
+    }).unwrap_or(false));
+    drawn || (depth > 0 && with_tr(&tr, |t| t.children.clone()).unwrap_or_default().iter().any(|c| shows_something(&go_of(c), depth - 1)))
 }
 
 /// The three small buttons of an allocation row (energy, magic, resource 3 on a skill, a training, an NGU...).

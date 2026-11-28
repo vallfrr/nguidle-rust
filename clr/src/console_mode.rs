@@ -60,6 +60,13 @@ pub fn tooltips_on(vm: &Vm) -> bool {
     vm.eng.console.as_ref().map_or(true, |c| c.info)
 }
 
+/// Where the pointer rests for the selection: on it, except in console mode with the information off (triangle), where the
+/// selection hovers nothing (no tooltip covers the screen) unless an item is carried.
+pub fn hover_point(vm: &Vm) -> Option<(f32, f32)> {
+    let quiet = vm.eng.console.as_ref().is_some_and(|c| !c.info && c.carrying.is_none());
+    if quiet { None } else { crate::focus::pointer(vm) }
+}
+
 /// Whether each menu remembers where the selection was (on unless the player switched it off).
 pub fn remember_cursor(vm: &Vm) -> bool {
     !matches!(vm.eng.prefs.get(MEMORY_PREF), Some(Value::I32(0)))
@@ -87,21 +94,20 @@ pub fn set_scale(vm: &mut Vm, percent: i32) {
     vm.eng.desktop_layout.pans.clear();
 }
 
-/// How much texts may grow inside their boxes in console mode (`None` outside it or at 100 %): 110 % gives 1.2, 120 % 1.4,
-/// 130 % 1.6. The page is only zoomed a little on a small screen (the width cap of `view`), so the texts take the room their
-/// boxes already have.
-pub fn text_growth(vm: &Vm) -> Option<f32> {
-    let s = scale(vm);
-    (vm.eng.console.is_some() && s > 100).then(|| 1.0 + (s - 100) as f32 / 50.0)
-}
-
 /// Console presentation on a `w` x `h` screen: (screen pixels per game pixel, game rows shown, logical width).
 /// At 100 % it is the PC fit; higher scales zoom in, capped where the page would have to be squeezed sideways.
+/// It is a uniform scale, like the game's own resolutions: the logical width is the player column and the page at their
+/// own size (nothing is widened), and the host centres it with [`left_margin`].
 pub fn view(vm: &Vm, w: f32, h: f32) -> (f32, f32, f32) {
     let base = (w / 960.0).min(h / 600.0).max(1e-3);
     let cap = (w / (MIN_WIDTH * base)).max(1.0);
     let k = base * (scale(vm) as f32 / 100.0).min(cap);
-    (k, (h / k).min(600.0), w / k)
+    (k, (h / k).min(600.0), MIN_WIDTH)
+}
+
+/// Screen pixels left empty on each side of the console view (`k` and `width` from [`view`]).
+pub fn left_margin(w: f32, k: f32, width: f32) -> f32 {
+    ((w - width * k) / 2.0).max(0.0).floor()
 }
 
 /// Builds the settings once the settings menus exist (desktop builds only): Page 2's empty "Bloopydoops" column.

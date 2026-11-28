@@ -166,6 +166,13 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 vm.frame(1.0 / 30.0);
             }
             println!("[pad] ... focus {:?}", crate::focus::focused_label(vm));
+            if std::env::var("CLR_FOCUSDBG").is_ok() {
+                let f = vm.eng.focus.clone();
+                let name = crate::unity::with_go(&f, |g| (g.name.clone(), g.comps.len())).unwrap_or_default();
+                let kids: Vec<String> = crate::unity::with_go(&f, |g| g.transform.clone()).and_then(|t| crate::unity::with_tr(&t, |x| x.children.clone()))
+                    .unwrap_or_default().iter().map(|c| crate::unity::with_go(&crate::unity::go_of(c), |g| g.name.clone()).unwrap_or_default()).collect();
+                println!("[pad] focus go {:?} children {:?}", name, kids);
+            }
             continue;
         }
         if p[0] == "focus_at" {
@@ -502,20 +509,22 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
             let (w, h): (f32, f32) = (p[3].parse().unwrap(), p[4].parse().unwrap());
             if p[2] == "desktop" {
                 let console = vm.eng.console.is_some();
-                let (scale, rows) = if console {
-                    let (k, rows, _) = crate::console_mode::fit_screen(vm, w, h);
-                    crate::desktop_layout::rebuild(vm);
-                    (k, rows)
+                let (scale, rows, width) = if console {
+                    let (k, rows, width) = crate::console_mode::fit_screen(vm, w, h);
+                    (k, rows, width)
                 } else {
-                    ((w / 960.0).min(h / 600.0), 600.0)
+                    let s = (w / 960.0).min(h / 600.0);
+                    (s, 600.0, w / s)
                 };
+                let ox = if console { crate::console_mode::left_margin(w, scale, width) } else { 0.0 };
                 let old_width = vm.eng.desktop_layout.width();
-                vm.eng.desktop_layout.set_width(w / scale);
+                vm.eng.desktop_layout.set_width(width);
+                crate::desktop_layout::rebuild(vm);
                 let mut r = crate::render::Renderer::new(w as usize, h as usize);
                 if let Some(ms) = p.get(5).and_then(|v| v.parse::<f32>().ok()) {
                     r.set_subframe_time(ms / 1000.0);
                 }
-                r.render(vm, scale, 0.0, ((h - rows * scale) / 2.0).max(0.0));
+                r.render(vm, scale, ox, ((h - rows * scale) / 2.0).max(0.0));
                 r.save_png(p[1]);
                 vm.eng.desktop_layout.set_width(old_width);
                 crate::desktop_layout::rebuild(vm);

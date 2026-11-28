@@ -39,8 +39,8 @@ on (host tuning bit 16), Settings page 2 only offers the scale (100 to 130 %, 12
 Sellout Shop button lives in Info 'n Stuff in console mode. In a tutorial the key prompts are the buttons (`tools/glyphs.py`,
 `assets/ui/glyphs`). Checked by `just full-game` (steps "Start and Select" to "controller reach") and by captures at 960 x 544.
 
-In console mode a text on one line grows with the scale inside its own box (110 % x1.2, 120 % x1.4, 130 % x1.6 at most, never
-touching the frame), because on a small screen the page itself can only be zoomed a little before it no longer fits sideways.
+The console scale is uniform, like the game's own resolutions: buttons, texts and titles keep their proportions;
+nothing is widened, the player column and the page are centred and the room left on the sides stays empty.
 
 Not done yet: inline glyphs in the long texts of
 How to play, the browser's gamepad decoding, per-menu layout by importance beyond the generic fit.
