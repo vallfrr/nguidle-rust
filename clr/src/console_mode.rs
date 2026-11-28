@@ -141,7 +141,7 @@ pub(crate) fn prepare(vm: &mut Vm) {
         caption(vm, "Console Mode Text", "Console Mode", 40.0);
     }
     caption(vm, "Console Scale Text", "Console Scale", 108.0 + scale_shift);
-    let button = |vm: &mut Vm, name: &str, value: &str, x: [f32; 2], y: f32| {
+    let button = |vm: &mut Vm, name: &str, value: &str, x: [f32; 2], y: f32, size: Option<i32>| {
         let go = new_node(vm, name, &tr(&panel), x, y, 30.0);
         let graphic = image(vm, &go, frame.as_ref(), true);
         let mut s = default_sel(SelKind::Button);
@@ -156,23 +156,23 @@ pub(crate) fn prepare(vm: &mut Vm) {
             g.tag = TAG.into();
         });
         let t = new_node(vm, "Text", &tr(&go), [0.0, 1.0], 0.0, 30.0);
-        let t = text(vm, &t, button_style.as_ref(), None, 4);
+        let t = text(vm, &t, button_style.as_ref(), size, 4);
         label(&t, value.into());
         go
     };
     let (on, off) = if always {
         (Value::Null, Value::Null)
     } else {
-        (button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0),
-         button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0))
+        (button(vm, "Console Mode On", "On", [8.0 / 160.0, 78.0 / 160.0], 64.0, None),
+         button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0, None))
     };
     let scales = SCALES.iter().enumerate().map(|(i, &p)| {
         let x0 = 5.0 + i as f32 * 38.0;
-        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift), p)
+        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift, Some(12)), p)
     }).collect();
     caption(vm, "Remember Cursor Text", "Remember Cursor", 176.0 + scale_shift);
-    let memory = (button(vm, "Remember Cursor On", "On", [8.0 / 160.0, 78.0 / 160.0], 200.0 + scale_shift),
-                  button(vm, "Remember Cursor Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 200.0 + scale_shift));
+    let memory = (button(vm, "Remember Cursor On", "On", [8.0 / 160.0, 78.0 / 160.0], 200.0 + scale_shift, None),
+                  button(vm, "Remember Cursor Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 200.0 + scale_shift, None));
     let shop = build_shop(vm);
     vm.eng.console_switch = Some(Switch { on, off, scales, memory, sample, sample_text, captions, shop });
     refresh(vm);
