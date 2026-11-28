@@ -89,6 +89,8 @@ const TIGHT_GAP: f32 = 2.0;
 const EDGE_GAP: f32 = 14.0;
 const SETTINGS_EDGE_GAP: f32 = 6.0;
 const LIST_MIN: f32 = 110.0;
+/// How short a game scroll view (a story, a log, a list) may be made before the rest of the page scrolls: a few lines of text.
+const LIST_FLOOR: f32 = 56.0;
 /// Margin above and below the menu list shown by holding L.
 /// share of a page's rows that may be pressed together rather than scrolled
 const SQUEEZE: f32 = 0.12;
@@ -551,6 +553,10 @@ impl DesktopLayout {
         let mut need = (600.0 - target).max(0.0);
         let mut size: Vec<f32> = runs.iter().map(|r| r.2 - r.1).collect();
         trim_rows(&runs, &mut size, &mut need, [0.0, 600.0], EDGE_GAP);
+        if need > 0.01 && need <= 2.0 * EDGE_GAP {
+            // a few pixels short: the margins at the frame edges give them up before anything scrolls
+            trim_rows(&runs, &mut size, &mut need, [0.0, 600.0], 2.0);
+        }
         let total: f32 = size.iter().sum();
         if squash && need > 0.01 {
             let k = target / total.max(1.0);
@@ -747,9 +753,11 @@ impl DesktopLayout {
         }
     }
 
-    /// The menu list while L is held (see `console_vertical`): the panel frame spans the rows shown, the slots sit in
-    /// columns of `console_mode::list_columns` rows.
+    /// The menu list while L is held (see `console_vertical`): one column, framed like the player column it replaces (same
+    /// rectangle, the game's own frame and bolts), with every slot of the game's list at the game's size. When the rows shown
+    /// are too few the slots scroll inside the frame (no scrollbar: the slot cut by the edge shows that there is more).
     fn lay_out_list(&mut self, vm: &Vm, panel: &Value, f: Xf, (x0, column_width): (f32, f32), v: f32) {
+        const EDGE: f32 = 10.0;
         let Some(view) = children(panel).into_iter().find(|n| with_go(&go_of(n), |g| g.name == "Panel").unwrap_or(false)) else { return };
         let Some(content) = children(&view).into_iter().find(|n| with_go(&go_of(n), |g| g.name == "Content").unwrap_or(false)) else { return };
         let mut slots: Vec<(Value, Xf)> = children(&content).into_iter()
@@ -757,24 +765,17 @@ impl DesktopLayout {
             .map(|n| { let x = xf(vm, &n); (n, x) }).collect();
         slots.sort_by(|a, b| vertical_bounds(a.1).0.total_cmp(&vertical_bounds(b.1).0));
         let Some(&(_, first)) = slots.first() else { return };
+        let v = v.min(600.0);
         let pitch = slots.get(1).map_or(27.0, |(_, x)| vertical_bounds(*x).0 - vertical_bounds(first).0);
-        let (top0, inset) = (vertical_bounds(first).0, left(first) - left(f));
-        let rows = crate::console_mode::list_rows(slots.len(), v, top0, pitch);
-        let columns = slots.len().div_ceil(rows.max(1)).max(1);
-        let column_w = width(first) + 4.0;
-        let list_w = width(f) + (columns - 1) as f32 * column_w;
-        // the frame covers at least the player column it replaces; the slots are centred in it
-        let w = list_w.max(column_width);
-        let x0_slots = x0 + ((w - list_w) / 2.0).floor();
+        let w = column_width.max(width(f));
         let shift = |x: Xf, dx: f32, dy: f32| {
             let (t, b) = vertical_bounds(x);
             vertical(horizontal(x, left(x) + dx, width(x)), t + dy, b - t)
         };
-        let frame = vertical(horizontal(f, x0, w), 0.0, v.min(600.0));
-        self.rects.insert(id(panel).unwrap(), frame);
-        for n in [&view, &content] {
-            self.rects.insert(id(n).unwrap(), vertical(horizontal(xf(vm, n), x0_slots + inset, list_w - inset), 0.0, v.min(600.0)));
-        }
+        self.rects.insert(id(panel).unwrap(), vertical(horizontal(f, x0, w), 0.0, v));
+        let inner = vertical(horizontal(xf(vm, &view), x0, w), 0.0, v);
+        self.rects.insert(id(&view).unwrap(), inner);
+        self.rects.insert(id(&content).unwrap(), inner);
         // the panel's other parts (its title, the scrollbar, the shop button moved to Info 'n Stuff) are put away
         for n in children(panel).into_iter().chain(children(&view)) {
             if !crate::unity::same(&n, &view) && !crate::unity::same(&n, &content) {
@@ -782,12 +783,17 @@ impl DesktopLayout {
                 self.map_rects(&n, x, &|r| shift(r, -2000.0, 0.0));
             }
         }
+        let (top, bottom) = (EDGE, v - EDGE);
+        let extra = (slots.len() as f32 * pitch + 4.0 - (bottom - top)).max(0.0);
+        let pan = self.pan(LIST, extra);
+        let slot_x = x0 + ((w - width(first)) / 2.0).floor();
         for (i, (n, x)) in slots.iter().enumerate() {
-            let (column, row) = (i / rows, i % rows);
-            let dx = x0_slots + inset + column as f32 * column_w - left(*x);
-            let dy = top0 + row as f32 * pitch - vertical_bounds(*x).0;
+            let (dx, dy) = (slot_x - left(*x), top + 2.0 + i as f32 * pitch - pan - vertical_bounds(*x).0);
             self.map_rects(n, *x, &|r| shift(r, dx, dy));
         }
+        self.clips.insert(id(&content).unwrap(), ScrollClip { bounds: [x0, top, x0 + w, bottom], rows: None });
+        // owner: none (the game's own scrollbar art is not drawn), the region only serves the stick, the wheel and the cursor
+        self.region(LIST, usize::MAX, [x0, top, x0 + w, bottom], extra, Value::Null, 0.0, 0.0, [-100.0, 0.0, -90.0, 10.0], slots.len() as f32 * pitch);
     }
 
     /// `remap` that keeps scroll views whole: a view gets its new edges, its contents only slide (by its inner pan).
@@ -1016,7 +1022,7 @@ fn row_runs(bounds: [f32; 2], solid: &[(f32, f32)], lists: &[(Value, f32, f32)])
 }
 
 fn trim_rows(runs: &[(RowKind, f32, f32)], sizes: &mut [f32], need: &mut f32, [start, end]: [f32; 2], edge_gap: f32) {
-    for (kind, minimum) in [(RowKind::Gap, GAP), (RowKind::Gap, TIGHT_GAP), (RowKind::List, LIST_MIN)] {
+    for (kind, minimum) in [(RowKind::Gap, GAP), (RowKind::Gap, TIGHT_GAP), (RowKind::List, LIST_FLOOR)] {
         if *need <= 0.01 {
             break;
         }

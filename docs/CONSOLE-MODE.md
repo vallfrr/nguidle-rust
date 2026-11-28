@@ -52,9 +52,9 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   120 %. Both are built from the game's own setting buttons, follow the UI themes and are kept in PlayerPrefs
   (`nguConsoleMode`, `nguConsoleScale`).
 - **Menus without the menu column**: tap L / R for the previous / next menu; hold L and the menu list replaces the player
-  column: every slot of the game's list at the game's own size, in one column, or two when the rows shown are too few (it
-  then lies over the page; left / right change column); slots not revealed yet keep their place; nothing scrolls. Release
-  L to open the menu under the cursor.
+  column, in the same frame (the game's own borders and bolts, same rectangle). Every slot is shown at the game's size, in one
+  column; slots not revealed yet keep their place; when the rows shown are too few the list scrolls inside the frame (a
+  slot cut by the edge shows that there is more, no scrollbar). Release L to open the menu under the cursor.
   In the Windows GPU window, the keyboard **L** uses the same 250 ms tap/hold gesture as the controller. While L is down,
   Up and Down open the list immediately and move the selection, without toggling F1.
 - **Scale**: 100 % is the PC layout with the menu column removed and existing scroll views. 110 % and 120 % draw everything
