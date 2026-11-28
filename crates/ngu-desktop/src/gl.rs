@@ -262,7 +262,7 @@ impl Stage {
             return;
         }
         if self.focus_input {
-            self.vm.eng.mouse = clr::focus::pointer(self.vm).unwrap_or((-1.0, -1.0));
+            self.vm.eng.mouse = clr::console_mode::hover_point(self.vm).unwrap_or((-1.0, -1.0));
         }
         if self.vm.eng.mouse != self.hover_at {
             self.hover_at = self.vm.eng.mouse;

@@ -60,6 +60,13 @@ pub fn tooltips_on(vm: &Vm) -> bool {
     vm.eng.console.as_ref().map_or(true, |c| c.info)
 }
 
+/// Where the pointer rests for the selection: on it, except in console mode with the information off (triangle), where the
+/// selection hovers nothing (no tooltip covers the screen) unless an item is carried.
+pub fn hover_point(vm: &Vm) -> Option<(f32, f32)> {
+    let quiet = vm.eng.console.as_ref().is_some_and(|c| !c.info && c.carrying.is_none());
+    if quiet { None } else { crate::focus::pointer(vm) }
+}
+
 /// Whether each menu remembers where the selection was (on unless the player switched it off).
 pub fn remember_cursor(vm: &Vm) -> bool {
     !matches!(vm.eng.prefs.get(MEMORY_PREF), Some(Value::I32(0)))

@@ -250,7 +250,7 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
         s.touch_down = touch;
     } else {
         s.vm.eng.mouse = if s.pad_focus {
-            crate::focus::pointer(&s.vm).unwrap_or((-1.0, -1.0))
+            crate::console_mode::hover_point(&s.vm).unwrap_or((-1.0, -1.0))
         } else {
             (-1.0, -1.0)
         };
