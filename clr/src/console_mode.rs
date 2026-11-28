@@ -176,8 +176,10 @@ pub(crate) fn prepare(vm: &mut Vm) {
          button(vm, "Console Mode Off", "Off", [82.0 / 160.0, 152.0 / 160.0], 64.0, None))
     };
     let scales = SCALES.iter().enumerate().map(|(i, &p)| {
-        let x0 = 5.0 + i as f32 * 38.0;
-        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + 36.0) / 160.0], 132.0 + scale_shift, Some(12)), p)
+        // the buttons share the width of the setting (160) like the On / Off pair does (8..152)
+        let w = (144.0 - 4.0 * (SCALES.len() - 1) as f32) / SCALES.len() as f32;
+        let x0 = 8.0 + i as f32 * (w + 4.0);
+        (button(vm, "Console Scale", &format!("{p}%"), [x0 / 160.0, (x0 + w) / 160.0], 132.0 + scale_shift, Some(12)), p)
     }).collect();
     caption(vm, "Remember Cursor Text", "Remember Cursor", 176.0 + scale_shift);
     let memory = (button(vm, "Remember Cursor On", "On", [8.0 / 160.0, 78.0 / 160.0], 200.0 + scale_shift, None),
@@ -446,13 +448,6 @@ fn allocation_click(vm: &mut Vm, role: AllocationRole) -> Option<Click> {
 fn tutorial_active(vm: &mut Vm) -> bool {
     let state = crate::dev::get(vm, "Character.settings.tutorialState");
     state.rsplit('=').next().and_then(|v| v.trim().parse::<i32>().ok()).is_some_and(|n| n >= 0)
-}
-
-/// Rows per column of the menu list while L is held: every slot in one column when they fit above the bottom edge of the
-/// rows shown, else as few columns as fit.
-pub(crate) fn list_rows(slots: usize, view_rows: f32, first_top: f32, pitch: f32) -> usize {
-    let fit = (((view_rows - first_top - 8.0) / pitch.max(1.0)).floor() as usize).max(1);
-    slots.div_ceil(slots.div_ceil(fit).max(1)).max(1)
 }
 
 fn current_menu(vm: &Vm) -> i32 {
@@ -835,24 +830,9 @@ impl Console {
                         }
                     }
                 }
-                Pad::Dir(d @ ('l' | 'r')) => {
-                    // the list in columns: the nearest menu in the next column, at the same height
-                    if let Some((menus, _)) = &self.columns {
-                        let centre = |vm: &mut Vm, go: &Value| crate::focus::node_rect(vm, go).map(|r| ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0));
-                        let list = menu_buttons(vm, menus);
-                        if let Some((x, y)) = centre(vm, &vm.eng.focus.clone()) {
-                            let side = if d == 'l' { -1.0 } else { 1.0 };
-                            let mut best: Option<(f32, Value)> = None;
-                            for (go, _) in &list {
-                                let Some((bx, by)) = centre(vm, go) else { continue };
-                                if (bx - x) * side > 20.0 && best.as_ref().map_or(true, |(score, _)| (by - y).abs() + (bx - x).abs() * 0.1 < *score) {
-                                    best = Some(((by - y).abs() + (bx - x).abs() * 0.1, go.clone()));
-                                }
-                            }
-                            if let Some((_, go)) = best {
-                                crate::focus::select_control(vm, &go);
-                            }
-                        }
+                Pad::Scroll(_, dy) => {
+                    if let Some(region) = vm.eng.desktop_layout.regions.iter().find(|r| r.key == LIST).cloned() {
+                        scroll_region(vm, &region, dy);
                     }
                 }
                 Pad::HoldEnd | Pad::Back => {
