@@ -87,6 +87,14 @@ pub fn set_scale(vm: &mut Vm, percent: i32) {
     vm.eng.desktop_layout.pans.clear();
 }
 
+/// How much texts may grow inside their boxes in console mode (`None` outside it or at 100 %): 110 % gives 1.2, 120 % 1.4,
+/// 130 % 1.6. The page is only zoomed a little on a small screen (the width cap of `view`), so the texts take the room their
+/// boxes already have.
+pub fn text_growth(vm: &Vm) -> Option<f32> {
+    let s = scale(vm);
+    (vm.eng.console.is_some() && s > 100).then(|| 1.0 + (s - 100) as f32 / 50.0)
+}
+
 /// Console presentation on a `w` x `h` screen: (screen pixels per game pixel, game rows shown, logical width).
 /// At 100 % it is the PC fit; higher scales zoom in, capped where the page would have to be squeezed sideways.
 pub fn view(vm: &Vm, w: f32, h: f32) -> (f32, f32, f32) {
@@ -778,10 +786,17 @@ impl Console {
             // the secret combination lock of the Fight Boss menu (F A R T S)
             15 => match c { 'x' => Some(key('f')), 'o' => Some(key('a')), 's' => Some(key('r')), 't' => Some(key('t')), 'u' => Some(key('s')), _ => None },
             // inventory: pages with left / right, boosts and merging on the item under the selection, ctrl + click on it
+            // (wiki "Inventory shortcuts": ctrl + click trash / consume, shift + click protect, Q / W / E + click turn a boost
+            // into power / toughness / special)
             4 => match c {
                 'x' => return modified(vm, CTRL),
-                'o' => Some(key('a')),
-                't' => Some(key('d')),
+                's' => return modified(vm, SHIFT),
+                'u' => return modified(vm, Q),
+                'd' => return modified(vm, key('w')),
+                'n' => return modified(vm, key('e')),
+                // A / D + click: the game reads the keys on the hover only with "Simple Inventory Shortcuts" on (off by default)
+                'o' => return modified(vm, key('a')),
+                't' => return modified(vm, key('d')),
                 'l' | 'r' => {
                     let pages = crate::dev::call(vm, "Character.inventoryController.curPages", &[]).rsplit("-> ").next()
                         .and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(1).clamp(1, 10);
@@ -790,7 +805,14 @@ impl Console {
                 }
                 _ => None,
             },
-            55 => match c { 'l' => Some(LEFT), 'r' => Some(RIGHT), _ => None },
+            // cards: pages, ctrl + click throws a card away, shift + click protects it (wiki "Cards")
+            55 => match c {
+                'x' => return modified(vm, CTRL),
+                's' => return modified(vm, SHIFT),
+                'l' => Some(LEFT),
+                'r' => Some(RIGHT),
+                _ => None,
+            },
             // everywhere else: shift + click on the selection (custom buttons); take the energy, the magic or the third
             // resource back from every feature
             _ => match c {

@@ -101,7 +101,8 @@ The maintainer was away; each of these is open to correction after his playtest.
   hidden in console mode. The menu list squeezes the heights of its buttons so that every menu fits, down to the scale 130 %.
 - **R11** a field takes the pad when its content type is a number, or when it holds only digits (the Input box of Basic Training
   is typed as text in the game, "100 %" in the cap modifier too). The pad is modal: nothing behind it can be selected.
-  Other text fields still use the host's keyboard (not yet an in-game one).
+  Other text fields use the host's keyboard: the maintainer chose it on 28 November 2026 (no in-game keyboard). Max, Half
+  and Idle are not on the pad: the same screens show the game's own Cap, 1/2, 1/4 and Idle buttons next to the field.
 - **R12** an allocation row is one selection stop (its "+" button); the "-" and "Cap" buttons are not stops. Left / right and
   square act on them. Hold repeats at the decoder's rate (no acceleration yet).
 - **R14** an item is picked up when the control has a drag handler: cross presses and holds, cross again releases on the
@@ -113,4 +114,9 @@ The maintainer was away; each of these is open to correction after his playtest.
 - **R17 / R18** only the tutorial prompts and the sentences naming the arrow keys are replaced; the glyphs are drawn by
   `tools/glyphs.py` in the game's style. In a tutorial with no selection, cross goes on and circle goes back.
 - **R19** only the generic fit and the squeezed menu list so far; per-menu work waits for the playtest.
-- **Not started:** the in-game keyboard, glyphs inside long texts, the browser's gamepad (issue 82), the performance pass.
+- **Text size** (maintainer, 28 November): the zoom alone left the texts small on 5 inches (the page must still fit sideways,
+  so 120 % zooms only x1.09 on the Vita). A text on one line now grows inside its own box with the scale (x1.4 at 120 %), keeping
+  a margin to its frame; texts of several lines keep their size.
+- **Shortcuts from the wiki study:** inventory protect (R + square), boost transforms (R + up / down / L), A and D as key + click
+  (the game ignores the bare key unless "Simple Inventory Shortcuts" is on); cards protect and discard.
+- **Not started:** glyphs inside long texts, the browser's gamepad (issue 82), the performance pass.

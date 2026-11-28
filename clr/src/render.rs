@@ -125,6 +125,8 @@ pub struct Renderer {
     pub hits: usize,
     /// active ColorTint tints (target graphic -> Selectable state colour), stack during the traversal
     tints: Vec<(Value, [f32; 4])>,
+    /// console text growth: best-fit size of button labels by text key (`button_row_cap`)
+    natural: HashMap<u64, i32>,
     tooltip: Option<Value>,
     /// Authored scrollbar components and sprites. Their current styling is read when drawing.
     console_bar: Option<ConsoleBarArt>,
@@ -191,6 +193,7 @@ impl Renderer {
             visits: 0,
             hits: 0,
             tints: vec![],
+            natural: HashMap::new(),
             tooltip: None,
             console_bar: None,
             console_bar_theme: None,
@@ -637,10 +640,10 @@ impl Renderer {
                     self.draw_image(vm, &x, &i, graphic_clip, focused)
                 }
                 D::Txt(mut t) => {
-                    if vm.eng.desktop_layout.fits_text(tr) {
-                        t.best_fit = true;
-                        t.min_size = (t.size * 3 / 4).max(1);
-                        t.max_size = t.size;
+                    if fit_text(vm, tr, &mut t) {
+                        if let Some(cap) = self.button_row_cap(vm, tr, &t) {
+                            t.max_size = t.max_size.min(cap).max(t.min_size);
+                        }
                     }
                     if vm.eng.desktop_layout.pc_resolutions {
                         if let Some(label) = crate::desktop_layout::pc_resolution_label(&t.text) {
@@ -934,6 +937,57 @@ impl Renderer {
         Some(g)
     }
 
+    /// Console text growth of a button label: the largest size every label of its sibling buttons (same container, same
+    /// text size in the game, about the same box) can take, so that a row or a column of buttons keeps one text size. `None` when the text is not a button label.
+    /// ponytail: a sibling whose label changes does not redraw the others until they change (labels rarely change).
+    fn button_row_cap(&mut self, vm: &mut Vm, tr: &Value, own: &TextSnap) -> Option<i32> {
+        let button = with_tr(tr, |x| x.parent.clone())?;
+        let is_button = |t: &Value| {
+            let comps = with_go(&go_of(t), |g| g.comps.clone()).unwrap_or_default();
+            comps.iter().any(|c| with_comp(c, |k| matches!(k.k, CK::Sel(_))).unwrap_or(false))
+        };
+        if !is_button(&button) {
+            return None;
+        }
+        let container = with_tr(&button, |x| x.parent.clone())?;
+        let own_xf = view_xf(vm, tr);
+        let mut cap = i32::MAX;
+        for sibling in with_tr(&container, |x| x.children.clone()).unwrap_or_default() {
+            if !with_go(&go_of(&sibling), |g| g.active).unwrap_or(false) || !is_button(&sibling) {
+                continue;
+            }
+            for label in with_tr(&sibling, |x| x.children.clone()).unwrap_or_default() {
+                let xf = view_xf(vm, &label);
+                // buttons of about the same shape only (a toggle's long caption next to + / - / Cap stays apart)
+                let near = |a: f32, b: f32| a > 0.0 && b > 0.0 && (a / b).max(b / a) < 1.4;
+                if !near(xf.w, own_xf.w) || !near(xf.h, own_xf.h) {
+                    continue;
+                }
+                let comps = with_go(&go_of(&label), |g| if g.active { g.comps.clone() } else { vec![] }).unwrap_or_default();
+                for c in comps {
+                    let Some(mut t) = with_comp(&c, |k| if let CK::Text(t) = &k.k { Some(TextSnap::from(t)) } else { None }).flatten() else { continue };
+                    if t.size != own.size || t.text.is_empty() || !fit_text(vm, &label, &mut t) {
+                        continue;
+                    }
+                    let key = text_key(&t, &xf);
+                    let size = match self.natural.get(&key) {
+                        Some(s) => *s,
+                        None => {
+                            let s = self.layout_text(vm, &xf, &t).map_or(t.size, |l| l.size.round() as i32);
+                            if self.natural.len() > 4096 {
+                                self.natural.clear();
+                            }
+                            self.natural.insert(key, s);
+                            s
+                        }
+                    };
+                    cap = cap.min(size);
+                }
+            }
+        }
+        (cap != i32::MAX).then_some(cap)
+    }
+
     fn draw_text(&mut self, vm: &mut Vm, comp: &Value, x: &Xf, t: &TextSnap, clip: Clip) {
         if t.text.is_empty() || t.color[3] <= 0.0 || x.w <= 0.0 {
             return;
@@ -1109,7 +1163,9 @@ impl Renderer {
             while s >= t.min_size as f32 {
                 let k = s / t.size.max(1) as f32;
                 layout(k, &mut lines, &mut line_h);
-                if lines.len() as f32 * line_h <= rh + 0.01 && lines.iter().all(|l| l.iter().map(|c| c.1).sum::<f32>() <= rw + 0.01) {
+                // above the game's own size (console mode growth) a margin is kept, so a grown text never touches its frame
+                let m = if s > t.size as f32 { 0.86 } else { 1.0 };
+                if lines.len() as f32 * line_h <= rh * m + 0.01 && lines.iter().all(|l| l.iter().map(|c| c.1).sum::<f32>() <= rw * m + 0.01) {
                     size = s;
                     found = true;
                     break;
@@ -1155,7 +1211,7 @@ impl Renderer {
                 pen += adv;
             }
         }
-        Some(TextLayout { glyphs, fr: fr.1.clone(), fb: fb.1.clone(), fr_id: fr.0, fb_id: fb.0 })
+        Some(TextLayout { glyphs, fr: fr.1.clone(), fb: fb.1.clone(), fr_id: fr.0, fb_id: fb.0, size })
     }
 
     // ---------------------------------------------------------------- software backend
@@ -1207,6 +1263,8 @@ pub struct LGlyph {
 
 pub struct TextLayout {
     pub glyphs: Vec<LGlyph>,
+    /// the size chosen (best fit)
+    pub size: f32,
     pub fr: Rc<fontdue::Font>,
     pub fb: Rc<fontdue::Font>,
     pub fr_id: usize,
@@ -1523,4 +1581,24 @@ fn raster_band(c: &Ctx, fb: &mut [u8], y_off: usize) {
 fn next_gen() -> u32 {
     static G: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     G.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The size rules of a text before drawing: squeezed to fit (desktop layout), grown with the console scale. Returns whether
+/// the console growth applies (single-line texts: lists of stats and descriptions are laid out for their own size).
+fn fit_text(vm: &Vm, tr: &Value, t: &mut TextSnap) -> bool {
+    if vm.eng.desktop_layout.fits_text(tr) {
+        t.best_fit = true;
+        t.min_size = (t.size * 3 / 4).max(1);
+        t.max_size = t.size;
+    }
+    // console mode: texts grow with the scale where their box has room (never past it, never below the game's size)
+    let Some(f) = crate::console_mode::text_growth(vm).filter(|_| !t.text.contains('\n')) else { return false };
+    // a text the game already fits (Unity best fit, often up to 40) grows from its own font size, not from that maximum
+    let base = if t.best_fit { t.max_size.min(t.size) } else { t.size };
+    if !t.best_fit {
+        t.best_fit = true;
+        t.min_size = t.size;
+    }
+    t.max_size = ((base as f32) * f).round().max(t.min_size as f32) as i32;
+    true
 }

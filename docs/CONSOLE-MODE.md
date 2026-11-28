@@ -26,8 +26,10 @@ move / confirm / back / menu actions (see issue "web gamepad").
 
 R layer: Adventure (R + L changes the page: attacks, defence, special): cross, circle, square, triangle, d-pad up and down are the
 six skills of the page, left / right change the zone. Fight Boss: F A R T S of the combination lock. Inventory: left / right turn
-the pages, cross is ctrl + click on the item under the selection (trash, consume, transform), circle applies all boosts to it (A),
-triangle merges it with its copies (D). Cards: left / right turn the deck pages. Elsewhere: cross is shift + click on the
+the pages, cross is ctrl + click on the item under the selection (trash, consume, transform), circle applies all boosts to it (A + click),
+triangle merges it with its copies (D + click), square protects it (shift + click), up / down / R + L turn a boost into power / toughness /
+special (Q / W / E + click). Cards: left / right turn the deck pages, cross throws the card away (ctrl + click), square protects
+it (shift + click). Elsewhere: cross is shift + click on the
 selection (the custom buttons), triangle takes the energy back from every feature except training (the game's R), square the
 magic (T), circle the third resource (F).
 
@@ -37,7 +39,10 @@ on (host tuning bit 16), Settings page 2 only offers the scale (100 to 130 %, 12
 Sellout Shop button lives in Info 'n Stuff in console mode. In a tutorial the key prompts are the buttons (`tools/glyphs.py`,
 `assets/ui/glyphs`). Checked by `just full-game` (steps "Start and Select" to "controller reach") and by captures at 960 x 544.
 
-Not done yet: the in-game keyboard (the console's keyboard is used for every text field), inline glyphs in the long texts of
+In console mode a text on one line grows with the scale inside its own box (110 % x1.2, 120 % x1.4, 130 % x1.6 at most, never
+touching the frame), because on a small screen the page itself can only be zoomed a little before it no longer fits sideways.
+
+Not done yet: inline glyphs in the long texts of
 How to play, the browser's gamepad decoding, per-menu layout by importance beyond the generic fit.
 
 ## Where it stood before M5 (2026-11-23)
