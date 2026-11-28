@@ -166,6 +166,13 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 vm.frame(1.0 / 30.0);
             }
             println!("[pad] ... focus {:?}", crate::focus::focused_label(vm));
+            if std::env::var("CLR_FOCUSDBG").is_ok() {
+                let f = vm.eng.focus.clone();
+                let name = crate::unity::with_go(&f, |g| (g.name.clone(), g.comps.len())).unwrap_or_default();
+                let kids: Vec<String> = crate::unity::with_go(&f, |g| g.transform.clone()).and_then(|t| crate::unity::with_tr(&t, |x| x.children.clone()))
+                    .unwrap_or_default().iter().map(|c| crate::unity::with_go(&crate::unity::go_of(c), |g| g.name.clone()).unwrap_or_default()).collect();
+                println!("[pad] focus go {:?} children {:?}", name, kids);
+            }
             continue;
         }
         if p[0] == "focus_at" {

@@ -686,6 +686,19 @@ impl Renderer {
         if self.console_bar_theme.is_some() && !self.drawing_overlay {
             self.draw_console_bar(vm, tr, clip);
         }
+        // the selection's highlight is drawn on its own image; a control whose graphic is a child (inventory and equipment
+        // slots, toggles) gets a frame in the same colour instead, over its children
+        let own_graphic = focused_graphic.as_ref().is_some_and(|g| comps.iter().any(|c| same(c, g)) && with_comp(g, |k| {
+            k.enabled && matches!(&k.k, CK::Image(i) | CK::RawImage(i) if i.color[3] > 0.05 && !i.sprite.is_null())
+        }).unwrap_or(false));
+        if same(&go, &vm.eng.focus) && !own_graphic {
+            let t = 3.0 / (self.scale * x.scale[0].abs()).max(1e-3);
+            let (l, b, w, h) = (-x.pivot[0] * x.w, -x.pivot[1] * x.h, x.w, x.h);
+            let gold = [1.0, 0.85, 0.37, 1.0];
+            for r in [[l, b, w, t], [l, b + h - t, w, t], [l, b, t, h], [l + w - t, b, t, h]] {
+                self.quad(&x, r, None, [0.0; 4], gold, graphic_clip);
+            }
+        }
         if pushed {
             self.tints.pop();
         }
