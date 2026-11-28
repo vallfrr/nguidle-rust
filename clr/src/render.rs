@@ -390,20 +390,28 @@ impl Renderer {
             let mut x = view_xf(vm, &tooltip);
             let (mx, my) = vm.eng.mouse;
             let width = vm.eng.desktop_layout.width();
+            let (w, h) = (x.w * x.scale[0].abs(), x.h * x.scale[1].abs());
+            // console mode zoomed in: only the top rows are on screen (y up: from vh - rows to vh)
+            let rows = vm.eng.desktop_layout.console_view_h;
+            let floor = if vm.eng.console.is_some() && rows > 0.0 && rows < self.vh { self.vh - rows } else { 0.0 };
             if vm.eng.desktop_panels && self.regions.is_empty() &&
                 (0.0..width).contains(&mx) && (0.0..self.vh).contains(&my) &&
                 vm.eng.invokes.iter().any(|v| v.method.as_ref() == "updateTooltip")
             {
-                let (w, h) = (x.w * x.scale[0].abs(), x.h * x.scale[1].abs());
                 let place = |pointer: f32, length: f32, limit: f32| {
                     let origin = if pointer + 10.0 + length <= limit { pointer + 10.0 }
                         else { pointer - length - 10.0 };
                     origin.clamp(0.0, (limit - length).max(0.0))
                 };
-                // console mode zoomed in: only the top rows are on screen (y up: from vh - rows to vh)
-                let rows = vm.eng.desktop_layout.console_view_h;
-                let floor = if vm.eng.console.is_some() && rows > 0.0 && rows < self.vh { self.vh - rows } else { 0.0 };
                 x.origin = [place(mx, w, width) + w * x.pivot[0], floor + place(my - floor, h, self.vh - floor) + h * x.pivot[1]];
+            }
+            if vm.eng.console.is_some() && self.regions.is_empty() {
+                // console mode: the tooltip (the tutorial's too, wherever the game put it) stays wholly inside the part of the
+                // screen that is shown, its frame a few pixels off the edges
+                const EDGE: f32 = 6.0;
+                let (left, bottom) = (x.origin[0] - w * x.pivot[0], x.origin[1] - h * x.pivot[1]);
+                x.origin = [left.clamp(EDGE, (width - w - EDGE).max(EDGE)) + w * x.pivot[0],
+                    bottom.clamp(floor + EDGE, (self.vh - h - EDGE).max(floor + EDGE)) + h * x.pivot[1]];
             }
             let clip = if self.regions.is_empty() { full } else {
                 Clip { x0: 0, y0: 0, x1: self.w as i32, y1: self.h as i32 }

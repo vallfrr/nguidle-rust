@@ -130,35 +130,22 @@ def pair(name, left, right, seed):
     im.save(OUT + name + ".png")
 
 
-def prompt(name, glyph, word, lit):
-    """The 256 x 46 key prompt of the tutorial window: the word, then the button that does it (replaces the game's arrow sprites)."""
-    im = Image.new("RGBA", (256, 46), (0, 0, 0, 0))
-    g = Image.open(OUT + glyph + ("-lit" if lit else "") + ".png").resize((44, 44), Image.LANCZOS)
-    im.paste(g, (256 - 46, 1), g)
-    big = canvas(256, 46)
-    d = ImageDraw.Draw(big)
-    if FONT:
-        font = ImageFont.truetype(FONT, 26 * S)
-        w = d.textlength(word, font=font)
-        d.text(((256 - 56) * S - w, 4 * S), word, font=font, fill=INK)
-    text = big.resize((256, 46), Image.LANCZOS)
-    im.alpha_composite(text)
-    im.save(OUT + name + ".png")
-
-
-def prompt_both(name, lit):
+def prompt(name, lit, back, advance):
+    """The 256 x 46 key prompt of the tutorial window, laid out like the game's own (replaces its arrow-key sprites): the
+    button in the key's place (2..46 for back, 209..253 for advance) and the word beside it, caps 14 px high (rows 16..29)."""
     im = Image.new("RGBA", (256, 46), (0, 0, 0, 0))
     big = canvas(256, 46)
     d = ImageDraw.Draw(big)
-    if FONT:
-        font = ImageFont.truetype(FONT, 15 * S)
-        d.text((50 * S, 13 * S), "BACK", font=font, fill=INK)
-        d.text((132 * S, 13 * S), "ADVANCE", font=font, fill=INK)
-    text = big.resize((256, 46), Image.LANCZOS)
-    for glyph, x in (("circle", 2), ("cross", 256 - 46)):
-        g = Image.open(OUT + glyph + ("-lit" if lit else "") + ".png").resize((44, 44), Image.LANCZOS)
-        im.paste(g, (x, 1), g)
-    im.alpha_composite(text)
+    font = ImageFont.truetype(FONT, 18 * S)
+    for on, glyph, word, key_x, word_at in ((back, "circle", "BACK", 5, ("left", 51)), (advance, "cross", "ADVANCE", 212, ("right", 205))):
+        if not on:
+            continue
+        g = Image.open(OUT + glyph + ("-lit" if lit else "") + ".png").resize((38, 38), Image.LANCZOS)
+        im.paste(g, (key_x, 4), g)
+        bbox = d.textbbox((0, 0), word, font=font)
+        x = word_at[1] * S - bbox[0] if word_at[0] == "left" else (word_at[1] + 1) * S - bbox[2]
+        d.text((x, 16 * S - bbox[1]), word, font=font, fill=INK)
+    im.alpha_composite(big.resize((256, 46), Image.LANCZOS))
     im.save(OUT + name + ".png")
 
 
@@ -175,6 +162,6 @@ if __name__ == "__main__":
     cursor("cursor")
     for lit in (False, True):
         suffix = "-lit" if lit else ""
-        prompt("prompt-advance" + suffix, "cross", "ADVANCE", lit)
-        prompt("prompt-back" + suffix, "circle", "BACK", lit)
-        prompt_both("prompt-both" + suffix, lit)
+        prompt("prompt-advance" + suffix, lit, False, True)
+        prompt("prompt-back" + suffix, lit, True, False)
+        prompt("prompt-both" + suffix, lit, True, True)
