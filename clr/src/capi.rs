@@ -371,6 +371,8 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
             't' => crate::console_mode::Pad::Info,
             'S' => crate::console_mode::Pad::Settings,
             'I' => crate::console_mode::Pad::InfoStuff,
+            'v' => crate::console_mode::Pad::Scroll(0.0, 120.0),
+            '^' => crate::console_mode::Pad::Scroll(0.0, -120.0),
             'H' => crate::console_mode::Pad::HoldStart,
             'h' => crate::console_mode::Pad::HoldEnd,
             'X' | 'O' | 'Q' | 'T' | 'U' | 'D' | 'L' | 'R' | 'N' => crate::console_mode::Pad::Shortcut(match action {
