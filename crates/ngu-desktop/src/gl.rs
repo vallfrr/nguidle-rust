@@ -185,7 +185,7 @@ impl Stage {
             // console mode: its scale setting (100 % = the PC fit); zoomed views show the top rows, the rest scrolls
             let (k, rows, width) = clr::console_mode::view(self.vm, w.max(1.0), h.max(1.0));
             let oy = ((h - rows * k) / 2.0).max(0.0);
-            return (k, 0.0, oy, width);
+            return (k, clr::console_mode::left_margin(w, k, width), oy, width);
         }
         if self.profile.is_none() {
             (scale, 0.0, oy, w / scale)

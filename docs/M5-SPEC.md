@@ -114,9 +114,9 @@ The maintainer was away; each of these is open to correction after his playtest.
 - **R17 / R18** only the tutorial prompts and the sentences naming the arrow keys are replaced; the glyphs are drawn by
   `tools/glyphs.py` in the game's style. In a tutorial with no selection, cross goes on and circle goes back.
 - **R19** only the generic fit and the squeezed menu list so far; per-menu work waits for the playtest.
-- **Text size** (maintainer, 28 November): the zoom alone left the texts small on 5 inches (the page must still fit sideways,
-  so 120 % zooms only x1.09 on the Vita). A text on one line now grows inside its own box with the scale (x1.4 at 120 %), keeping
-  a margin to its frame; texts of several lines keep their size.
+- **Uniform scale** (maintainer, 28 November): the scale must keep every proportion (button / text, title / text), like the
+  game's own resolutions. The page is no longer widened to fill the screen: the player column and the page keep their size
+  and are centred (`console_mode::left_margin`). A first try that enlarged only the texts was dropped.
 - **Shortcuts from the wiki study:** inventory protect (R + square), boost transforms (R + up / down / L), A and D as key + click
   (the game ignores the bare key unless "Simple Inventory Shortcuts" is on); cards protect and discard.
 - **Not started:** glyphs inside long texts, the browser's gamepad (issue 82), the performance pass.
