@@ -786,10 +786,17 @@ impl Console {
             // the secret combination lock of the Fight Boss menu (F A R T S)
             15 => match c { 'x' => Some(key('f')), 'o' => Some(key('a')), 's' => Some(key('r')), 't' => Some(key('t')), 'u' => Some(key('s')), _ => None },
             // inventory: pages with left / right, boosts and merging on the item under the selection, ctrl + click on it
+            // (wiki "Inventory shortcuts": ctrl + click trash / consume, shift + click protect, Q / W / E + click turn a boost
+            // into power / toughness / special)
             4 => match c {
                 'x' => return modified(vm, CTRL),
-                'o' => Some(key('a')),
-                't' => Some(key('d')),
+                's' => return modified(vm, SHIFT),
+                'u' => return modified(vm, Q),
+                'd' => return modified(vm, key('w')),
+                'n' => return modified(vm, key('e')),
+                // A / D + click: the game reads the keys on the hover only with "Simple Inventory Shortcuts" on (off by default)
+                'o' => return modified(vm, key('a')),
+                't' => return modified(vm, key('d')),
                 'l' | 'r' => {
                     let pages = crate::dev::call(vm, "Character.inventoryController.curPages", &[]).rsplit("-> ").next()
                         .and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(1).clamp(1, 10);
@@ -798,7 +805,14 @@ impl Console {
                 }
                 _ => None,
             },
-            55 => match c { 'l' => Some(LEFT), 'r' => Some(RIGHT), _ => None },
+            // cards: pages, ctrl + click throws a card away, shift + click protects it (wiki "Cards")
+            55 => match c {
+                'x' => return modified(vm, CTRL),
+                's' => return modified(vm, SHIFT),
+                'l' => Some(LEFT),
+                'r' => Some(RIGHT),
+                _ => None,
+            },
             // everywhere else: shift + click on the selection (custom buttons); take the energy, the magic or the third
             // resource back from every feature
             _ => match c {
