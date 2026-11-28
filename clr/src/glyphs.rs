@@ -17,7 +17,6 @@ const GLYPHS: &[(&str, &[u8])] = &[
     ("r", include_bytes!("../../assets/ui/glyphs/r.png")),
     ("start", include_bytes!("../../assets/ui/glyphs/start.png")),
     ("select", include_bytes!("../../assets/ui/glyphs/select.png")),
-    ("cursor", include_bytes!("../../assets/ui/glyphs/cursor.png")),
     ("dpad", include_bytes!("../../assets/ui/glyphs/dpad.png")),
     ("stick", include_bytes!("../../assets/ui/glyphs/stick.png")),
     ("prompt-advance", include_bytes!("../../assets/ui/glyphs/prompt-advance.png")),

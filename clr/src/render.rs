@@ -667,7 +667,11 @@ impl Renderer {
                 D::None => {}
             }
         }
-        let children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
+        let mut children = with_tr(tr, |t| t.children.clone()).unwrap_or_default();
+        if vm.eng.desktop_layout.console_hold {
+            // console mode, L held: the menu list may be wider than its column and lies over the page
+            children.sort_by_key(|ch| with_go(&go_of(ch), |g| g.name == "Features Canvas").unwrap_or(false));
+        }
         for ch in children {
             if self.tooltip.as_ref().is_some_and(|tooltip| same(tooltip, &ch)) || crate::motion::is_follower(vm, &ch) {
                 continue;

@@ -241,7 +241,6 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     } else if touch || s.touch_down {
         if s.pad_focus { crate::focus::clear(&mut s.vm); }
         s.pad_focus = false;
-        s.vm.eng.console_cursor = None;
         s.vm.eng.mouse = (vx, vy);
         s.vm.eng.mouse_down = touch;
         s.vm.eng.mouse_down_edge = touch && !s.touch_down;
@@ -263,12 +262,6 @@ pub extern "C" fn ngu_frame(dt: f32, x: f32, y: f32, down: i32) {
     }
     s.vm.eng.hover_always = s.pad_focus || touch;
     s.vm.eng.pad_hover = s.pad_focus && !touch && crate::console_mode::tooltips_on(&s.vm);
-    if let Some((cx, cy)) = s.vm.eng.console_cursor.filter(|_| !touch && !s.pad_hold) {
-        // the free cursor acts like a mouse
-        s.vm.eng.mouse = (cx, s.vm.eng.screen.1 as f32 - cy);
-        s.vm.eng.hover_always = true;
-        s.vm.eng.pad_hover = false;
-    }
     // A frame this long is a suspended console (the timer of the host may or may not have stopped meanwhile): the game
     // counts a quarter of a second of it and the rest, measured on the wall clock, is applied as offline progress.
     let dt = if dt > SUSPENDED_AFTER { 0.25 } else { dt };
@@ -378,6 +371,8 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
             't' => crate::console_mode::Pad::Info,
             'S' => crate::console_mode::Pad::Settings,
             'I' => crate::console_mode::Pad::InfoStuff,
+            'v' => crate::console_mode::Pad::Scroll(0.0, 120.0),
+            '^' => crate::console_mode::Pad::Scroll(0.0, -120.0),
             'H' => crate::console_mode::Pad::HoldStart,
             'h' => crate::console_mode::Pad::HoldEnd,
             'X' | 'O' | 'Q' | 'T' | 'U' | 'D' | 'L' | 'R' | 'N' => crate::console_mode::Pad::Shortcut(match action {

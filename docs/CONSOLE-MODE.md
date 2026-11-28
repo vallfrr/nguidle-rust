@@ -22,7 +22,7 @@ move / confirm / back / menu actions (see issue "web gamepad").
 | R held, then a button | the game's keyboard shortcuts through the game's own keys (see below); R + another button never changes menu |
 | Start | Settings |
 | Select | Info 'n Stuff |
-| right stick | the free cursor (a small cross): hover like a mouse, cross / square click where it is, any other input hides it |
+| right stick | scrolls: the part under the selection, else the page's biggest scrolling part |
 
 R layer: Adventure (R + L changes the page: attacks, defence, special): cross, circle, square, triangle, d-pad up and down are the
 six skills of the page, left / right change the zone. Fight Boss: F A R T S of the combination lock. Inventory: left / right turn
@@ -35,7 +35,7 @@ magic (T), circle the third resource (F).
 
 Number fields open the in-game pad (`clr/src/numpad.rs`): digits, K / M / B, x2, /2, 00, Clear, backspace; Start is OK, circle
 cancels, square is backspace, triangle clears. Names keep the console's own keyboard. On the console the console mode is always
-on (host tuning bit 16), Settings page 2 only offers the scale (100 to 130 %, 120 % by default) and "Remember Cursor". The 4G's
+on (host tuning bit 16), Settings page 2 only offers the scale (100 to 120 %, 120 % by default) and "Remember Cursor". The 4G's
 Sellout Shop button lives in Info 'n Stuff in console mode. In a tutorial the key prompts are the buttons (`tools/glyphs.py`,
 `assets/ui/glyphs`). Checked by `just full-game` (steps "Start and Select" to "controller reach") and by captures at 960 x 544.
 
@@ -52,7 +52,9 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   120 %. Both are built from the game's own setting buttons, follow the UI themes and are kept in PlayerPrefs
   (`nguConsoleMode`, `nguConsoleScale`).
 - **Menus without the menu column**: tap L / R for the previous / next menu; hold L and the menu list replaces the player
-  column (bigger buttons, it scrolls with the cursor); release L to open the menu under the cursor.
+  column: every slot of the game's list at the game's own size, in one column, or two when the rows shown are too few (it
+  then lies over the page; left / right change column); slots not revealed yet keep their place; nothing scrolls. Release
+  L to open the menu under the cursor.
   In the Windows GPU window, the keyboard **L** uses the same 250 ms tap/hold gesture as the controller. While L is down,
   Up and Down open the list immediately and move the selection, without toggling F1.
 - **Scale**: 100 % is the PC layout with the menu column removed and existing scroll views. 110 % and 120 % draw everything
@@ -60,10 +62,11 @@ Implemented on PC (Windows window and the scripted captures), not yet on the Vit
   1. empty bands between contents get thinner. If the regular spacing does not fit, the layout tightens internal gaps
      further while retaining space at the frame edges. The settings columns can use their own vertical spacing;
   2. the active menu can keep one scrollbar inside an existing list or a designated content block;
-  3. the player column and the fight screens (Adventure, Boss) are pressed together instead of scrolling (controls get
-     slightly shorter, texts keep their size); other pages are pressed together when the overflow is small (up to 12 %);
-  4. any remaining overflow scrolls within the selected block. Its frame, bolts, and fixed heading stay in place.
-     If no block is eligible, the layout fits the controls and adjusts text that would be cut off.
+  3. any remaining overflow scrolls within the selected block. Its frame, bolts, and fixed heading stay in place. A game
+     scroll view whose text already fits (the boss story) is never shortened into a scroll;
+  4. what still does not fit is never squashed (that would break the game's proportions): the whole page, or the full
+     screen (The Beginning), scrolls with the right stick and follows the selection. Only the player column is pressed
+     together, so that its buttons all stay on screen.
 - **Scrolling**: the right stick, pointer wheel over the block, dragging the thumb, and directional focus all use the same
   viewport. The authored scrollbar sprites change with the active theme. A new menu resets the extra console offset.
 - **Selection**: the port's yellow fill inside the selected control, as on PC and Vita. Square = the game's right click.

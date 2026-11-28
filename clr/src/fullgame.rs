@@ -367,7 +367,7 @@ fn pad(vm: &mut Vm, input: crate::console_mode::Pad) -> Option<crate::console_mo
 }
 
 /// What the controller does everywhere (`docs/M5-SPEC.md`): Start and Select, the menu list, the number pad, allocation rows,
-/// the cursor memory, the free cursor, and that every control can be reached with the d-pad.
+/// the cursor memory, the right stick scrolling, and that every control can be reached with the d-pad.
 fn controller(vm: &mut Vm, r: &mut Report) {
     use crate::console_mode::Pad;
     let before = vm.eng.exceptions;
@@ -428,11 +428,17 @@ fn controller(vm: &mut Vm, r: &mut Report) {
     pad(vm, Pad::Next);
     pad(vm, Pad::Prev);
     r.check("cursor memory", crate::focus::focused_label(vm) == mark && mark.is_some(), format!("{mark:?} after a round trip through the next menu"));
-    // the free cursor: the right stick shows it, any button puts it away
-    pad(vm, Pad::Scroll(-20.0, 10.0));
-    let shown = vm.eng.console_cursor.is_some();
-    pad(vm, Pad::Dir('d'));
-    r.check("free cursor", shown && vm.eng.console_cursor.is_none(), "shown by the right stick, hidden by the next button");
+    // the right stick scrolls the page (no selection needed): the inventory's bag scrolls at 120 %
+    steps(vm, &["menu,4"]);
+    frames(vm, 4);
+    crate::console_mode::fit_screen(vm, 960.0, 544.0);
+    crate::desktop_layout::rebuild(vm);
+    crate::focus::clear(vm);
+    let panned = |vm: &Vm| vm.eng.desktop_layout.pans.values().sum::<f32>();
+    let pans_before = panned(vm);
+    pad(vm, Pad::Scroll(0.0, 60.0));
+    let pans_after = panned(vm);
+    r.check("right stick scrolls", pans_after > pans_before, format!("pans {pans_before} -> {pans_after}"));
     // every control of every menu can be reached with the d-pad from the first one
     let (mut total, mut lost) = (0, vec![]);
     for menu in 0..58 {
