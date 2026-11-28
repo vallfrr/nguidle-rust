@@ -8,6 +8,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("usage: clr <dll> [scan|run Type::Method]");
     let mode = args.get(2).map(|s| s.as_str()).unwrap_or("info");
+    // NGU_HOST_TUNING=<bits>: the host tuning of a console (docs/ENGINE-API.md), to try it on a computer; 31 is the Vita
+    if let Some(bits) = std::env::var("NGU_HOST_TUNING").ok().and_then(|v| v.parse::<u32>().ok()) {
+        clr::host_platform::set_host_tuning(clr::host_platform::HostTuning::from_bits(bits));
+    }
     if mode == "autoplay" {
         // loads its own VM through the console API
         if let Err(e) = autoplay::run_pc(&args[3..]) {
