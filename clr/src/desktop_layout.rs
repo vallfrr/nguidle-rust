@@ -90,7 +90,6 @@ const EDGE_GAP: f32 = 14.0;
 const SETTINGS_EDGE_GAP: f32 = 6.0;
 const LIST_MIN: f32 = 110.0;
 /// Margin above and below the menu list shown by holding L.
-const LIST_EDGE: f32 = 6.0;
 /// share of a page's rows that may be pressed together rather than scrolled
 const SQUEEZE: f32 = 0.12;
 
@@ -265,11 +264,6 @@ impl DesktopLayout {
         // console mode: the page starts where the menu column started
         let shift = if self.console { features.as_ref().map_or(0.0, |(_, f)| (CONTENT_LEFT - left(*f)).max(0.0)) } else { 0.0 };
         self.shift = shift;
-        if self.console_hold {
-            if let (Some((node, f)), Some((_, player))) = (features.clone(), player.clone()) {
-                self.place(&node, f, horizontal(f, left(player), width(player)), Area::Scale);
-            }
-        }
         for root in children(&self.canvas) {
             let Some(original) = child_rect(&canvas, &root) else { continue };
             let label = with_go(&go_of(&root), |g| g.name.clone()).unwrap_or_default();
@@ -346,7 +340,24 @@ impl DesktopLayout {
                 self.prepare_story(&screen, at);
             }
             let has_notes = with_go(&go_of(&screen), |g| g.name == "Splash Screen").unwrap_or(false);
-            self.fit(vm, &[(screen, at)], v, &views, has_notes);
+            self.fit(vm, &[(screen.clone(), at)], v, &views, has_notes, false);
+            // the home screen's title is a little larger on a console's small screen (maintainer's request)
+            if let Some(title) = children(&screen).into_iter().find(|n| with_go(&go_of(n), |g| g.name == "Title (1)").unwrap_or(false)) {
+                if let Some(x) = id(&title).and_then(|k| self.rects.get(&k).copied()) {
+                    let grown = 1.25;
+                    let centre = |x: Xf| [x.origin[0] + (0.5 - x.pivot[0]) * x.w * x.scale[0], x.origin[1] + (0.5 - x.pivot[1]) * x.h * x.scale[1]];
+                    let mut big = x;
+                    big.scale = [x.scale[0] * grown, x.scale[1] * grown];
+                    let (before, after) = (centre(x), centre(big));
+                    big.origin = [big.origin[0] + before[0] - after[0], big.origin[1] + before[1] - after[1] - 4.0];
+                    self.map_rects(&title, x, &|r| if r.origin == x.origin && r.w == x.w { big } else { r });
+                    for child in children(&title) {
+                        if let Some(cx) = child_rect(&big, &child) {
+                            self.map_rects(&child, cx, &|r| r);
+                        }
+                    }
+                }
+            }
             return;
         }
         // the player column, with the bolts on its section joints
@@ -366,40 +377,20 @@ impl DesktopLayout {
                     parts.push((bolt.clone(), *x));
                 }
             }
-            self.fit(vm, &parts, v, &views, false);
+            self.fit(vm, &parts, v, &views, false, true);
         }
-        // the menu list (L held): widened to the column and as much taller, scrolled to the cursor
+        // the menu list (L held): every slot of the game's list at the game's own size, over the player column, in one
+        // column or, when the rows shown are too few, in more; nothing scrolls (slots not revealed yet keep their place)
         if let Some((node, f)) = features.filter(|_| self.console_hold) {
-            let at = id(&node).and_then(|k| self.rects.get(&k).copied()).unwrap_or(f);
-            let r = width(at) / width(f).max(1.0);
-            let top = 600.0 - (f.origin[1] + (1.0 - f.pivot[1]) * f.h * f.scale[1].abs());
-            let total = f.h * f.scale[1].abs() * r;
-            // every menu fits on the screen at once: when the buttons are too tall for the rows shown, their height
-            // shrinks instead of the list scrolling (no scrollbar)
-            if let Some((first, last)) = crate::console_mode::list_extent(vm, &go_of(&node)) {
-                let avail = v - 2.0 * LIST_EDGE;
-                let natural = (last - first) * r;
-                if natural > avail {
-                    let k = avail / (last - first);
-                    self.remap(&node, at, &move |y| LIST_EDGE + (y - first) * k, 0.0);
-                } else {
-                    self.remap(&node, at, &move |y| top + (y - top) * r, 0.0);
-                }
-            } else {
-                let extra = (total - v).max(0.0);
-                let pan = self.pan(LIST, extra);
-                self.remap(&node, at, &move |y| top + (y - top) * r - pan, 0.0);
-                let x1 = left(at) + width(at);
-                self.region(LIST, id(&node).unwrap(), [left(at), 0.0, x1, v], extra, Value::Null, 0.0, 0.0,
-                    [x1 - 16.0, 8.0, x1 - 6.0, v - 8.0], total);
-            }
+            let column = player.as_ref().map_or((0.0, width(f)), |(_, p)| (left(*p), width(*p)));
+            self.lay_out_list(vm, &node, f, column, v);
         }
         if let Some((panel, shade)) = crate::save_slots::content_panels(vm) {
             let left = self.content_left();
             let at = horizontal(xf(vm, &panel), left, right - left);
             let shade_rect = horizontal(xf(vm, &shade), 0.0, left);
             self.rects.insert(id(&shade).unwrap(), vertical(shade_rect, 0.0, v));
-            self.fit(vm, &[(panel, at)], v, &views, false);
+            self.fit(vm, &[(panel, at)], v, &views, false, false);
             return;
         }
         // the page: every visible root except the columns and the pop-ups
@@ -420,9 +411,9 @@ impl DesktopLayout {
             let left = self.content_left();
             let at = horizontal(xf(vm, &panel), left, right - left);
             page.push((panel, at));
-            self.fit(vm, &page, v, &views, false);
+            self.fit(vm, &page, v, &views, false, false);
         } else if v >= 599.5 || !self.fit_settings_columns(&page, v, &views) {
-            self.fit(vm, &page, v, &views, true);
+            self.fit(vm, &page, v, &views, true, false);
         }
         // pop-ups stay centred on the rows shown
         if let Some((_, root, x)) = boxes {
@@ -543,9 +534,10 @@ impl DesktopLayout {
         true
     }
 
-    /// Fits the static layout first and hands any scrolling to a single authored block.
-    fn fit(&mut self, vm: &Vm, parts: &[(Value, Xf)], target: f32, views: &FxMap<usize, Value>, allow_scroll: bool) {
-        let block = allow_scroll.then(|| self.scroll_block(parts, views, target)).flatten();
+    /// Fits the static layout first and hands any scrolling to a single authored block. `squash`: what still does not fit
+    /// is shrunk to the rows shown (the player column, whose buttons must all stay on screen) instead of scrolling.
+    fn fit(&mut self, vm: &Vm, parts: &[(Value, Xf)], target: f32, views: &FxMap<usize, Value>, allow_scroll: bool, squash: bool) {
+        let block = allow_scroll.then(|| self.scroll_block(vm, parts, views, target)).flatten();
         let chosen: FxMap<_, _> = block.iter().map(|block| {
             let key = id(&block.node).unwrap();
             self.rects.insert(key, block.rect);
@@ -560,14 +552,27 @@ impl DesktopLayout {
         let mut size: Vec<f32> = runs.iter().map(|r| r.2 - r.1).collect();
         trim_rows(&runs, &mut size, &mut need, [0.0, 600.0], EDGE_GAP);
         let total: f32 = size.iter().sum();
-        let squeezed = need > 0.01;
-        if squeezed {
+        if squash && need > 0.01 {
             let k = target / total.max(1.0);
             size.iter_mut().for_each(|s| *s *= k);
         }
-        let map = row_map(&runs, &size, 0.0, 0.0);
+        let total: f32 = size.iter().sum();
+        // what still does not fit once the gaps are trimmed is never squashed (that would shrink buttons and texts, and
+        // break the game's proportions): the whole part scrolls instead, with the right stick or its scrollbar
+        let overflow = (total - target).max(0.0);
+        let whole = (overflow > 0.5).then(|| {
+            let key = id(&parts.first()?.0)?;
+            let (x0, x1) = parts.iter().fold((f32::MAX, f32::MIN), |(a, b), (_, x)| (a.min(left(*x)), b.max(left(*x) + width(*x))));
+            Some((key, self.pan(key, overflow), x0.max(0.0), x1.min(self.width())))
+        }).flatten();
+        let pan = whole.map_or(0.0, |(_, pan, _, _)| pan);
+        let map = row_map(&runs, &size, 0.0, -pan);
         if std::env::var_os("NGU_CONSOLE_DEBUG").is_some() {
-            eprintln!("[fit] target {target} remaining {need} runs {:?} map {:?}", runs.iter().zip(&size).map(|(r, s)| (r.0, r.1 as i32, r.2 as i32, *s as i32)).collect::<Vec<_>>(), map);
+            eprintln!("[fit] target {target} remaining {need} overflow {overflow} runs {:?} map {:?}", runs.iter().zip(&size).map(|(r, s)| (r.0, r.1 as i32, r.2 as i32, *s as i32)).collect::<Vec<_>>(), map);
+        }
+        if let Some((key, _, x0, x1)) = whole {
+            let bar = [x1 - 16.0, 8.0, x1 - 6.0, target - 8.0];
+            self.region(key, key, [x0, 0.0, x1, target], overflow, Value::Null, 0.0, 0.0, bar, total);
         }
         let f = move |y: f32| piecewise(y, &map);
         // scroll views: shortened, their contents slide under them
@@ -579,7 +584,7 @@ impl DesktopLayout {
             let extra = (b - a - shown).max(0.0);
             inner.insert(k, (self.pan(k, extra), rows));
         }
-        let edges = if squeezed { 0.0 } else { 60.0 };
+        let edges = if squash && need > 0.01 { 0.0 } else { 60.0 };
         for (tr, x) in parts {
             self.remap_fit(tr, *x, &f, &inner, edges);
         }
@@ -628,7 +633,7 @@ impl DesktopLayout {
         }
     }
 
-    fn scroll_block(&self, parts: &[(Value, Xf)], views: &FxMap<usize, Value>, target: f32) -> Option<ScrollBlock> {
+    fn scroll_block(&self, vm: &Vm, parts: &[(Value, Xf)], views: &FxMap<usize, Value>, target: f32) -> Option<ScrollBlock> {
         // These grids are plain Unity containers, so identify them by their authored parent and name.
         const BLOCKS: &[(&str, &str)] = &[
             ("Inventory", "Inventory"),
@@ -655,7 +660,8 @@ impl DesktopLayout {
             } else { at };
             let (top, bottom) = vertical_bounds(at);
             let h = bottom - top;
-            let native = views.contains_key(&id(&node).unwrap_or(0));
+            // a game scroll view whose contents already fit (a story text of a few lines) is not shortened into a scroll
+            let native = views.get(&id(&node).unwrap_or(0)).is_some_and(|comp| native_scroll(vm, comp).0 > 1.0);
             let priority = if named && target < 599.5 { 3 }
                 else if native { 2 }
                 else if target < 599.5 && top >= 125.0 && (180.0..400.0).contains(&h) && width(at) >= 140.0
@@ -738,6 +744,49 @@ impl DesktopLayout {
             if let Some(cx) = self.now(&ch, &x) {
                 self.rows_of(&ch, cx, views, solid, lists);
             }
+        }
+    }
+
+    /// The menu list while L is held (see `console_vertical`): the panel frame spans the rows shown, the slots sit in
+    /// columns of `console_mode::list_columns` rows.
+    fn lay_out_list(&mut self, vm: &Vm, panel: &Value, f: Xf, (x0, column_width): (f32, f32), v: f32) {
+        let Some(view) = children(panel).into_iter().find(|n| with_go(&go_of(n), |g| g.name == "Panel").unwrap_or(false)) else { return };
+        let Some(content) = children(&view).into_iter().find(|n| with_go(&go_of(n), |g| g.name == "Content").unwrap_or(false)) else { return };
+        let mut slots: Vec<(Value, Xf)> = children(&content).into_iter()
+            .filter(|n| with_go(&go_of(n), |g| g.name != "Button Shower").unwrap_or(false))
+            .map(|n| { let x = xf(vm, &n); (n, x) }).collect();
+        slots.sort_by(|a, b| vertical_bounds(a.1).0.total_cmp(&vertical_bounds(b.1).0));
+        let Some(&(_, first)) = slots.first() else { return };
+        let pitch = slots.get(1).map_or(27.0, |(_, x)| vertical_bounds(*x).0 - vertical_bounds(first).0);
+        let (top0, inset) = (vertical_bounds(first).0, left(first) - left(f));
+        let rows = crate::console_mode::list_rows(slots.len(), v, top0, pitch);
+        let columns = slots.len().div_ceil(rows.max(1)).max(1);
+        let column_w = width(first) + 4.0;
+        let list_w = width(f) + (columns - 1) as f32 * column_w;
+        // the frame covers at least the player column it replaces; the slots are centred in it
+        let w = list_w.max(column_width);
+        let x0_slots = x0 + ((w - list_w) / 2.0).floor();
+        let shift = |x: Xf, dx: f32, dy: f32| {
+            let (t, b) = vertical_bounds(x);
+            vertical(horizontal(x, left(x) + dx, width(x)), t + dy, b - t)
+        };
+        let frame = vertical(horizontal(f, x0, w), 0.0, v.min(600.0));
+        self.rects.insert(id(panel).unwrap(), frame);
+        for n in [&view, &content] {
+            self.rects.insert(id(n).unwrap(), vertical(horizontal(xf(vm, n), x0_slots + inset, list_w - inset), 0.0, v.min(600.0)));
+        }
+        // the panel's other parts (its title, the scrollbar, the shop button moved to Info 'n Stuff) are put away
+        for n in children(panel).into_iter().chain(children(&view)) {
+            if !crate::unity::same(&n, &view) && !crate::unity::same(&n, &content) {
+                let x = xf(vm, &n);
+                self.map_rects(&n, x, &|r| shift(r, -2000.0, 0.0));
+            }
+        }
+        for (i, (n, x)) in slots.iter().enumerate() {
+            let (column, row) = (i / rows, i % rows);
+            let dx = x0_slots + inset + column as f32 * column_w - left(*x);
+            let dy = top0 + row as f32 * pitch - vertical_bounds(*x).0;
+            self.map_rects(n, *x, &|r| shift(r, dx, dy));
         }
     }
 

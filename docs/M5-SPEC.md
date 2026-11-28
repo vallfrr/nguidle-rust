@@ -98,7 +98,7 @@ The maintainer was away; each of these is open to correction after his playtest.
   Fight Boss: the combination lock keys. Inventory: pages, ctrl + click, A, D. Elsewhere: shift + click, and the game's R, T, F.
   The original's other held-key clicks (Q / W / E + click to transform a boost) are not mapped.
 - **R10** the shop button is a copy built from the game's own button (same look and click) placed in Info 'n Stuff; the original is
-  hidden in console mode. The menu list squeezes the heights of its buttons so that every menu fits, down to the scale 130 %.
+  hidden in console mode. The menu list shows every slot at the game's size in one or two columns (no scroll).
 - **R11** a field takes the pad when its content type is a number, or when it holds only digits (the Input box of Basic Training
   is typed as text in the game, "100 %" in the cap modifier too). The pad is modal: nothing behind it can be selected.
   Other text fields use the host's keyboard: the maintainer chose it on 28 November 2026 (no in-game keyboard). Max, Half
@@ -109,8 +109,8 @@ The maintainer was away; each of these is open to correction after his playtest.
   selection (merges and swaps are the game's), circle releases where it was picked up. The PC window clicks whole.
 - **R15** the memory is applied two frames after a menu opens, when its page has been laid out; the first time the selection
   goes to the first control of the page content (reading order). Setting "Remember Cursor" in Settings, page 2.
-- **R16** the free cursor starts from the selection, moves 390 game pixels per second at full stick, and scrolls the list under
-  it near its top or bottom edge.
+- **R16** dropped after the maintainer's playtest (28 November): the free cursor was unpleasant. The right stick scrolls the
+  part under the selection, else the page's biggest scrolling part. The 130 % scale is dropped too.
 - **R17 / R18** only the tutorial prompts and the sentences naming the arrow keys are replaced; the glyphs are drawn by
   `tools/glyphs.py` in the game's style. In a tutorial with no selection, cross goes on and circle goes back.
 - **R19** only the generic fit and the squeezed menu list so far; per-menu work waits for the playtest.

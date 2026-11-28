@@ -174,7 +174,7 @@ fn reachable(vm: &mut Vm) -> Vec<Focusable> {
         all.retain(|f| within(&f.go, &root));
     }
     // console mode: an allocation row (+ / - / Cap) is one stop, on its "+" button; left and right act as - and +, square as Cap.
-    // A control that draws nothing (a locked accessory slot, a hidden click zone) is not a stop: the free cursor still reaches it.
+    // A control that draws nothing (a locked accessory slot, a hidden click zone) is not a stop.
     if vm.eng.console.is_some() {
         all.retain(|f| !matches!(allocation_role(&f.go), Some(AllocationRole::Minus | AllocationRole::Cap)) && shows_something(&f.go, 3));
     }

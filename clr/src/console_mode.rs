@@ -19,7 +19,7 @@ const MEMORY_PREF: &str = "nguRememberCursor";
 /// Scale a console starts with when the player has not chosen one.
 const DEFAULT_CONSOLE_SCALE: i32 = 120;
 /// Scale steps, in percent of the PC size.
-pub const SCALES: [i32; 4] = [100, 110, 120, 130];
+pub const SCALES: [i32; 3] = [100, 110, 120];
 const TAG: &str = "PortConsoleMode";
 /// Menu numbers (`MenuSwapper.swapMenu`) of Settings and of Info 'n Stuff.
 const SETTINGS_MENU: i32 = 11;
@@ -372,6 +372,8 @@ pub enum Phase {
 #[derive(Default)]
 pub struct Console {
     pub hold: bool,
+    /// the home screen got its first selection (Load Autosave when there is one, else Create New Game)
+    home_selected: bool,
     /// triangle toggle: the selected control's information (tooltip) is shown
     pub info: bool,
     /// page of the adventure skills the R layer fires (0 attacks, 1 defence, 2 special)
@@ -446,17 +448,11 @@ fn tutorial_active(vm: &mut Vm) -> bool {
     state.rsplit('=').next().and_then(|v| v.trim().parse::<i32>().ok()).is_some_and(|n| n >= 0)
 }
 
-/// Top and bottom of the menu buttons of the list (rows from the top of the screen, as the game lays them out, before any
-/// console fit): what the list needs to show every menu at once.
-pub(crate) fn list_extent(vm: &Vm, column: &Value) -> Option<(f32, f32)> {
-    let mut extent: Option<(f32, f32)> = None;
-    for (go, _) in menu_buttons(vm, column) {
-        let x = crate::ui::xf(vm, &with_go(&go, |g| g.transform.clone())?);
-        let top = 600.0 - (x.origin[1] + (1.0 - x.pivot[1]) * x.h * x.scale[1].abs());
-        let bottom = top + x.h * x.scale[1].abs();
-        extent = Some(extent.map_or((top, bottom), |(a, b)| (a.min(top), b.max(bottom))));
-    }
-    extent
+/// Rows per column of the menu list while L is held: every slot in one column when they fit above the bottom edge of the
+/// rows shown, else as few columns as fit.
+pub(crate) fn list_rows(slots: usize, view_rows: f32, first_top: f32, pitch: f32) -> usize {
+    let fit = (((view_rows - first_top - 8.0) / pitch.max(1.0)).floor() as usize).max(1);
+    slots.div_ceil(slots.div_ceil(fit).max(1)).max(1)
 }
 
 fn current_menu(vm: &Vm) -> i32 {
@@ -599,41 +595,31 @@ impl Console {
         }
     }
 
-    /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
-    /// Draws the free cursor where it is, or puts it away.
-    fn cursor_drawing(&mut self, vm: &mut Vm) {
-        let at = vm.eng.console_cursor;
-        if vm.eng.cursor_node.is_none() {
-            if at.is_none() {
-                return;
-            }
-            let root = new_node(vm, "Console Cursor Canvas", &Value::Null, [0.0, 1.0], 0.0, 600.0);
-            crate::save_slots::attach(vm, &root, "UnityEngine.Canvas", CK::Canvas(Box::new(CanvasD { mode: 0, sorting: 20000, override_sorting: true, scale_factor: 1.0 })));
-            vm.eng.canvases.push((20000, tr(&root)));
-            vm.eng.canvases.sort_by_key(|(sorting, _)| *sorting);
-            let node = new_node(vm, "Console Cursor", &tr(&root), [0.0, 0.0], 0.0, 28.0);
-            with_tr(&tr(&node), |t| t.size[0] = 28.0);
-            let art = image(vm, &node, None, false);
-            let sprite = crate::glyphs::sprite(vm, "cursor");
-            with_comp(&art, |c| {
-                if let CK::Image(i) = &mut c.k {
-                    i.sprite = sprite;
-                }
-            });
-            vm.eng.cursor_node = Some(node);
+    /// The home screen starts with a button selected: Load Autosave when there is an autosave, else Create New Game.
+    fn home_selection(&mut self, vm: &mut Vm) {
+        let home = vm.at_desktop_start() && !crate::save_slots::choosing_save(vm);
+        if !home {
+            self.home_selected = false;
+            return;
         }
-        let Some(node) = vm.eng.cursor_node.clone() else { return };
-        set_hidden(&node, at.is_none());
-        if let Some((x, y)) = at {
-            with_tr(&tr(&node), |t| t.apos = [x - 14.0, -(y - 14.0)]);
-            mark_dirty(&node);
+        if self.home_selected || !vm.eng.focus.is_null() {
+            return;
+        }
+        let has_autosave = crate::focus::visible_texts(vm).iter().any(|(_, t)| t.contains("Played:"));
+        let wanted = if has_autosave { "Load Autosave" } else { "Create New Game" };
+        let plain = |t: &str| t.replace("<b>", "").replace("</b>", "").trim().to_string();
+        let controls = crate::focus::collect(vm);
+        if let Some(c) = controls.into_iter().find(|c| plain(&c.label) == wanted) {
+            crate::focus::select_control(vm, &c.go);
+            self.home_selected = true;
         }
     }
 
+    /// Shows the player column or, while L is held, the menu list in its place; hides the other one.
     pub fn apply(&mut self, vm: &mut Vm) {
         self.tutorial_prompts(vm);
-        self.cursor_drawing(vm);
         self.enter_menu(vm);
+        self.home_selection(vm);
         if self.columns.is_none() {
             self.columns = named_go(vm, "Features Canvas").zip(named_go(vm, "Player Panel Canvas"));
         }
@@ -832,16 +818,6 @@ impl Console {
 
     /// Applies a controller input; returns the click to perform, if any.
     pub fn input(&mut self, vm: &mut Vm, pad: Pad) -> Option<Click> {
-        // any other input puts the free cursor away; cross and square first click where it is
-        if let Some((cx, cy)) = vm.eng.console_cursor {
-            if !matches!(pad, Pad::Scroll(..)) {
-                vm.eng.console_cursor = None;
-                if matches!(pad, Pad::Activate | Pad::Secondary) {
-                    let h = vm.eng.screen.1 as f32;
-                    return Some(Click { x: cx, y: h - cy, button: i32::from(pad == Pad::Secondary), phase: Phase::Full, key: 0 });
-                }
-            }
-        }
         if crate::numpad::is_open(vm) {
             return crate::numpad::input(vm, pad);
         }
@@ -859,9 +835,24 @@ impl Console {
                         }
                     }
                 }
-                Pad::Scroll(_, dy) => {
-                    if let Some(region) = vm.eng.desktop_layout.regions.iter().find(|r| r.key == LIST).cloned() {
-                        scroll_region(vm, &region, dy);
+                Pad::Dir(d @ ('l' | 'r')) => {
+                    // the list in columns: the nearest menu in the next column, at the same height
+                    if let Some((menus, _)) = &self.columns {
+                        let centre = |vm: &mut Vm, go: &Value| crate::focus::node_rect(vm, go).map(|r| ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0));
+                        let list = menu_buttons(vm, menus);
+                        if let Some((x, y)) = centre(vm, &vm.eng.focus.clone()) {
+                            let side = if d == 'l' { -1.0 } else { 1.0 };
+                            let mut best: Option<(f32, Value)> = None;
+                            for (go, _) in &list {
+                                let Some((bx, by)) = centre(vm, go) else { continue };
+                                if (bx - x) * side > 20.0 && best.as_ref().map_or(true, |(score, _)| (by - y).abs() + (bx - x).abs() * 0.1 < *score) {
+                                    best = Some(((by - y).abs() + (bx - x).abs() * 0.1, go.clone()));
+                                }
+                            }
+                            if let Some((_, go)) = best {
+                                crate::focus::select_control(vm, &go);
+                            }
+                        }
                     }
                 }
                 Pad::HoldEnd | Pad::Back => {
@@ -994,20 +985,14 @@ impl Console {
             }
             Pad::Settings | Pad::InfoStuff => None,
             Pad::Shortcut(c) => self.shortcut(vm, c),
-            Pad::Scroll(dx, dy) => {
-                // the right stick is the free cursor: it appears where the selection is and moves like a mouse; at the edge of
-                // a list under it, it scrolls the list
-                let (w, h) = (vm.eng.desktop_layout.width(), vm.eng.screen.1 as f32);
-                let at = vm.eng.console_cursor.or_else(|| crate::focus::pointer(vm).map(|(x, y)| (x, h - y))).unwrap_or((w / 2.0, h / 2.0));
-                let next = ((at.0 - dx).clamp(0.0, w - 1.0), (at.1 + dy).clamp(0.0, h - 1.0));
-                vm.eng.console_cursor = Some(next);
-                crate::focus::clear(vm);
-                if let Some(r) = region_at(vm, next.0, next.1) {
-                    let near_top = next.1 < r.view[1] + 24.0 && dy < 0.0;
-                    let near_bottom = next.1 > r.view[3] - 24.0 && dy > 0.0;
-                    if near_top || near_bottom {
-                        scroll_region(vm, &r, dy);
-                    }
+            Pad::Scroll(_, dy) => {
+                // the right stick scrolls: the part under the selection, else the biggest part of the page that scrolls
+                let h = vm.eng.screen.1 as f32;
+                let under = crate::focus::pointer(vm).and_then(|(x, y)| region_at(vm, x, h - y));
+                let area = |r: &&ScrollRegion| (r.view[2] - r.view[0]) * (r.view[3] - r.view[1]);
+                let r = under.or_else(|| vm.eng.desktop_layout.regions.iter().filter(|r| r.extra > 0.5).max_by(|a, b| area(a).total_cmp(&area(b))).cloned());
+                if let Some(r) = r {
+                    scroll_region(vm, &r, dy);
                 }
                 None
             }
@@ -1063,8 +1048,8 @@ pub fn sync(vm: &mut Vm) -> bool {
     match (on, console.as_mut()) {
         (true, None) => {
             let mut c = Box::<Console>::default();
-            c.apply(vm);
             crate::focus::clear(vm);
+            c.apply(vm);
             console = Some(c);
         }
         (true, Some(c)) => c.apply(vm),
