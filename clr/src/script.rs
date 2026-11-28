@@ -516,7 +516,6 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                     let s = (w / 960.0).min(h / 600.0);
                     (s, 600.0, w / s)
                 };
-                let ox = if console { crate::console_mode::left_margin(w, scale, width) } else { 0.0 };
                 let old_width = vm.eng.desktop_layout.width();
                 vm.eng.desktop_layout.set_width(width);
                 crate::desktop_layout::rebuild(vm);
@@ -524,7 +523,7 @@ pub fn run_steps(vm: &mut Vm, steps: &[String]) {
                 if let Some(ms) = p.get(5).and_then(|v| v.parse::<f32>().ok()) {
                     r.set_subframe_time(ms / 1000.0);
                 }
-                r.render(vm, scale, ox, ((h - rows * scale) / 2.0).max(0.0));
+                r.render(vm, scale, 0.0, ((h - rows * scale) / 2.0).max(0.0));
                 r.save_png(p[1]);
                 vm.eng.desktop_layout.set_width(old_width);
                 crate::desktop_layout::rebuild(vm);

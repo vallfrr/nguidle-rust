@@ -115,8 +115,8 @@ The maintainer was away; each of these is open to correction after his playtest.
   `tools/glyphs.py` in the game's style. In a tutorial with no selection, cross goes on and circle goes back.
 - **R19** only the generic fit and the squeezed menu list so far; per-menu work waits for the playtest.
 - **Uniform scale** (maintainer, 28 November): the scale must keep every proportion (button / text, title / text), like the
-  game's own resolutions. The page is no longer widened to fill the screen: the player column and the page keep their size
-  and are centred (`console_mode::left_margin`). A first try that enlarged only the texts was dropped.
+  game's own resolutions. A first try that enlarged only the texts was dropped. The view still fills the whole screen at
+  any aspect ratio (the project's first rule): an attempt that centred a fixed-width page with empty sides was reverted.
 - **Selection and information** (checked on the console with a save holding items, 28 November): a control whose graphic is
   a child (item and equipment slots, toggles) shows the selection as a frame; a control that draws nothing (a locked accessory
   slot) is not a stop; with the information off (triangle) the selection hovers nothing, so no item tooltip covers the bag.
