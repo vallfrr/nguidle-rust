@@ -87,6 +87,14 @@ pub fn set_scale(vm: &mut Vm, percent: i32) {
     vm.eng.desktop_layout.pans.clear();
 }
 
+/// How much texts may grow inside their boxes in console mode (`None` outside it or at 100 %): 110 % gives 1.2, 120 % 1.4,
+/// 130 % 1.6. The page is only zoomed a little on a small screen (the width cap of `view`), so the texts take the room their
+/// boxes already have.
+pub fn text_growth(vm: &Vm) -> Option<f32> {
+    let s = scale(vm);
+    (vm.eng.console.is_some() && s > 100).then(|| 1.0 + (s - 100) as f32 / 50.0)
+}
+
 /// Console presentation on a `w` x `h` screen: (screen pixels per game pixel, game rows shown, logical width).
 /// At 100 % it is the PC fit; higher scales zoom in, capped where the page would have to be squeezed sideways.
 pub fn view(vm: &Vm, w: f32, h: f32) -> (f32, f32, f32) {

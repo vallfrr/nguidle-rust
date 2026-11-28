@@ -642,6 +642,15 @@ impl Renderer {
                         t.min_size = (t.size * 3 / 4).max(1);
                         t.max_size = t.size;
                     }
+                    // console mode: texts grow with the scale where their box has room (never past it, never below the game's size)
+                    // (not the texts of several lines: lists of stats and descriptions are laid out for their own size)
+                    if let Some(f) = crate::console_mode::text_growth(vm).filter(|_| !t.text.contains('\n')) {
+                        if !t.best_fit {
+                            t.best_fit = true;
+                            t.min_size = t.size;
+                        }
+                        t.max_size = ((t.max_size.max(t.size) as f32) * f).round() as i32;
+                    }
                     if vm.eng.desktop_layout.pc_resolutions {
                         if let Some(label) = crate::desktop_layout::pc_resolution_label(&t.text) {
                             t.text = label;
@@ -1109,7 +1118,9 @@ impl Renderer {
             while s >= t.min_size as f32 {
                 let k = s / t.size.max(1) as f32;
                 layout(k, &mut lines, &mut line_h);
-                if lines.len() as f32 * line_h <= rh + 0.01 && lines.iter().all(|l| l.iter().map(|c| c.1).sum::<f32>() <= rw + 0.01) {
+                // above the game's own size (console mode growth) a margin is kept, so a grown text never touches its frame
+                let m = if s > t.size as f32 { 0.86 } else { 1.0 };
+                if lines.len() as f32 * line_h <= rh * m + 0.01 && lines.iter().all(|l| l.iter().map(|c| c.1).sum::<f32>() <= rw * m + 0.01) {
                     size = s;
                     found = true;
                     break;

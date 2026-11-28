@@ -372,6 +372,18 @@ fn pad_action(s: &mut State, action: u32) -> i32 {
             'b' => crate::console_mode::Pad::Back,
             'p' => crate::console_mode::Pad::Prev,
             'n' => crate::console_mode::Pad::Next,
+            // the other console buttons, for scenarios (`pad` lines): square, triangle, start, select, L held / released,
+            // and R + a button (upper case: X O Q T for cross circle square triangle, U D L R for the d-pad, N for R + L)
+            'q' => crate::console_mode::Pad::Secondary,
+            't' => crate::console_mode::Pad::Info,
+            'S' => crate::console_mode::Pad::Settings,
+            'I' => crate::console_mode::Pad::InfoStuff,
+            'H' => crate::console_mode::Pad::HoldStart,
+            'h' => crate::console_mode::Pad::HoldEnd,
+            'X' | 'O' | 'Q' | 'T' | 'U' | 'D' | 'L' | 'R' | 'N' => crate::console_mode::Pad::Shortcut(match action {
+                'Q' => 's',
+                c => c.to_ascii_lowercase(),
+            }),
             _ => return 0,
         };
         let before = s.vm.eng.focus.clone();
