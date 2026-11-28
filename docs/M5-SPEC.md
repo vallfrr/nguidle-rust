@@ -104,7 +104,7 @@ The maintainer was away; each of these is open to correction after his playtest.
   Other text fields use the host's keyboard: the maintainer chose it on 28 November 2026 (no in-game keyboard). Max, Half
   and Idle are not on the pad: the same screens show the game's own Cap, 1/2, 1/4 and Idle buttons next to the field.
 - **R12** an allocation row is one selection stop (its "+" button); the "-" and "Cap" buttons are not stops. Left / right and
-  square act on them. Hold repeats at the decoder's rate (no acceleration yet).
+  square act on them. Hold repeats at the decoder's rate (every 0.12 s, every 0.05 s after 1.5 s held).
 - **R14** an item is picked up when the control has a drag handler: cross presses and holds, cross again releases on the
   selection (merges and swaps are the game's), circle releases where it was picked up. The PC window clicks whole.
 - **R15** the memory is applied two frames after a menu opens, when its page has been laid out; the first time the selection
@@ -117,6 +117,10 @@ The maintainer was away; each of these is open to correction after his playtest.
 - **Uniform scale** (maintainer, 28 November): the scale must keep every proportion (button / text, title / text), like the
   game's own resolutions. The page is no longer widened to fill the screen: the player column and the page keep their size
   and are centred (`console_mode::left_margin`). A first try that enlarged only the texts was dropped.
+- **Selection and information** (checked on the console with a save holding items, 28 November): a control whose graphic is
+  a child (item and equipment slots, toggles) shows the selection as a frame; a control that draws nothing (a locked accessory
+  slot) is not a stop; with the information off (triangle) the selection hovers nothing, so no item tooltip covers the bag.
+  Picking up, carrying, merging (two Sticks -> level 22), equipping (square) and protecting (R + square) work on the device.
 - **Shortcuts from the wiki study:** inventory protect (R + square), boost transforms (R + up / down / L), A and D as key + click
   (the game ignores the bare key unless "Simple Inventory Shortcuts" is on); cards protect and discard.
 - **Not started:** glyphs inside long texts, the browser's gamepad (issue 82), the performance pass.
